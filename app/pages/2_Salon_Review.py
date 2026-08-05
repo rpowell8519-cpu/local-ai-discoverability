@@ -39,7 +39,7 @@ def load_salon_candidates() -> pd.DataFrame:
             or lower(coalesce(raw_data->>'subtypes', '')) like '%hair%'
             or lower(coalesce(raw_data->>'query', '')) like '%hair%'
         order by
-            coalesce((raw_data->>'reviews')::integer, 0) desc
+    coalesce((raw_data->>'reviews')::numeric, 0) desc
         """
     )
 
