@@ -15,11 +15,10 @@ from src.competitor_matching import (
     rank_competitors,
 )
 from src.database import get_engine
-from src.vertical_profiles import (
-    available_profiles,
-    get_profile_by_key,
-    get_profile_for_business,
-)
+from src import vertical_profiles as vp
+
+
+BUILD_VERSION = "Universal matcher v2.1"
 
 
 st.set_page_config(
@@ -33,6 +32,7 @@ st.caption(
     "Find and explain the closest competitors "
     "for any business in the Brighton dataset"
 )
+st.caption(f"Build: {BUILD_VERSION}")
 
 
 @st.cache_data(ttl=300)
@@ -92,6 +92,17 @@ except Exception as exc:
     st.stop()
 
 
+required_columns = {"place_id", "name", "primary_type"}
+missing_columns = required_columns - set(businesses.columns)
+
+if missing_columns:
+    st.error(
+        "Required business fields are missing: "
+        + ", ".join(sorted(missing_columns))
+    )
+    st.stop()
+
+
 businesses = businesses.dropna(
     subset=["place_id", "name"]
 ).copy()
@@ -126,9 +137,18 @@ target_options = target_options.sort_values(
     na_position="last",
 )
 
-place_ids = target_options[
-    "place_id"
-].drop_duplicates().tolist()
+place_ids = (
+    target_options["place_id"]
+    .dropna()
+    .drop_duplicates()
+    .tolist()
+)
+
+if not place_ids:
+    st.warning(
+        "No businesses match the selected target type."
+    )
+    st.stop()
 
 name_lookup = (
     target_options
@@ -161,26 +181,26 @@ target_record = businesses[
     businesses["place_id"] == target_place_id
 ].iloc[0].to_dict()
 
-automatic_profile = get_profile_for_business(
+automatic_profile = vp.get_profile_for_business(
     target_record
 )
+
 
 st.sidebar.divider()
 st.sidebar.header("Matching logic")
 
-profile_options = available_profiles()
-profile_keys = [
-    item["key"]
-    for item in profile_options
-]
-profile_labels = {
-    item["key"]: item["label"]
-    for item in profile_options
+profile_catalog = {
+    vp.GENERIC_PROFILE["key"]: vp.GENERIC_PROFILE,
+    **{
+        profile["key"]: profile
+        for profile in vp.VERTICAL_PROFILES.values()
+    },
 }
 
 profile_choice_options = [
-    "Automatic"
-] + profile_keys
+    "Automatic",
+    *profile_catalog.keys(),
+]
 
 selected_profile_choice = st.sidebar.selectbox(
     "Vertical profile",
@@ -188,16 +208,14 @@ selected_profile_choice = st.sidebar.selectbox(
     format_func=lambda value: (
         f"Automatic — {automatic_profile['label']}"
         if value == "Automatic"
-        else profile_labels[value]
+        else profile_catalog[value]["label"]
     ),
 )
 
 profile_override = (
     None
     if selected_profile_choice == "Automatic"
-    else get_profile_by_key(
-        selected_profile_choice
-    )
+    else profile_catalog[selected_profile_choice]
 )
 
 active_profile = (
@@ -225,13 +243,18 @@ candidate_scope = st.sidebar.radio(
     ),
 )
 
+default_distance = float(
+    active_profile.get(
+        "default_distance_miles",
+        5.0,
+    )
+)
+
 max_distance = st.sidebar.slider(
     "Maximum distance",
     min_value=1.0,
     max_value=15.0,
-    value=float(
-        active_profile["default_distance_miles"]
-    ),
+    value=min(max(default_distance, 1.0), 15.0),
     step=0.5,
 )
 
@@ -303,11 +326,14 @@ with target_columns[4]:
 
 with target_columns[5]:
     reviews_value = target.get("reviews")
+    try:
+        reviews_display = int(float(reviews_value))
+    except (TypeError, ValueError):
+        reviews_display = "—"
+
     st.metric(
         "Reviews",
-        "—"
-        if pd.isna(reviews_value)
-        else int(float(reviews_value)),
+        reviews_display,
     )
 
 
@@ -315,7 +341,13 @@ with st.expander("View active matching criteria"):
     st.write("**Candidate types/terms**")
     st.write(
         ", ".join(profile.get("candidate_terms", []))
-        or "Same primary type fallback"
+        or "Same-primary-type fallback"
+    )
+
+    st.write("**Excluded terms**")
+    st.write(
+        ", ".join(profile.get("excluded_terms", []))
+        or "None configured"
     )
 
     st.write("**Type-specific traits**")
@@ -325,6 +357,7 @@ with st.expander("View active matching criteria"):
     )
 
     st.write("**Score weights**")
+
     weights_table = pd.DataFrame(
         [
             {
@@ -334,6 +367,7 @@ with st.expander("View active matching criteria"):
             for key, value in profile["weights"].items()
         ]
     )
+
     st.dataframe(
         weights_table,
         use_container_width=True,
@@ -370,8 +404,14 @@ table_columns = [
     "Why matched",
 ]
 
+existing_table_columns = [
+    column
+    for column in table_columns
+    if column in filtered_ranked.columns
+]
+
 st.dataframe(
-    filtered_ranked[table_columns],
+    filtered_ranked[existing_table_columns],
     use_container_width=True,
     hide_index=True,
     height=650,
@@ -422,13 +462,13 @@ with detail_columns[0]:
 with detail_columns[1]:
     st.write("### Evidence")
     st.write(
-        selected_match["Why matched"]
+        selected_match.get("Why matched")
         or "No explanatory signals available."
     )
     st.write(
         "**Shared traits:** "
         + (
-            selected_match["Shared traits"]
+            selected_match.get("Shared traits")
             or "None detected"
         )
     )
@@ -442,31 +482,34 @@ with detail_columns[2]:
         f"**Reviews:** {selected_match['Reviews']}"
     )
 
-    if selected_match.get("Website"):
+    website = selected_match.get("Website")
+    maps_url = selected_match.get("Google Maps")
+
+    if website:
         st.link_button(
             "Open website",
-            selected_match["Website"],
+            str(website),
             use_container_width=True,
         )
 
-    if selected_match.get("Google Maps"):
+    if maps_url:
         st.link_button(
             "Open Google Maps",
-            selected_match["Google Maps"],
+            str(maps_url),
             use_container_width=True,
         )
 
 
 with st.expander("View scoring breakdown"):
+    components = selected_match.get("Components") or {}
+
     component_data = pd.DataFrame(
         [
             {
                 "Signal": signal,
                 "Component score": value,
             }
-            for signal, value in (
-                selected_match["Components"]
-            ).items()
+            for signal, value in components.items()
         ]
     )
 
