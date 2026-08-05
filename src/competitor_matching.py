@@ -7,80 +7,10 @@ from typing import Any
 
 import pandas as pd
 
-
-SERVICE_KEYWORDS = {
-    "General hairdressing": [
-        "hairdresser",
-        "hair salon",
-        "hair stylist",
-        "hair studio",
-    ],
-    "Hair colour": [
-        "hair colour",
-        "hair color",
-        "colourist",
-        "colorist",
-        "colouring",
-        "coloring",
-    ],
-    "Balayage": ["balayage"],
-    "Blonde": ["blonde", "blonding"],
-    "Highlights": ["highlights", "foils"],
-    "Colour correction": [
-        "colour correction",
-        "color correction",
-    ],
-    "Creative colour": [
-        "creative colour",
-        "creative color",
-        "vivid colour",
-        "vivid color",
-    ],
-    "Hair extensions": [
-        "hair extension",
-        "extensions",
-    ],
-    "Bridal hair": [
-        "bridal",
-        "wedding hair",
-    ],
-    "Men's hair": [
-        "men's hair",
-        "mens hair",
-        "male grooming",
-    ],
-    "Children's hair": [
-        "good for kids",
-        "good for children",
-        "children's hair",
-        "childrens hair",
-        "kids haircut",
-    ],
-    "Curly hair": [
-        "curly",
-        "curl specialist",
-        "curls",
-    ],
-    "Afro-textured hair": [
-        "afro",
-        "textured hair",
-        "coily",
-    ],
-    "Hair systems": [
-        "hair system",
-        "hair replacement",
-        "toupee",
-    ],
-    "Barbering": [
-        "barber shop",
-        "barbershop",
-        "barbering",
-    ],
-    "Beauty services": [
-        "beauty salon",
-        "beautician",
-    ],
-}
+from src.vertical_profiles import (
+    GENERIC_PROFILE,
+    get_profile_for_business,
+)
 
 
 def _is_missing(value: Any) -> bool:
@@ -121,7 +51,10 @@ def parse_jsonish(value: Any) -> Any:
     return value
 
 
-def safe_float(value: Any, default: float = 0.0) -> float:
+def safe_float(
+    value: Any,
+    default: float = 0.0,
+) -> float:
     try:
         if _is_missing(value):
             return default
@@ -188,7 +121,9 @@ def flatten_true_attribute_keys(
     return output
 
 
-def combined_business_text(record: dict[str, Any]) -> str:
+def combined_business_text(
+    record: dict[str, Any],
+) -> str:
     fields = [
         "category",
         "type",
@@ -207,14 +142,18 @@ def combined_business_text(record: dict[str, Any]) -> str:
     )
 
 
-def extract_service_terms(
+def extract_profile_traits(
     record: dict[str, Any],
+    profile: dict[str, Any],
 ) -> set[str]:
     combined = combined_business_text(record)
 
     return {
         label
-        for label, phrases in SERVICE_KEYWORDS.items()
+        for label, phrases in profile.get(
+            "traits",
+            {},
+        ).items()
         if any(phrase in combined for phrase in phrases)
     }
 
@@ -249,37 +188,16 @@ def broad_business_format(
     ):
         return "Beauty"
 
-    return "Salon"
+    if "coffee" in all_types or "cafe" in all_types:
+        return "Café"
 
+    if "pub" in primary:
+        return "Pub"
 
-def is_eligible_hair_business(
-    record: dict[str, Any],
-) -> bool:
-    status = as_text(record.get("business_status"))
+    if "bar" in primary:
+        return "Bar"
 
-    if status and status != "operational":
-        return False
-
-    business_types = " ".join(
-        as_text(record.get(field))
-        for field in ["category", "type", "subtypes"]
-    )
-
-    positive_terms = [
-        "hairdresser",
-        "hair salon",
-        "hair stylist",
-        "hair extension",
-        "colourist",
-        "colorist",
-        "barber shop",
-        "barbershop",
-    ]
-
-    return any(
-        term in business_types
-        for term in positive_terms
-    )
+    return "Local business"
 
 
 def jaccard_similarity(
@@ -327,7 +245,10 @@ def haversine_miles(
     )
 
 
-def _presence(record: dict[str, Any], field: str) -> bool:
+def _presence(
+    record: dict[str, Any],
+    field: str,
+) -> bool:
     return bool(as_text(record.get(field)))
 
 
@@ -359,21 +280,13 @@ def _prominence_similarity(
     candidate: dict[str, Any],
 ) -> float:
     target_reviews = safe_float(target.get("reviews"))
-    candidate_reviews = safe_float(
-        candidate.get("reviews")
-    )
+    candidate_reviews = safe_float(candidate.get("reviews"))
 
     target_rating = safe_float(target.get("rating"))
-    candidate_rating = safe_float(
-        candidate.get("rating")
-    )
+    candidate_rating = safe_float(candidate.get("rating"))
 
-    target_photos = safe_float(
-        target.get("photos_count")
-    )
-    candidate_photos = safe_float(
-        candidate.get("photos_count")
-    )
+    target_photos = safe_float(target.get("photos_count"))
+    candidate_photos = safe_float(candidate.get("photos_count"))
 
     review_similarity = max(
         0.0,
@@ -443,25 +356,77 @@ def _format_similarity(
     if target_format == candidate_format:
         return 1.0
 
-    pair_scores = {
-        frozenset({"Salon", "Specialist"}): 0.75,
-        frozenset({"Salon", "Beauty"}): 0.40,
-        frozenset({"Salon", "Barber"}): 0.20,
-        frozenset({"Specialist", "Beauty"}): 0.35,
-        frozenset({"Specialist", "Barber"}): 0.15,
-        frozenset({"Beauty", "Barber"}): 0.10,
-    }
+    return 0.25
 
-    return pair_scores.get(
-        frozenset({target_format, candidate_format}),
-        0.25,
+
+def _type_text(record: dict[str, Any]) -> str:
+    return " ".join(
+        as_text(record.get(field))
+        for field in ["category", "type", "subtypes"]
     )
+
+
+def candidate_allowed(
+    candidate: dict[str, Any],
+    target: dict[str, Any],
+    profile: dict[str, Any],
+    candidate_scope: str,
+) -> bool:
+    status = as_text(candidate.get("business_status"))
+
+    if status and status != "operational":
+        return False
+
+    candidate_text = _type_text(candidate)
+    target_primary = as_text(
+        target.get("category") or target.get("type")
+    )
+    candidate_primary = as_text(
+        candidate.get("category") or candidate.get("type")
+    )
+
+    if candidate_scope == "Same primary type":
+        return (
+            bool(target_primary)
+            and target_primary == candidate_primary
+        )
+
+    if candidate_scope == "All businesses":
+        return True
+
+    excluded_terms = profile.get(
+        "excluded_terms",
+        [],
+    )
+
+    if any(
+        term in candidate_text
+        for term in excluded_terms
+    ):
+        return False
+
+    candidate_terms = profile.get(
+        "candidate_terms",
+        [],
+    )
+
+    if candidate_terms:
+        return any(
+            term in candidate_text
+            for term in candidate_terms
+        )
+
+    if target_primary:
+        return target_primary == candidate_primary
+
+    return True
 
 
 def score_competitor(
     target: dict[str, Any],
     candidate: dict[str, Any],
-    max_distance_miles: float = 5.0,
+    profile: dict[str, Any],
+    max_distance_miles: float,
 ) -> dict[str, Any] | None:
     distance = haversine_miles(
         target.get("latitude"),
@@ -473,37 +438,55 @@ def score_competitor(
     if distance is None or distance > max_distance_miles:
         return None
 
-    target_services = extract_service_terms(target)
-    candidate_services = extract_service_terms(candidate)
-
-    target_subtypes = split_listish(
-        target.get("subtypes")
+    target_traits = extract_profile_traits(
+        target,
+        profile,
     )
+    candidate_traits = extract_profile_traits(
+        candidate,
+        profile,
+    )
+
+    target_subtypes = split_listish(target.get("subtypes"))
     candidate_subtypes = split_listish(
         candidate.get("subtypes")
     )
 
-    same_category = (
-        bool(as_text(target.get("category")))
-        and as_text(target.get("category"))
-        == as_text(candidate.get("category"))
+    target_primary = as_text(
+        target.get("category") or target.get("type")
+    )
+    candidate_primary = as_text(
+        candidate.get("category") or candidate.get("type")
     )
 
-    service_score = (
-        jaccard_similarity(
-            target_services,
-            candidate_services,
-        )
-        * 0.45
-        + jaccard_similarity(
-            target_subtypes,
-            candidate_subtypes,
-        )
-        * 0.35
+    same_category = (
+        bool(target_primary)
+        and target_primary == candidate_primary
+    )
+
+    trait_similarity = jaccard_similarity(
+        target_traits,
+        candidate_traits,
+    )
+
+    subtype_similarity = jaccard_similarity(
+        target_subtypes,
+        candidate_subtypes,
+    )
+
+    type_fit_score = (
+        trait_similarity * 0.45
+        + subtype_similarity * 0.35
         + (1.0 if same_category else 0.0) * 0.20
     )
 
-    distance_score = max(
+    if profile["key"] == "generic":
+        type_fit_score = (
+            subtype_similarity * 0.60
+            + (1.0 if same_category else 0.0) * 0.40
+        )
+
+    proximity_score = max(
         0.0,
         1.0 - distance / max_distance_miles,
     )
@@ -536,44 +519,47 @@ def score_competitor(
     )
 
     components = {
-        "Service fit": service_score,
-        "Proximity": distance_score,
+        "Type and trait fit": type_fit_score,
+        "Proximity": proximity_score,
         "Prominence fit": prominence_score,
         "Customer journey": journey_score,
         "Google attributes": attribute_score,
         "Business format": format_score,
     }
 
-    total_score = (
-        service_score * 0.35
-        + distance_score * 0.25
-        + prominence_score * 0.15
-        + journey_score * 0.10
-        + attribute_score * 0.10
-        + format_score * 0.05
+    weights = profile.get(
+        "weights",
+        GENERIC_PROFILE["weights"],
+    )
+
+    weighted_total = (
+        type_fit_score * weights["type_fit"]
+        + proximity_score * weights["proximity"]
+        + prominence_score * weights["prominence"]
+        + journey_score * weights["customer_journey"]
+        + attribute_score * weights["attributes"]
+        + format_score * weights["business_format"]
     ) * 100
 
-    shared_services = sorted(
-        target_services & candidate_services
+    shared_traits = sorted(
+        target_traits & candidate_traits
     )
 
     reasons: list[str] = []
 
     if same_category:
-        reasons.append("same primary category")
+        reasons.append("same primary type")
 
-    if shared_services:
+    if shared_traits:
         reasons.append(
-            "shared services: "
-            + ", ".join(shared_services[:4])
+            "shared traits: "
+            + ", ".join(shared_traits[:4])
         )
 
     reasons.append(f"{distance:.1f} miles away")
 
     if prominence_score >= 0.70:
-        reasons.append(
-            "similar Google prominence"
-        )
+        reasons.append("similar Google prominence")
 
     if journey_score >= 0.75:
         reasons.append(
@@ -581,14 +567,12 @@ def score_competitor(
         )
 
     if format_score == 1.0:
-        reasons.append(
-            "same business format"
-        )
+        reasons.append("same business format")
 
     return {
-        "score": round(total_score, 1),
+        "score": round(weighted_total, 1),
         "distance_miles": round(distance, 2),
-        "shared_services": shared_services,
+        "shared_traits": shared_traits,
         "reasons": reasons,
         "components": {
             key: round(value * 100, 1)
@@ -603,9 +587,14 @@ def score_competitor(
 def rank_competitors(
     businesses: pd.DataFrame,
     target_place_id: str,
-    max_distance_miles: float = 5.0,
-    include_barbers: bool = False,
-) -> tuple[dict[str, Any], pd.DataFrame]:
+    profile_override: dict[str, Any] | None = None,
+    max_distance_miles: float | None = None,
+    candidate_scope: str = "Profile-relevant types",
+) -> tuple[
+    dict[str, Any],
+    dict[str, Any],
+    pd.DataFrame,
+]:
     target_rows = businesses[
         businesses["place_id"] == target_place_id
     ]
@@ -616,34 +605,39 @@ def rank_competitors(
         )
 
     target = target_rows.iloc[0].to_dict()
+
+    profile = (
+        profile_override
+        or get_profile_for_business(target)
+    )
+
+    distance_limit = (
+        max_distance_miles
+        if max_distance_miles is not None
+        else profile["default_distance_miles"]
+    )
+
     output: list[dict[str, Any]] = []
 
     for _, row in businesses.iterrows():
         candidate = row.to_dict()
 
-        if (
-            candidate.get("place_id")
-            == target_place_id
-        ):
+        if candidate.get("place_id") == target_place_id:
             continue
 
-        if not is_eligible_hair_business(candidate):
-            continue
-
-        candidate_format = broad_business_format(
-            candidate
-        )
-
-        if (
-            not include_barbers
-            and candidate_format == "Barber"
+        if not candidate_allowed(
+            candidate=candidate,
+            target=target,
+            profile=profile,
+            candidate_scope=candidate_scope,
         ):
             continue
 
         result = score_competitor(
             target=target,
             candidate=candidate,
-            max_distance_miles=max_distance_miles,
+            profile=profile,
+            max_distance_miles=distance_limit,
         )
 
         if result is None:
@@ -654,12 +648,12 @@ def rank_competitors(
                 "place_id": candidate.get("place_id"),
                 "Business": candidate.get("name"),
                 "Score": result["score"],
-                "Distance (miles)": (
-                    result["distance_miles"]
-                ),
+                "Distance (miles)": result["distance_miles"],
                 "Format": result["candidate_format"],
-                "Category": candidate.get("category")
-                or candidate.get("type"),
+                "Category": (
+                    candidate.get("category")
+                    or candidate.get("type")
+                ),
                 "Subtypes": candidate.get("subtypes"),
                 "Rating": safe_float(
                     candidate.get("rating")
@@ -667,8 +661,8 @@ def rank_competitors(
                 "Reviews": int(
                     safe_float(candidate.get("reviews"))
                 ),
-                "Shared services": ", ".join(
-                    result["shared_services"]
+                "Shared traits": ", ".join(
+                    result["shared_traits"]
                 ),
                 "Why matched": "; ".join(
                     result["reasons"]
@@ -684,7 +678,7 @@ def rank_competitors(
     ranked = pd.DataFrame(output)
 
     if ranked.empty:
-        return target, ranked
+        return target, profile, ranked
 
     ranked = ranked.sort_values(
         ["Score", "Reviews"],
@@ -697,4 +691,4 @@ def rank_competitors(
         range(1, len(ranked) + 1),
     )
 
-    return target, ranked
+    return target, profile, ranked
