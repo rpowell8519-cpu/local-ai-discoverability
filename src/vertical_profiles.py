@@ -347,3 +347,34 @@ def available_profiles() -> list[dict[str, str]]:
     )
 
     return profiles
+
+def get_profile_for_business(record: dict) -> dict:
+    """Automatically choose the best vertical profile for a business."""
+
+    fields = [
+        "category",
+        "type",
+        "subtypes",
+        "description",
+        "reviews_tags",
+        "about",
+        "located_in",
+        "range",
+        "prices",
+    ]
+
+    business_text = " ".join(
+        str(record.get(field) or "").lower()
+        for field in fields
+    )
+
+    for profile in VERTICAL_PROFILES.values():
+        detect_terms = profile.get("detect_terms", [])
+
+        if any(
+            str(term).lower() in business_text
+            for term in detect_terms
+        ):
+            return profile
+
+    return GENERIC_PROFILE
