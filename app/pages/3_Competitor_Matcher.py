@@ -11,14 +11,16 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.append(str(PROJECT_ROOT))
 
 from src.competitor_matching import (
+    GENERIC_PROFILE,
+    VERTICAL_PROFILES,
     broad_business_format,
+    get_profile_for_business,
     rank_competitors,
 )
 from src.database import get_engine
-from src import vertical_profiles as vp
 
 
-BUILD_VERSION = "Universal matcher v2.1"
+BUILD_VERSION = "Universal matcher v2.2"
 
 
 st.set_page_config(
@@ -89,17 +91,6 @@ try:
 except Exception as exc:
     st.error("The business data could not be loaded.")
     st.exception(exc)
-    st.stop()
-
-
-required_columns = {"place_id", "name", "primary_type"}
-missing_columns = required_columns - set(businesses.columns)
-
-if missing_columns:
-    st.error(
-        "Required business fields are missing: "
-        + ", ".join(sorted(missing_columns))
-    )
     st.stop()
 
 
@@ -181,7 +172,7 @@ target_record = businesses[
     businesses["place_id"] == target_place_id
 ].iloc[0].to_dict()
 
-automatic_profile = vp.get_profile_for_business(
+automatic_profile = get_profile_for_business(
     target_record
 )
 
@@ -190,10 +181,10 @@ st.sidebar.divider()
 st.sidebar.header("Matching logic")
 
 profile_catalog = {
-    vp.GENERIC_PROFILE["key"]: vp.GENERIC_PROFILE,
+    GENERIC_PROFILE["key"]: GENERIC_PROFILE,
     **{
         profile["key"]: profile
-        for profile in vp.VERTICAL_PROFILES.values()
+        for profile in VERTICAL_PROFILES.values()
     },
 }
 
@@ -236,11 +227,6 @@ candidate_scope = st.sidebar.radio(
         "All businesses",
     ],
     index=0,
-    help=(
-        "Profile-relevant types uses the active "
-        "vertical profile. All businesses is the "
-        "broadest and potentially noisiest option."
-    ),
 )
 
 default_distance = float(
@@ -326,6 +312,7 @@ with target_columns[4]:
 
 with target_columns[5]:
     reviews_value = target.get("reviews")
+
     try:
         reviews_display = int(float(reviews_value))
     except (TypeError, ValueError):
@@ -355,8 +342,6 @@ with st.expander("View active matching criteria"):
         ", ".join(profile.get("traits", {}).keys())
         or "No type-specific traits configured"
     )
-
-    st.write("**Score weights**")
 
     weights_table = pd.DataFrame(
         [
@@ -404,14 +389,8 @@ table_columns = [
     "Why matched",
 ]
 
-existing_table_columns = [
-    column
-    for column in table_columns
-    if column in filtered_ranked.columns
-]
-
 st.dataframe(
-    filtered_ranked[existing_table_columns],
+    filtered_ranked[table_columns],
     use_container_width=True,
     hide_index=True,
     height=650,
@@ -501,15 +480,15 @@ with detail_columns[2]:
 
 
 with st.expander("View scoring breakdown"):
-    components = selected_match.get("Components") or {}
-
     component_data = pd.DataFrame(
         [
             {
                 "Signal": signal,
                 "Component score": value,
             }
-            for signal, value in components.items()
+            for signal, value in (
+                selected_match["Components"]
+            ).items()
         ]
     )
 
