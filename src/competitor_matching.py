@@ -7,11 +7,47 @@ from typing import Any
 
 import pandas as pd
 
+from src.competitor_matching import (
+    broad_business_format,
+    rank_competitors,
+)
+from src.database import get_engine
 from src.vertical_profiles import (
     GENERIC_PROFILE,
+    VERTICAL_PROFILES,
     get_profile_for_business,
 )
 
+
+def get_profile_by_key(profile_key: str) -> dict:
+    """Return a configured profile or the generic fallback."""
+    if profile_key == "generic":
+        return GENERIC_PROFILE
+
+    return VERTICAL_PROFILES.get(
+        profile_key,
+        GENERIC_PROFILE,
+    )
+
+
+def available_profiles() -> list[dict[str, str]]:
+    """Return profiles in a format suitable for the UI."""
+    profiles = [
+        {
+            "key": GENERIC_PROFILE["key"],
+            "label": GENERIC_PROFILE["label"],
+        }
+    ]
+
+    profiles.extend(
+        {
+            "key": profile["key"],
+            "label": profile["label"],
+        }
+        for profile in VERTICAL_PROFILES.values()
+    )
+
+    return profiles
 
 def _is_missing(value: Any) -> bool:
     if value is None:
