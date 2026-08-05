@@ -6,6 +6,7 @@ from typing import Any
 GENERIC_PROFILE = {
     "key": "generic",
     "label": "Generic local business",
+    "detect_terms": [],
     "candidate_terms": [],
     "excluded_terms": [],
     "traits": {},
@@ -114,6 +115,7 @@ VERTICAL_PROFILES = {
             "business_format": 0.05,
         },
     },
+
     "coffee_shop": {
         "key": "coffee_shop",
         "label": "Coffee shop / café",
@@ -179,10 +181,6 @@ VERTICAL_PROFILES = {
                 "take out",
                 "takeout",
             ],
-            "Early opening": [
-                "early opening",
-                "open early",
-            ],
         },
         "default_distance_miles": 3.0,
         "weights": {
@@ -194,6 +192,7 @@ VERTICAL_PROFILES = {
             "business_format": 0.05,
         },
     },
+
     "bar_pub": {
         "key": "bar_pub",
         "label": "Bar / pub",
@@ -322,36 +321,6 @@ def get_profile_for_business(
 def get_profile_by_key(
     profile_key: str,
 ) -> dict[str, Any]:
-    if profile_key == "generic":
-        return GENERIC_PROFILE
-
-    return VERTICAL_PROFILES.get(
-        profile_key,
-        GENERIC_PROFILE,
-    )
-
-
-def available_profiles() -> list[dict[str, str]]:
-    output = [
-        {
-            "key": GENERIC_PROFILE["key"],
-            "label": GENERIC_PROFILE["label"],
-        }
-    ]
-
-    output.extend(
-        {
-            "key": profile["key"],
-            "label": profile["label"],
-        }
-        for profile in VERTICAL_PROFILES.values()
-    )
-
-    return output
-
-def get_profile_by_key(
-    profile_key: str,
-) -> dict:
     if profile_key == "generic":
         return GENERIC_PROFILE
 
