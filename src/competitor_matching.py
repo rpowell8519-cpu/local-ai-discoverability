@@ -7,47 +7,375 @@ from typing import Any
 
 import pandas as pd
 
-from src.vertical_profiles import (
-    GENERIC_PROFILE,
-    get_profile_for_business,
-)
+
+GENERIC_PROFILE = {
+    "key": "generic",
+    "label": "Generic local business",
+    "detect_terms": [],
+    "candidate_terms": [],
+    "excluded_terms": [],
+    "traits": {},
+    "default_distance_miles": 5.0,
+    "weights": {
+        "type_fit": 0.35,
+        "proximity": 0.25,
+        "prominence": 0.15,
+        "customer_journey": 0.10,
+        "attributes": 0.10,
+        "business_format": 0.05,
+    },
+}
+
+
+VERTICAL_PROFILES = {
+    "hair_salon": {
+        "key": "hair_salon",
+        "label": "Hair salon",
+        "detect_terms": [
+            "hairdresser",
+            "hair salon",
+            "hair stylist",
+            "hair extension technician",
+            "colourist",
+            "colorist",
+        ],
+        "candidate_terms": [
+            "hairdresser",
+            "hair salon",
+            "hair stylist",
+            "hair extension technician",
+            "colourist",
+            "colorist",
+            "barber shop",
+        ],
+        "excluded_terms": [
+            "nail salon",
+            "massage spa",
+        ],
+        "traits": {
+            "Balayage": ["balayage"],
+            "Blonde": ["blonde", "blonding"],
+            "Hair colour": [
+                "hair colour",
+                "hair color",
+                "colourist",
+                "colorist",
+                "colouring",
+                "coloring",
+            ],
+            "Highlights": ["highlights", "foils"],
+            "Colour correction": [
+                "colour correction",
+                "color correction",
+            ],
+            "Creative colour": [
+                "creative colour",
+                "creative color",
+                "vivid colour",
+                "vivid color",
+            ],
+            "Hair extensions": [
+                "hair extension",
+                "extensions",
+            ],
+            "Bridal hair": [
+                "bridal",
+                "wedding hair",
+            ],
+            "Men's hair": [
+                "men's hair",
+                "mens hair",
+                "male grooming",
+            ],
+            "Children's hair": [
+                "good for kids",
+                "good for children",
+                "children's hair",
+                "childrens hair",
+                "kids haircut",
+            ],
+            "Curly hair": [
+                "curly",
+                "curl specialist",
+                "curls",
+            ],
+            "Afro-textured hair": [
+                "afro",
+                "textured hair",
+                "coily",
+            ],
+            "Hair systems": [
+                "hair system",
+                "hair replacement",
+                "toupee",
+            ],
+        },
+        "default_distance_miles": 5.0,
+        "weights": {
+            "type_fit": 0.35,
+            "proximity": 0.25,
+            "prominence": 0.15,
+            "customer_journey": 0.10,
+            "attributes": 0.10,
+            "business_format": 0.05,
+        },
+    },
+    "coffee_shop": {
+        "key": "coffee_shop",
+        "label": "Coffee shop / café",
+        "detect_terms": [
+            "coffee shop",
+            "cafe",
+            "café",
+        ],
+        "candidate_terms": [
+            "coffee shop",
+            "cafe",
+            "café",
+            "brunch restaurant",
+            "breakfast restaurant",
+            "bakery",
+        ],
+        "excluded_terms": [
+            "internet cafe",
+        ],
+        "traits": {
+            "Speciality coffee": [
+                "speciality coffee",
+                "specialty coffee",
+                "single origin",
+                "pour over",
+                "filter coffee",
+                "coffee roaster",
+            ],
+            "Brunch": [
+                "brunch",
+                "breakfast",
+            ],
+            "Pastries": [
+                "pastry",
+                "pastries",
+                "croissant",
+                "bakery",
+            ],
+            "Vegan options": [
+                "vegan",
+                "plant based",
+                "plant-based",
+            ],
+            "Wi-Fi / laptop friendly": [
+                "wifi",
+                "wi-fi",
+                "laptop",
+                "coworking",
+                "co-working",
+            ],
+            "Outdoor seating": [
+                "outdoor seating",
+                "terrace",
+                "garden",
+            ],
+            "Dog friendly": [
+                "dog friendly",
+                "dog-friendly",
+                "dogs allowed",
+            ],
+            "Takeaway": [
+                "takeaway",
+                "take out",
+                "takeout",
+            ],
+        },
+        "default_distance_miles": 3.0,
+        "weights": {
+            "type_fit": 0.35,
+            "proximity": 0.25,
+            "prominence": 0.15,
+            "customer_journey": 0.08,
+            "attributes": 0.12,
+            "business_format": 0.05,
+        },
+    },
+    "bar_pub": {
+        "key": "bar_pub",
+        "label": "Bar / pub",
+        "detect_terms": [
+            "bar",
+            "pub",
+            "cocktail bar",
+            "wine bar",
+        ],
+        "candidate_terms": [
+            "bar",
+            "pub",
+            "cocktail bar",
+            "wine bar",
+            "sports bar",
+            "night club",
+            "live music venue",
+        ],
+        "excluded_terms": [
+            "beauty bar",
+            "nail bar",
+        ],
+        "traits": {
+            "Cocktails": [
+                "cocktail",
+                "mixology",
+            ],
+            "Craft beer": [
+                "craft beer",
+                "real ale",
+                "taproom",
+                "brewery",
+            ],
+            "Wine": [
+                "wine bar",
+                "wine list",
+                "natural wine",
+            ],
+            "Live music": [
+                "live music",
+                "live band",
+                "gig",
+            ],
+            "DJs / dancing": [
+                "dj",
+                "djs",
+                "dance floor",
+                "dancing",
+            ],
+            "Late opening": [
+                "late night",
+                "open late",
+                "nightlife",
+            ],
+            "Food": [
+                "food served",
+                "restaurant",
+                "small plates",
+                "bar food",
+            ],
+            "Outdoor seating": [
+                "outdoor seating",
+                "beer garden",
+                "terrace",
+                "rooftop",
+            ],
+            "Sports viewing": [
+                "sports bar",
+                "live sports",
+                "football",
+                "big screen",
+            ],
+            "Reservations": [
+                "reservations",
+                "booking",
+                "book a table",
+            ],
+        },
+        "default_distance_miles": 4.0,
+        "weights": {
+            "type_fit": 0.35,
+            "proximity": 0.20,
+            "prominence": 0.15,
+            "customer_journey": 0.10,
+            "attributes": 0.15,
+            "business_format": 0.05,
+        },
+    },
+}
 
 
 def _is_missing(value: Any) -> bool:
     if value is None:
         return True
-
     if isinstance(value, float):
         return math.isnan(value)
-
     return False
 
 
 def as_text(value: Any) -> str:
     if _is_missing(value):
         return ""
-
     return str(value).strip().lower()
+
+
+def business_text(record: dict[str, Any]) -> str:
+    fields = [
+        "category",
+        "type",
+        "subtypes",
+        "description",
+        "reviews_tags",
+        "about",
+        "located_in",
+        "range",
+        "prices",
+    ]
+    return " ".join(
+        str(record.get(field) or "").lower()
+        for field in fields
+    )
+
+
+def get_profile_for_business(
+    record: dict[str, Any],
+) -> dict[str, Any]:
+    text = business_text(record)
+
+    for profile in VERTICAL_PROFILES.values():
+        if any(
+            term in text
+            for term in profile["detect_terms"]
+        ):
+            return profile
+
+    return GENERIC_PROFILE
+
+
+def get_profile_by_key(
+    profile_key: str,
+) -> dict[str, Any]:
+    if profile_key == "generic":
+        return GENERIC_PROFILE
+
+    return VERTICAL_PROFILES.get(
+        profile_key,
+        GENERIC_PROFILE,
+    )
+
+
+def available_profiles() -> list[dict[str, str]]:
+    profiles = [
+        {
+            "key": GENERIC_PROFILE["key"],
+            "label": GENERIC_PROFILE["label"],
+        }
+    ]
+    profiles.extend(
+        {
+            "key": profile["key"],
+            "label": profile["label"],
+        }
+        for profile in VERTICAL_PROFILES.values()
+    )
+    return profiles
 
 
 def parse_jsonish(value: Any) -> Any:
     if isinstance(value, (dict, list)):
         return value
-
     if _is_missing(value):
         return None
-
     if isinstance(value, str):
         cleaned = value.strip()
-
         if not cleaned:
             return None
-
         try:
             return json.loads(cleaned)
         except json.JSONDecodeError:
             return value
-
     return value
 
 
@@ -58,7 +386,6 @@ def safe_float(
     try:
         if _is_missing(value):
             return default
-
         return float(value)
     except (TypeError, ValueError):
         return default
@@ -135,7 +462,6 @@ def combined_business_text(
         "range",
         "prices",
     ]
-
     return " ".join(
         as_text(record.get(field))
         for field in fields
@@ -206,7 +532,6 @@ def jaccard_similarity(
 ) -> float:
     if not first or not second:
         return 0.0
-
     return len(first & second) / len(first | second)
 
 
@@ -225,7 +550,6 @@ def haversine_miles(
         return None
 
     earth_radius_miles = 3958.8
-
     phi_1 = math.radians(lat_1)
     phi_2 = math.radians(lat_2)
     delta_phi = math.radians(lat_2 - lat_1)
@@ -268,7 +592,6 @@ def _uses_appointments(
     attributes = flatten_true_attribute_keys(
         record.get("about")
     )
-
     return any(
         "appointment" in attribute
         for attribute in attributes
@@ -350,13 +673,12 @@ def _format_similarity(
     target: dict[str, Any],
     candidate: dict[str, Any],
 ) -> float:
-    target_format = broad_business_format(target)
-    candidate_format = broad_business_format(candidate)
-
-    if target_format == candidate_format:
-        return 1.0
-
-    return 0.25
+    return (
+        1.0
+        if broad_business_format(target)
+        == broad_business_format(candidate)
+        else 0.25
+    )
 
 
 def _type_text(record: dict[str, Any]) -> str:
@@ -394,10 +716,7 @@ def candidate_allowed(
     if candidate_scope == "All businesses":
         return True
 
-    excluded_terms = profile.get(
-        "excluded_terms",
-        [],
-    )
+    excluded_terms = profile.get("excluded_terms", [])
 
     if any(
         term in candidate_text
@@ -405,10 +724,7 @@ def candidate_allowed(
     ):
         return False
 
-    candidate_terms = profile.get(
-        "candidate_terms",
-        [],
-    )
+    candidate_terms = profile.get("candidate_terms", [])
 
     if candidate_terms:
         return any(
@@ -416,10 +732,11 @@ def candidate_allowed(
             for term in candidate_terms
         )
 
-    if target_primary:
-        return target_primary == candidate_primary
-
-    return True
+    return (
+        target_primary == candidate_primary
+        if target_primary
+        else True
+    )
 
 
 def score_competitor(
@@ -438,10 +755,7 @@ def score_competitor(
     if distance is None or distance > max_distance_miles:
         return None
 
-    target_traits = extract_profile_traits(
-        target,
-        profile,
-    )
+    target_traits = extract_profile_traits(target, profile)
     candidate_traits = extract_profile_traits(
         candidate,
         profile,
@@ -468,7 +782,6 @@ def score_competitor(
         target_traits,
         candidate_traits,
     )
-
     subtype_similarity = jaccard_similarity(
         target_subtypes,
         candidate_subtypes,
@@ -490,12 +803,10 @@ def score_competitor(
         0.0,
         1.0 - distance / max_distance_miles,
     )
-
     prominence_score = _prominence_similarity(
         target,
         candidate,
     )
-
     journey_score = _journey_similarity(
         target,
         candidate,
@@ -512,7 +823,6 @@ def score_competitor(
         target_attributes,
         candidate_attributes,
     )
-
     format_score = _format_similarity(
         target,
         candidate,
@@ -605,7 +915,6 @@ def rank_competitors(
         )
 
     target = target_rows.iloc[0].to_dict()
-
     profile = (
         profile_override
         or get_profile_for_business(target)
@@ -668,9 +977,13 @@ def rank_competitors(
                     result["reasons"]
                 ),
                 "Components": result["components"],
-                "Website": candidate.get("website"),
-                "Google Maps": candidate.get(
-                    "location_link"
+                "Website": (
+                    candidate.get("website")
+                    or candidate.get("site")
+                ),
+                "Google Maps": (
+                    candidate.get("location_link")
+                    or candidate.get("google_maps_url")
                 ),
             }
         )
