@@ -348,3 +348,33 @@ def available_profiles() -> list[dict[str, str]]:
     )
 
     return output
+
+def get_profile_by_key(
+    profile_key: str,
+) -> dict:
+    if profile_key == "generic":
+        return GENERIC_PROFILE
+
+    return VERTICAL_PROFILES.get(
+        profile_key,
+        GENERIC_PROFILE,
+    )
+
+
+def available_profiles() -> list[dict[str, str]]:
+    profiles = [
+        {
+            "key": GENERIC_PROFILE["key"],
+            "label": GENERIC_PROFILE["label"],
+        }
+    ]
+
+    profiles.extend(
+        {
+            "key": profile["key"],
+            "label": profile["label"],
+        }
+        for profile in VERTICAL_PROFILES.values()
+    )
+
+    return profiles
