@@ -12,10 +12,14 @@ sys.path.append(str(PROJECT_ROOT))
 
 from src.competitor_matching import (
     broad_business_format,
-    is_eligible_hair_business,
     rank_competitors,
 )
 from src.database import get_engine
+from src.vertical_profiles import (
+    available_profiles,
+    get_profile_by_key,
+    get_profile_for_business,
+)
 
 
 st.set_page_config(
@@ -26,8 +30,8 @@ st.set_page_config(
 
 st.title("Competitor Matcher")
 st.caption(
-    "Rank likely competitors using the Brighton "
-    "Google Maps dataset"
+    "Find and explain the closest competitors "
+    "for any business in the Brighton dataset"
 )
 
 
@@ -69,6 +73,12 @@ def load_businesses() -> pd.DataFrame:
             or raw_data.get("place_id")
         )
 
+        record["primary_type"] = (
+            raw_data.get("category")
+            or raw_data.get("type")
+            or "Unknown"
+        )
+
         records.append(record)
 
     return pd.DataFrame(records)
@@ -82,36 +92,46 @@ except Exception as exc:
     st.stop()
 
 
-eligible_mask = businesses.apply(
-    lambda row: is_eligible_hair_business(
-        row.to_dict()
-    ),
-    axis=1,
+businesses = businesses.dropna(
+    subset=["place_id", "name"]
+).copy()
+
+available_types = sorted(
+    businesses["primary_type"]
+    .fillna("Unknown")
+    .astype(str)
+    .unique()
+    .tolist()
 )
 
-target_options = businesses[
-    eligible_mask
-].copy()
+
+st.sidebar.header("Target business")
+
+selected_type = st.sidebar.selectbox(
+    "Filter target businesses by type",
+    options=["All types"] + available_types,
+)
+
+target_options = businesses.copy()
+
+if selected_type != "All types":
+    target_options = target_options[
+        target_options["primary_type"]
+        .astype(str)
+        .eq(selected_type)
+    ]
 
 target_options = target_options.sort_values(
     "name",
     na_position="last",
 )
 
-if target_options.empty:
-    st.warning(
-        "No eligible hair businesses were found."
-    )
-    st.stop()
-
-
 place_ids = target_options[
     "place_id"
-].dropna().tolist()
+].drop_duplicates().tolist()
 
-target_name_lookup = (
+name_lookup = (
     target_options
-    .dropna(subset=["place_id"])
     .drop_duplicates("place_id")
     .set_index("place_id")["name"]
     .to_dict()
@@ -121,47 +141,105 @@ default_index = 0
 
 for index, place_id in enumerate(place_ids):
     if (
-        str(target_name_lookup.get(place_id, "")).lower()
+        str(name_lookup.get(place_id, "")).lower()
         == "ciscos karma"
     ):
         default_index = index
         break
 
-
-st.sidebar.header("Match settings")
-
 target_place_id = st.sidebar.selectbox(
     "Target business",
     options=place_ids,
     index=default_index,
-    format_func=lambda value: target_name_lookup.get(
+    format_func=lambda value: name_lookup.get(
         value,
         value,
+    ),
+)
+
+target_record = businesses[
+    businesses["place_id"] == target_place_id
+].iloc[0].to_dict()
+
+automatic_profile = get_profile_for_business(
+    target_record
+)
+
+st.sidebar.divider()
+st.sidebar.header("Matching logic")
+
+profile_options = available_profiles()
+profile_keys = [
+    item["key"]
+    for item in profile_options
+]
+profile_labels = {
+    item["key"]: item["label"]
+    for item in profile_options
+}
+
+profile_choice_options = [
+    "Automatic"
+] + profile_keys
+
+selected_profile_choice = st.sidebar.selectbox(
+    "Vertical profile",
+    options=profile_choice_options,
+    format_func=lambda value: (
+        f"Automatic — {automatic_profile['label']}"
+        if value == "Automatic"
+        else profile_labels[value]
+    ),
+)
+
+profile_override = (
+    None
+    if selected_profile_choice == "Automatic"
+    else get_profile_by_key(
+        selected_profile_choice
+    )
+)
+
+active_profile = (
+    automatic_profile
+    if profile_override is None
+    else profile_override
+)
+
+st.sidebar.caption(
+    f"Active profile: **{active_profile['label']}**"
+)
+
+candidate_scope = st.sidebar.radio(
+    "Candidate scope",
+    options=[
+        "Profile-relevant types",
+        "Same primary type",
+        "All businesses",
+    ],
+    index=0,
+    help=(
+        "Profile-relevant types uses the active "
+        "vertical profile. All businesses is the "
+        "broadest and potentially noisiest option."
     ),
 )
 
 max_distance = st.sidebar.slider(
     "Maximum distance",
     min_value=1.0,
-    max_value=10.0,
-    value=5.0,
-    step=0.5,
-    help=(
-        "Candidates beyond this straight-line "
-        "distance are excluded."
+    max_value=15.0,
+    value=float(
+        active_profile["default_distance_miles"]
     ),
-)
-
-include_barbers = st.sidebar.checkbox(
-    "Include barber-led businesses",
-    value=False,
+    step=0.5,
 )
 
 minimum_score = st.sidebar.slider(
     "Minimum similarity score",
     min_value=0,
     max_value=100,
-    value=35,
+    value=30,
     step=5,
 )
 
@@ -175,11 +253,12 @@ number_to_show = st.sidebar.slider(
 
 
 try:
-    target, ranked = rank_competitors(
+    target, profile, ranked = rank_competitors(
         businesses=businesses,
         target_place_id=target_place_id,
+        profile_override=profile_override,
         max_distance_miles=max_distance,
-        include_barbers=include_barbers,
+        candidate_scope=candidate_scope,
     )
 except Exception as exc:
     st.error("Competitor matching failed.")
@@ -187,7 +266,7 @@ except Exception as exc:
     st.stop()
 
 
-target_columns = st.columns(5)
+target_columns = st.columns(6)
 
 with target_columns[0]:
     st.metric(
@@ -197,31 +276,68 @@ with target_columns[0]:
 
 with target_columns[1]:
     st.metric(
-        "Category",
-        target.get("category")
+        "Type",
+        target.get("primary_type")
+        or target.get("category")
         or target.get("type")
         or "Unknown",
     )
 
 with target_columns[2]:
     st.metric(
+        "Profile",
+        profile["label"],
+    )
+
+with target_columns[3]:
+    st.metric(
         "Format",
         broad_business_format(target),
     )
 
-with target_columns[3]:
+with target_columns[4]:
     st.metric(
         "Rating",
         target.get("rating", "—"),
     )
 
-with target_columns[4]:
+with target_columns[5]:
     reviews_value = target.get("reviews")
     st.metric(
         "Reviews",
-        "—" if pd.isna(reviews_value) else int(
-            float(reviews_value)
-        ),
+        "—"
+        if pd.isna(reviews_value)
+        else int(float(reviews_value)),
+    )
+
+
+with st.expander("View active matching criteria"):
+    st.write("**Candidate types/terms**")
+    st.write(
+        ", ".join(profile.get("candidate_terms", []))
+        or "Same primary type fallback"
+    )
+
+    st.write("**Type-specific traits**")
+    st.write(
+        ", ".join(profile.get("traits", {}).keys())
+        or "No type-specific traits configured"
+    )
+
+    st.write("**Score weights**")
+    weights_table = pd.DataFrame(
+        [
+            {
+                "Signal": key.replace("_", " ").title(),
+                "Weight": f"{value:.0%}",
+            }
+            for key, value in profile["weights"].items()
+        ]
+    )
+    st.dataframe(
+        weights_table,
+        use_container_width=True,
+        hide_index=True,
     )
 
 
@@ -250,7 +366,7 @@ table_columns = [
     "Subtypes",
     "Rating",
     "Reviews",
-    "Shared services",
+    "Shared traits",
     "Why matched",
 ]
 
@@ -310,9 +426,9 @@ with detail_columns[1]:
         or "No explanatory signals available."
     )
     st.write(
-        "**Shared services:** "
+        "**Shared traits:** "
         + (
-            selected_match["Shared services"]
+            selected_match["Shared traits"]
             or "None detected"
         )
     )
@@ -362,8 +478,7 @@ with st.expander("View scoring breakdown"):
 
 
 st.info(
-    "This is an explainable heuristic score, "
-    "not a claim of proven competitive equivalence. "
-    "The next step is to approve or reject the strongest "
-    "matches and use those decisions to improve the model."
+    "This is an explainable heuristic shortlist. "
+    "The next build will let you approve or reject "
+    "matches and save a competitor cohort for AI audits."
 )
