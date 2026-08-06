@@ -10,11 +10,18 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.append(str(PROJECT_ROOT))
 
 from src.competitor_matching import rank_competitors
+from src.competitor_reviews import (
+    LABEL_TO_STATUS,
+    STATUS_LABELS,
+    delete_review,
+    load_reviews_for_target,
+    save_review,
+)
 from src.database import get_engine
 from src.taxonomy import GROUP_LABELS
 
 
-BUILD_VERSION = "Feature Matcher v3.0"
+BUILD_VERSION = "Feature Matcher v3.1"
 
 
 st.set_page_config(
@@ -25,8 +32,8 @@ st.set_page_config(
 
 st.title("Competitor Matcher")
 st.caption(
-    "Find competitors using canonical groups, "
-    "business formats, extracted traits and Google attributes"
+    "Find, explain and validate competitors using "
+    "canonical groups, formats, traits and Google attributes"
 )
 st.caption(f"Build: {BUILD_VERSION}")
 
@@ -79,6 +86,15 @@ def load_feature_businesses() -> pd.DataFrame:
         ).mappings().all()
 
     return pd.DataFrame(rows)
+
+
+@st.cache_data(ttl=30)
+def load_target_reviews(
+    target_google_place_id: str,
+) -> pd.DataFrame:
+    return load_reviews_for_target(
+        target_google_place_id
+    )
 
 
 try:
@@ -238,7 +254,59 @@ except Exception as exc:
     st.stop()
 
 
-metric_columns = st.columns(6)
+try:
+    reviews = load_target_reviews(
+        target_place_id
+    )
+except Exception as exc:
+    st.error(
+        "Saved competitor decisions could not be loaded. "
+        "Run the competitor review SQL migration first."
+    )
+    st.exception(exc)
+    st.stop()
+
+
+if reviews.empty:
+    review_lookup = {}
+else:
+    review_lookup = (
+        reviews
+        .drop_duplicates(
+            "candidate_google_place_id"
+        )
+        .set_index(
+            "candidate_google_place_id"
+        )
+        .to_dict("index")
+    )
+
+
+def relationship_label(
+    candidate_google_place_id: str,
+) -> str:
+    review = review_lookup.get(
+        candidate_google_place_id,
+        {},
+    )
+
+    status = review.get(
+        "relationship_status"
+    )
+
+    return STATUS_LABELS.get(
+        status,
+        "Unreviewed",
+    )
+
+
+if not ranked.empty:
+    ranked["Decision"] = ranked[
+        "google_place_id"
+    ].apply(relationship_label)
+
+
+metric_columns = st.columns(7)
 
 with metric_columns[0]:
     st.metric(
@@ -284,6 +352,12 @@ with metric_columns[5]:
     st.metric(
         "Reviews",
         reviews_display,
+    )
+
+with metric_columns[6]:
+    st.metric(
+        "Reviewed matches",
+        len(review_lookup),
     )
 
 
@@ -335,14 +409,38 @@ filtered_ranked = ranked[
     ranked["Score"] >= minimum_score
 ].head(number_to_show).copy()
 
+
+st.sidebar.divider()
+st.sidebar.header("Review status")
+
+decision_filter = st.sidebar.selectbox(
+    "Show decisions",
+    options=[
+        "All",
+        "Unreviewed",
+        "Direct competitor",
+        "Indirect competitor",
+        "Possible competitor",
+        "Not relevant",
+    ],
+)
+
+if decision_filter != "All":
+    filtered_ranked = filtered_ranked[
+        filtered_ranked["Decision"]
+        == decision_filter
+    ].copy()
+
+
 st.subheader(
-    f"Top {len(filtered_ranked)} likely competitors"
+    f"Showing {len(filtered_ranked)} likely competitors"
 )
 
 table_columns = [
     "Rank",
     "Business",
     "Score",
+    "Decision",
     "Distance (miles)",
     "Canonical group",
     "Format",
@@ -361,11 +459,11 @@ st.dataframe(
 
 
 st.divider()
-st.subheader("Inspect a match")
+st.subheader("Inspect and classify a match")
 
 if filtered_ranked.empty:
     st.info(
-        "Lower the minimum score to inspect matches."
+        "No matches remain under the current filters."
     )
     st.stop()
 
@@ -386,6 +484,20 @@ selected_match = filtered_ranked[
     filtered_ranked["google_place_id"]
     == selected_candidate_id
 ].iloc[0]
+
+existing_review = review_lookup.get(
+    selected_candidate_id,
+    {},
+)
+
+existing_status = existing_review.get(
+    "relationship_status"
+)
+
+existing_label = STATUS_LABELS.get(
+    existing_status,
+    "Possible competitor",
+)
 
 
 detail_columns = st.columns(3)
@@ -460,6 +572,91 @@ with detail_columns[2]:
     )
 
 
+with st.form(
+    key=(
+        "competitor_review_"
+        f"{target_place_id}_"
+        f"{selected_candidate_id}"
+    )
+):
+    st.write("### Your decision")
+
+    relationship_label_value = st.selectbox(
+        "Relationship to target",
+        options=list(
+            LABEL_TO_STATUS.keys()
+        ),
+        index=list(
+            LABEL_TO_STATUS.keys()
+        ).index(existing_label),
+    )
+
+    reviewer_notes = st.text_area(
+        "Notes",
+        value=existing_review.get(
+            "reviewer_notes",
+            "",
+        )
+        or "",
+        placeholder=(
+            "Why is this business a direct, indirect "
+            "or irrelevant competitor?"
+        ),
+    )
+
+    reviewed_by = st.text_input(
+        "Reviewed by",
+        value=existing_review.get(
+            "reviewed_by",
+            "",
+        )
+        or "",
+        placeholder="For example: Rob",
+    )
+
+    save_decision = st.form_submit_button(
+        "Save competitor decision",
+        type="primary",
+    )
+
+
+if save_decision:
+    save_review(
+        target_google_place_id=target_place_id,
+        candidate_google_place_id=(
+            selected_candidate_id
+        ),
+        relationship_status=LABEL_TO_STATUS[
+            relationship_label_value
+        ],
+        reviewer_notes=reviewer_notes,
+        reviewed_by=reviewed_by,
+    )
+
+    load_target_reviews.clear()
+
+    st.success("Competitor decision saved.")
+    st.rerun()
+
+
+if existing_review:
+    if st.button(
+        "Clear saved decision",
+        type="secondary",
+    ):
+        delete_review(
+            target_google_place_id=target_place_id,
+            candidate_google_place_id=(
+                selected_candidate_id
+            ),
+        )
+
+        load_target_reviews.clear()
+
+        st.success("Saved decision removed.")
+        st.rerun()
+
+
 with st.expander("View scoring breakdown"):
     components = selected_match["Components"]
 
@@ -503,7 +700,7 @@ with link_columns[1]:
 
 
 st.info(
-    "This matcher now uses the derived business_features "
-    "layer. The next refinement is to review known "
-    "competitors and tune the taxonomy and weights."
+    "Saved direct, indirect and possible competitors "
+    "form the validated cohort that will later be used "
+    "for website comparisons and AI visibility audits."
 )
