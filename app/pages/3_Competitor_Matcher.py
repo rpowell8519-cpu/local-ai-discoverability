@@ -1,4 +1,3 @@
-import json
 import sys
 from pathlib import Path
 
@@ -10,17 +9,12 @@ from sqlalchemy import text
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.append(str(PROJECT_ROOT))
 
-from src.competitor_matching import (
-    GENERIC_PROFILE,
-    VERTICAL_PROFILES,
-    broad_business_format,
-    get_profile_for_business,
-    rank_competitors,
-)
+from src.competitor_matching import rank_competitors
 from src.database import get_engine
+from src.taxonomy import GROUP_LABELS
 
 
-BUILD_VERSION = "Universal matcher v2.2"
+BUILD_VERSION = "Feature Matcher v3.0"
 
 
 st.set_page_config(
@@ -31,24 +25,51 @@ st.set_page_config(
 
 st.title("Competitor Matcher")
 st.caption(
-    "Find and explain the closest competitors "
-    "for any business in the Brighton dataset"
+    "Find competitors using canonical groups, "
+    "business formats, extracted traits and Google attributes"
 )
 st.caption(f"Build: {BUILD_VERSION}")
 
 
 @st.cache_data(ttl=300)
-def load_businesses() -> pd.DataFrame:
+def load_feature_businesses() -> pd.DataFrame:
     engine = get_engine()
 
     query = text(
         """
         select
-            id,
-            google_place_id,
-            raw_data
-        from raw_outscraper_locations
-        order by source_row_number
+            bf.google_place_id,
+            bf.business_name,
+            bf.raw_category,
+            bf.raw_type,
+            bf.raw_subtypes,
+            bf.primary_group,
+            bf.secondary_groups,
+            bf.business_format,
+            bf.traits,
+            bf.about_features,
+            bf.classification_confidence,
+            bf.classification_reasons,
+
+            rol.raw_data->>'latitude' as latitude,
+            rol.raw_data->>'longitude' as longitude,
+            rol.raw_data->>'rating' as rating,
+            rol.raw_data->>'reviews' as reviews,
+            rol.raw_data->>'photos_count' as photos_count,
+            rol.raw_data->>'site' as site,
+            rol.raw_data->>'website' as website,
+            rol.raw_data->>'booking_appointment_link'
+                as booking_appointment_link,
+            rol.raw_data->>'reservation_links'
+                as reservation_links,
+            rol.raw_data->>'location_link'
+                as location_link,
+            rol.raw_data->>'google_maps_url'
+                as google_maps_url
+        from business_features bf
+        join raw_outscraper_locations rol
+          on rol.google_place_id = bf.google_place_id
+        order by bf.business_name
         """
     )
 
@@ -57,94 +78,71 @@ def load_businesses() -> pd.DataFrame:
             query
         ).mappings().all()
 
-    records = []
-
-    for row in rows:
-        raw_data = row["raw_data"]
-
-        if isinstance(raw_data, str):
-            raw_data = json.loads(raw_data)
-
-        record = {
-            **raw_data,
-            "record_id": str(row["id"]),
-        }
-
-        record["place_id"] = (
-            row["google_place_id"]
-            or raw_data.get("place_id")
-        )
-
-        record["primary_type"] = (
-            raw_data.get("category")
-            or raw_data.get("type")
-            or "Unknown"
-        )
-
-        records.append(record)
-
-    return pd.DataFrame(records)
+    return pd.DataFrame(rows)
 
 
 try:
-    businesses = load_businesses()
+    businesses = load_feature_businesses()
 except Exception as exc:
-    st.error("The business data could not be loaded.")
+    st.error(
+        "The feature data could not be loaded. "
+        "Confirm that business_features has been built."
+    )
     st.exception(exc)
     st.stop()
 
 
-businesses = businesses.dropna(
-    subset=["place_id", "name"]
-).copy()
+if businesses.empty:
+    st.warning(
+        "No business features are available. "
+        "Open Data Admin and rebuild the feature layer."
+    )
+    st.stop()
 
-available_types = sorted(
-    businesses["primary_type"]
-    .fillna("Unknown")
+
+available_groups = sorted(
+    businesses["primary_group"]
+    .dropna()
     .astype(str)
     .unique()
-    .tolist()
+    .tolist(),
+    key=lambda key: GROUP_LABELS.get(key, key),
 )
 
 
 st.sidebar.header("Target business")
 
-selected_type = st.sidebar.selectbox(
-    "Filter target businesses by type",
-    options=["All types"] + available_types,
+selected_group = st.sidebar.selectbox(
+    "Canonical competitor group",
+    options=available_groups,
+    format_func=lambda value: GROUP_LABELS.get(
+        value,
+        value,
+    ),
 )
 
-target_options = businesses.copy()
-
-if selected_type != "All types":
-    target_options = target_options[
-        target_options["primary_type"]
-        .astype(str)
-        .eq(selected_type)
-    ]
+target_options = businesses[
+    businesses["primary_group"] == selected_group
+].copy()
 
 target_options = target_options.sort_values(
-    "name",
+    "business_name",
     na_position="last",
 )
 
 place_ids = (
-    target_options["place_id"]
+    target_options["google_place_id"]
     .dropna()
     .drop_duplicates()
     .tolist()
 )
 
-if not place_ids:
-    st.warning(
-        "No businesses match the selected target type."
-    )
-    st.stop()
-
 name_lookup = (
     target_options
-    .drop_duplicates("place_id")
-    .set_index("place_id")["name"]
+    .drop_duplicates("google_place_id")
+    .set_index("google_place_id")[
+        "business_name"
+    ]
     .to_dict()
 )
 
@@ -158,6 +156,11 @@ for index, place_id in enumerate(place_ids):
         default_index = index
         break
 
+st.sidebar.caption(
+    f"{len(place_ids)} businesses available "
+    f"in {GROUP_LABELS.get(selected_group, selected_group)}"
+)
+
 target_place_id = st.sidebar.selectbox(
     "Target business",
     options=place_ids,
@@ -168,79 +171,40 @@ target_place_id = st.sidebar.selectbox(
     ),
 )
 
-target_record = businesses[
-    businesses["place_id"] == target_place_id
-].iloc[0].to_dict()
-
-automatic_profile = get_profile_for_business(
-    target_record
-)
-
 
 st.sidebar.divider()
-st.sidebar.header("Matching logic")
-
-profile_catalog = {
-    GENERIC_PROFILE["key"]: GENERIC_PROFILE,
-    **{
-        profile["key"]: profile
-        for profile in VERTICAL_PROFILES.values()
-    },
-}
-
-profile_choice_options = [
-    "Automatic",
-    *profile_catalog.keys(),
-]
-
-selected_profile_choice = st.sidebar.selectbox(
-    "Vertical profile",
-    options=profile_choice_options,
-    format_func=lambda value: (
-        f"Automatic — {automatic_profile['label']}"
-        if value == "Automatic"
-        else profile_catalog[value]["label"]
-    ),
-)
-
-profile_override = (
-    None
-    if selected_profile_choice == "Automatic"
-    else profile_catalog[selected_profile_choice]
-)
-
-active_profile = (
-    automatic_profile
-    if profile_override is None
-    else profile_override
-)
-
-st.sidebar.caption(
-    f"Active profile: **{active_profile['label']}**"
-)
+st.sidebar.header("Matching scope")
 
 candidate_scope = st.sidebar.radio(
     "Candidate scope",
     options=[
-        "Profile-relevant types",
-        "Same primary type",
-        "All businesses",
+        "Direct formats only",
+        "Direct and adjacent formats",
+        "Broad market alternatives",
     ],
-    index=0,
+    index=1,
+    help=(
+        "Direct uses closely related formats. "
+        "Adjacent includes all businesses in the same "
+        "canonical group plus closely related groups. "
+        "Broad includes wider substitutes."
+    ),
 )
 
-default_distance = float(
-    active_profile.get(
-        "default_distance_miles",
-        5.0,
-    )
+default_distance = {
+    "bars_pubs": 4.0,
+    "coffee_cafes": 3.0,
+    "hair_services": 5.0,
+}.get(
+    selected_group,
+    5.0,
 )
 
 max_distance = st.sidebar.slider(
     "Maximum distance",
     min_value=1.0,
     max_value=15.0,
-    value=min(max(default_distance, 1.0), 15.0),
+    value=default_distance,
     step=0.5,
 )
 
@@ -248,7 +212,7 @@ minimum_score = st.sidebar.slider(
     "Minimum similarity score",
     min_value=0,
     max_value=100,
-    value=30,
+    value=25,
     step=5,
 )
 
@@ -262,10 +226,9 @@ number_to_show = st.sidebar.slider(
 
 
 try:
-    target, profile, ranked = rank_competitors(
+    target, ranked = rank_competitors(
         businesses=businesses,
         target_place_id=target_place_id,
-        profile_override=profile_override,
         max_distance_miles=max_distance,
         candidate_scope=candidate_scope,
     )
@@ -275,46 +238,46 @@ except Exception as exc:
     st.stop()
 
 
-target_columns = st.columns(6)
+metric_columns = st.columns(6)
 
-with target_columns[0]:
+with metric_columns[0]:
     st.metric(
         "Target",
-        target.get("name", "Unknown"),
+        target.get("business_name", "Unknown"),
     )
 
-with target_columns[1]:
+with metric_columns[1]:
     st.metric(
-        "Type",
-        target.get("primary_type")
-        or target.get("category")
-        or target.get("type")
-        or "Unknown",
+        "Group",
+        GROUP_LABELS.get(
+            target.get("primary_group"),
+            target.get("primary_group"),
+        ),
     )
 
-with target_columns[2]:
-    st.metric(
-        "Profile",
-        profile["label"],
-    )
-
-with target_columns[3]:
+with metric_columns[2]:
     st.metric(
         "Format",
-        broad_business_format(target),
+        target.get("business_format", "Unknown"),
     )
 
-with target_columns[4]:
+with metric_columns[3]:
+    st.metric(
+        "Traits",
+        len(target.get("traits", [])),
+    )
+
+with metric_columns[4]:
     st.metric(
         "Rating",
         target.get("rating", "—"),
     )
 
-with target_columns[5]:
-    reviews_value = target.get("reviews")
-
+with metric_columns[5]:
     try:
-        reviews_display = int(float(reviews_value))
+        reviews_display = int(
+            float(target.get("reviews"))
+        )
     except (TypeError, ValueError):
         reviews_display = "—"
 
@@ -324,39 +287,40 @@ with target_columns[5]:
     )
 
 
-with st.expander("View active matching criteria"):
-    st.write("**Candidate types/terms**")
+with st.expander("View target feature profile"):
+    st.write("**Canonical group**")
     st.write(
-        ", ".join(profile.get("candidate_terms", []))
-        or "Same-primary-type fallback"
+        GROUP_LABELS.get(
+            target.get("primary_group"),
+            target.get("primary_group"),
+        )
     )
 
-    st.write("**Excluded terms**")
+    st.write("**Business format**")
     st.write(
-        ", ".join(profile.get("excluded_terms", []))
-        or "None configured"
+        target.get("business_format")
+        or "Not classified"
     )
 
-    st.write("**Type-specific traits**")
+    st.write("**Traits**")
     st.write(
-        ", ".join(profile.get("traits", {}).keys())
-        or "No type-specific traits configured"
+        ", ".join(target.get("traits", []))
+        or "No configured traits detected"
     )
 
-    weights_table = pd.DataFrame(
-        [
-            {
-                "Signal": key.replace("_", " ").title(),
-                "Weight": f"{value:.0%}",
-            }
-            for key, value in profile["weights"].items()
-        ]
+    st.write("**Classification confidence**")
+    st.write(
+        target.get("classification_confidence")
     )
 
-    st.dataframe(
-        weights_table,
-        use_container_width=True,
-        hide_index=True,
+    st.write("**Classification reasons**")
+    st.write(
+        "; ".join(
+            target.get(
+                "classification_reasons",
+                [],
+            )
+        )
     )
 
 
@@ -380,12 +344,11 @@ table_columns = [
     "Business",
     "Score",
     "Distance (miles)",
+    "Canonical group",
     "Format",
-    "Category",
-    "Subtypes",
+    "Traits",
     "Rating",
     "Reviews",
-    "Shared traits",
     "Why matched",
 ]
 
@@ -402,75 +365,135 @@ st.subheader("Inspect a match")
 
 if filtered_ranked.empty:
     st.info(
-        "Lower the minimum score to see matches."
+        "Lower the minimum score to inspect matches."
     )
     st.stop()
 
 
-selected_place_id = st.selectbox(
+selected_candidate_id = st.selectbox(
     "Select a competitor",
-    options=filtered_ranked["place_id"].tolist(),
+    options=filtered_ranked[
+        "google_place_id"
+    ].tolist(),
     format_func=lambda value: filtered_ranked.loc[
-        filtered_ranked["place_id"] == value,
+        filtered_ranked["google_place_id"]
+        == value,
         "Business",
     ].iloc[0],
 )
 
 selected_match = filtered_ranked[
-    filtered_ranked["place_id"]
-    == selected_place_id
+    filtered_ranked["google_place_id"]
+    == selected_candidate_id
 ].iloc[0]
 
 
 detail_columns = st.columns(3)
 
 with detail_columns[0]:
-    st.write("### Match")
+    st.write("### Overall match")
     st.metric(
-        "Similarity score",
+        "Similarity",
         f"{selected_match['Score']}/100",
     )
+
+    distance = selected_match[
+        "Distance (miles)"
+    ]
+
     st.write(
-        f"**Distance:** "
-        f"{selected_match['Distance (miles)']} miles"
+        "**Distance:** "
+        + (
+            f"{distance} miles"
+            if pd.notna(distance)
+            else "Unknown"
+        )
     )
     st.write(
         f"**Format:** {selected_match['Format']}"
     )
 
 with detail_columns[1]:
-    st.write("### Evidence")
+    st.write("### Shared")
+    shared_traits = selected_match[
+        "Shared traits"
+    ]
+    shared_attributes = selected_match[
+        "Shared attributes"
+    ]
+
+    st.write("**Traits**")
     st.write(
-        selected_match.get("Why matched")
-        or "No explanatory signals available."
+        ", ".join(shared_traits)
+        if shared_traits
+        else "No configured shared traits"
     )
+
+    st.write("**Google attributes**")
     st.write(
-        "**Shared traits:** "
-        + (
-            selected_match.get("Shared traits")
-            or "None detected"
-        )
+        ", ".join(shared_attributes[:10])
+        if shared_attributes
+        else "No comparable shared positive attributes"
     )
 
 with detail_columns[2]:
-    st.write("### Public profile")
+    st.write("### Different")
+    different_attributes = selected_match[
+        "Different attributes"
+    ]
+    candidate_only_traits = selected_match[
+        "Candidate-only traits"
+    ]
+
+    st.write("**Candidate-only traits**")
     st.write(
-        f"**Rating:** {selected_match['Rating']}"
-    )
-    st.write(
-        f"**Reviews:** {selected_match['Reviews']}"
+        ", ".join(candidate_only_traits)
+        if candidate_only_traits
+        else "None"
     )
 
-    website = selected_match.get("Website")
-    maps_url = selected_match.get("Google Maps")
+    st.write("**Conflicting attributes**")
+    st.write(
+        ", ".join(different_attributes[:10])
+        if different_attributes
+        else "None detected"
+    )
 
+
+with st.expander("View scoring breakdown"):
+    components = selected_match["Components"]
+
+    component_table = pd.DataFrame(
+        [
+            {
+                "Dimension": dimension,
+                "Score": score,
+            }
+            for dimension, score in components.items()
+        ]
+    )
+
+    st.dataframe(
+        component_table,
+        use_container_width=True,
+        hide_index=True,
+    )
+
+
+link_columns = st.columns(2)
+
+website = selected_match.get("Website")
+maps_url = selected_match.get("Google Maps")
+
+with link_columns[0]:
     if website:
         st.link_button(
-            "Open website",
+            "Open competitor website",
             str(website),
             use_container_width=True,
         )
 
+with link_columns[1]:
     if maps_url:
         st.link_button(
             "Open Google Maps",
@@ -479,28 +502,8 @@ with detail_columns[2]:
         )
 
 
-with st.expander("View scoring breakdown"):
-    component_data = pd.DataFrame(
-        [
-            {
-                "Signal": signal,
-                "Component score": value,
-            }
-            for signal, value in (
-                selected_match["Components"]
-            ).items()
-        ]
-    )
-
-    st.dataframe(
-        component_data,
-        use_container_width=True,
-        hide_index=True,
-    )
-
-
 st.info(
-    "This is an explainable heuristic shortlist. "
-    "The next build will let you approve or reject "
-    "matches and save a competitor cohort for AI audits."
+    "This matcher now uses the derived business_features "
+    "layer. The next refinement is to review known "
+    "competitors and tune the taxonomy and weights."
 )
