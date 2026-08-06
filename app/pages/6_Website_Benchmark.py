@@ -25,7 +25,7 @@ from src.website_benchmark import (
 )
 
 
-BUILD_VERSION = "Website Benchmark v1.0"
+BUILD_VERSION = "Website Benchmark v1.0.1"
 
 
 st.set_page_config(
@@ -103,7 +103,18 @@ def load_saved_cohort(
             },
         ).mappings().all()
 
-    return pd.DataFrame(rows)
+    cohort_columns = [
+        "google_place_id",
+        "relationship_status",
+        "business_name",
+        "primary_group",
+        "business_format",
+    ]
+
+    return pd.DataFrame(
+        rows,
+        columns=cohort_columns,
+    )
 
 
 @st.cache_data(ttl=300)
@@ -346,11 +357,19 @@ else:
     ].copy()
 
 
+selected_cohort_ids = (
+    selected_cohort.get(
+        "google_place_id",
+        pd.Series(dtype="object"),
+    )
+    .dropna()
+    .astype(str)
+    .tolist()
+)
+
 selected_ids = [
-    target_id,
-    *selected_cohort[
-        "google_place_id"
-    ].tolist(),
+    str(target_id),
+    *selected_cohort_ids,
 ]
 
 selected_ids = list(
