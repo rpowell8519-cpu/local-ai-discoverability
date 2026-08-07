@@ -57,7 +57,7 @@ from src.website_benchmark import (
 )
 
 
-BUILD_VERSION = "AI Competitive Diagnostic v1.0"
+BUILD_VERSION = "AI Competitive Diagnostic v1.1"
 
 
 st.set_page_config(
@@ -74,19 +74,28 @@ st.caption(
 )
 st.caption(f"Build: {BUILD_VERSION}")
 
-st.success(
-    "This is an **additive diagnostic layer**. It reuses the "
-    "AI Discovery Scan, Website Audit and Review Intelligence "
-    "data already in the platform. No new AI calls are made."
+st.info(
+    "Select the businesses AI currently favours, complete the "
+    "required evidence, then compare the target's website and "
+    "customer-review signals with those AI leaders."
 )
 
-st.info(
-    "The diagnostic surfaces **observable differences**, not "
-    "proven ranking factors. The aim is to identify credible, "
-    "client-controllable opportunities — especially website "
-    "signals — that distinguish businesses currently winning "
-    "AI recommendations."
-)
+with st.expander(
+    "How to interpret this diagnostic"
+):
+    st.write(
+        "The diagnostic surfaces **observable differences**, "
+        "not proven AI ranking factors. Its purpose is to "
+        "identify credible, client-controllable opportunities "
+        "that distinguish businesses currently winning AI "
+        "recommendations."
+    )
+
+    st.write(
+        "No new AI calls are made on this page. It reuses "
+        "stored AI Discovery, Website Audit and Review "
+        "Intelligence evidence."
+    )
 
 
 @st.cache_data(ttl=300)
@@ -427,6 +436,61 @@ if not selected_ids:
     st.stop()
 
 
+active_business_ids = [
+    str(target_id),
+    *[
+        str(place_id)
+        for place_id in selected_ids
+    ],
+]
+
+active_business_names = {
+    str(target_id):
+        target_name,
+    **{
+        str(place_id):
+            candidate_name_lookup.get(
+                str(place_id),
+                str(place_id),
+            )
+        for place_id in selected_ids
+    },
+}
+
+st.session_state[
+    "active_diagnostic_cohort"
+] = {
+    "source":
+        "ai_competitive_diagnostic",
+    "discovery_run_id":
+        str(selected_run_id),
+    "target_google_place_id":
+        str(target_id),
+    "target_business_name":
+        target_name,
+    "primary_group":
+        primary_group,
+    "location_context":
+        str(
+            run.get(
+                "location_context"
+            )
+            or ""
+        ),
+    "business_ids":
+        active_business_ids,
+    "business_names":
+        active_business_names,
+}
+
+st.caption(
+    "Active diagnostic cohort: "
+    f"**{target_name} + {len(selected_ids)} AI leader(s)**. "
+    "This selection will follow you to Website Audits and "
+    "Review Insights in this browser session."
+)
+
+
 leader_market = resolved_candidates[
     resolved_candidates[
         "google_place_id"
@@ -495,7 +559,7 @@ st.dataframe(
 # =========================================================
 
 st.divider()
-st.subheader("2. Evidence readiness")
+st.subheader("2. Complete the evidence")
 
 comparison_ids = [
     target_id,
@@ -597,6 +661,10 @@ for place_id in comparison_ids:
 
     readiness_rows.append(
         {
+            "google_place_id":
+                str(
+                    place_id
+                ),
             "business_name":
                 business_name_lookup.get(
                     str(
@@ -669,23 +737,104 @@ readiness = pd.DataFrame(
     readiness_rows
 )
 
+readiness_display = readiness.copy()
+
+readiness_display[
+    "Website"
+] = readiness_display[
+    "website_audit"
+].apply(
+    lambda value: (
+        "✓ Ready"
+        if value == "Yes"
+        else "○ Missing"
+    )
+)
+
+readiness_display[
+    "Reviews"
+] = readiness_display[
+    "reviews"
+].apply(
+    lambda value: (
+        f"✓ {int(value)} stored"
+        if int(value) > 0
+        else "○ Missing"
+    )
+)
+
+website_ready_count = int(
+    (
+        readiness[
+            "website_audit"
+        ]
+        == "Yes"
+    ).sum()
+)
+
+review_ready_count = int(
+    (
+        readiness[
+            "reviews"
+        ]
+        > 0
+    ).sum()
+)
+
+business_count = len(
+    readiness
+)
+
+evidence_tasks_complete = (
+    website_ready_count
+    + review_ready_count
+)
+
+evidence_tasks_total = (
+    business_count
+    * 2
+)
+
+progress_columns = st.columns(3)
+
+with progress_columns[0]:
+    st.metric(
+        "Website audits",
+        f"{website_ready_count} / {business_count}",
+    )
+
+with progress_columns[1]:
+    st.metric(
+        "Review samples",
+        f"{review_ready_count} / {business_count}",
+    )
+
+with progress_columns[2]:
+    st.metric(
+        "Evidence tasks complete",
+        f"{evidence_tasks_complete} / {evidence_tasks_total}",
+    )
+
 st.dataframe(
-    readiness.rename(
+    readiness_display[
+        [
+            "business_name",
+            "role",
+            "Website",
+            "pages_crawled",
+            "website_score",
+            "Reviews",
+        ]
+    ].rename(
         columns={
             "business_name":
                 "Business",
             "role":
                 "Role",
-            "website_audit":
-                "Website audit",
-            "audit_status":
-                "Audit status",
             "pages_crawled":
                 "Pages crawled",
             "website_score":
                 "Website score",
-            "reviews":
-                "Reviews stored",
         }
     ),
     use_container_width=True,
@@ -706,30 +855,140 @@ missing_reviews = readiness[
     == 0
 ]
 
-if (
-    not missing_website.empty
-    or not missing_reviews.empty
-):
+evidence_complete = (
+    missing_website.empty
+    and missing_reviews.empty
+)
+
+if evidence_complete:
+    st.success(
+        "Evidence complete. The target and all selected AI "
+        "leaders have website and review evidence, so the "
+        "diagnostic below is ready to interpret."
+    )
+else:
     st.warning(
-        "The diagnostic can still show the evidence that "
-        "exists, but comparisons are strongest once the "
-        "target and selected AI leaders all have website "
-        "audits and review samples."
+        "Complete the outstanding evidence tasks below. "
+        "Your selected cohort is already active, so you "
+        "will not need to find or select these businesses "
+        "again on the linked pages."
     )
 
-    link_columns = st.columns(2)
+    action_columns = st.columns(2)
 
-    with link_columns[0]:
-        st.page_link(
-            "pages/5_Website_Audits.py",
-            label="Open Website Audits",
+    with action_columns[0]:
+        st.write(
+            "#### Step A — Website evidence"
         )
 
-    with link_columns[1]:
-        st.page_link(
-            "pages/7_Review_Insights.py",
-            label="Open Review Insights",
+        if missing_website.empty:
+            st.success(
+                "All selected websites have been audited."
+            )
+        else:
+            missing_website_names = (
+                missing_website[
+                    "business_name"
+                ]
+                .astype(str)
+                .tolist()
+            )
+
+            st.write(
+                f"**{len(missing_website_names)} website "
+                "audit(s) missing:** "
+                + ", ".join(
+                    missing_website_names
+                )
+            )
+
+            st.page_link(
+                "pages/5_Website_Audits.py",
+                label="Run missing website audits →",
+                use_container_width=True,
+            )
+
+    with action_columns[1]:
+        st.write(
+            "#### Step B — Customer-review evidence"
         )
+
+        if missing_reviews.empty:
+            st.success(
+                "All selected businesses have imported reviews."
+            )
+        else:
+            missing_review_names = (
+                missing_reviews[
+                    "business_name"
+                ]
+                .astype(str)
+                .tolist()
+            )
+
+            st.write(
+                f"**{len(missing_review_names)} review "
+                "sample(s) missing:** "
+                + ", ".join(
+                    missing_review_names
+                )
+            )
+
+            collection_frame = (
+                missing_reviews[
+                    [
+                        "business_name",
+                        "google_place_id",
+                    ]
+                ]
+                .copy()
+            )
+
+            collection_frame[
+                "recommended_reviews"
+            ] = 100
+
+            collection_frame[
+                "location"
+            ] = str(
+                run.get(
+                    "location_context"
+                )
+                or ""
+            )
+
+            st.download_button(
+                "Download Outscraper collection list",
+                data=(
+                    collection_frame[
+                        [
+                            "business_name",
+                            "google_place_id",
+                            "location",
+                            "recommended_reviews",
+                        ]
+                    ]
+                    .to_csv(
+                        index=False
+                    )
+                    .encode(
+                        "utf-8"
+                    )
+                ),
+                file_name=(
+                    "diagnostic_review_collection.csv"
+                ),
+                mime="text/csv",
+                use_container_width=True,
+            )
+
+            st.page_link(
+                "pages/7_Review_Insights.py",
+                label="Import review export →",
+                use_container_width=True,
+            )
+
+
 
 
 # =========================================================
@@ -737,7 +996,7 @@ if (
 # =========================================================
 
 st.divider()
-st.subheader("3. Website differences")
+st.subheader("3. Website diagnostic")
 
 website_result = None
 pages_by_place = {}
@@ -1071,7 +1330,7 @@ if propositions:
 # =========================================================
 
 st.divider()
-st.subheader("4. Customer-review differences")
+st.subheader("4. Customer evidence")
 
 review_result = None
 
@@ -1249,7 +1508,7 @@ else:
 
 st.divider()
 st.subheader(
-    "5. What observable differences might explain why?"
+    "5. Prioritised opportunities"
 )
 
 combined = (
@@ -1275,10 +1534,19 @@ strengths = combined[
 ]
 
 if opportunities.empty:
-    st.success(
-        "No clear observable gaps were found from the "
-        "website/review evidence currently available."
-    )
+    if not evidence_complete:
+        st.info(
+            "Diagnostic not ready yet. There is not enough "
+            "website/review evidence to identify meaningful "
+            "differences. Complete the outstanding evidence "
+            "tasks in section 2."
+        )
+    else:
+        st.success(
+            "Evidence is complete and no clear observable "
+            "gaps were identified from the current website "
+            "and review diagnostic."
+        )
 else:
     st.caption(
         "These are prioritised **hypotheses for action**, "
@@ -1333,7 +1601,7 @@ if not strengths.empty:
 # =========================================================
 
 st.divider()
-st.subheader("6. Diagnostic scope")
+st.subheader("6. Scope & methodology")
 
 st.write(
     "This first diagnostic intentionally concentrates on "
