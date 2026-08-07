@@ -15,9 +15,7 @@ def normalise_text(value: Any) -> str:
     text = "".join(
         character
         for character in text
-        if not unicodedata.combining(
-            character
-        )
+        if not unicodedata.combining(character)
     )
     text = text.lower()
     text = text.replace("'", "")
@@ -49,9 +47,7 @@ def name_aliases(
 
     without_the = (
         normalised[4:].strip()
-        if normalised.startswith(
-            "the "
-        )
+        if normalised.startswith("the ")
         else normalised
     )
 
@@ -59,9 +55,7 @@ def name_aliases(
         without_the != normalised
         and len(without_the) >= 5
     ):
-        aliases.append(
-            without_the
-        )
+        aliases.append(without_the)
 
     suffixes = [
         " pub and kitchen",
@@ -75,13 +69,9 @@ def name_aliases(
         " cafe",
     ]
 
-    for candidate in list(
-        aliases
-    ):
+    for candidate in list(aliases):
         for suffix in suffixes:
-            if not candidate.endswith(
-                suffix
-            ):
+            if not candidate.endswith(suffix):
                 continue
 
             shortened = candidate[
@@ -92,25 +82,36 @@ def name_aliases(
                 shortened.split()
             )
 
-            # Avoid aggressive aliases such as turning a generic
-            # one-word venue name into an ambiguous short token.
             if (
                 len(shortened) >= 7
                 and (
                     word_count >= 2
-                    or normalised.startswith(
-                        "the "
-                    )
+                    or normalised.startswith("the ")
                 )
             ):
-                aliases.append(
-                    shortened
-                )
+                aliases.append(shortened)
 
-    return list(
-        dict.fromkeys(
-            aliases
+    return list(dict.fromkeys(aliases))
+
+
+def _contains_alias(
+    text: str,
+    aliases: list[str],
+) -> bool:
+    padded = (
+        " "
+        + normalise_text(text)
+        + " "
+    )
+
+    return any(
+        (
+            " "
+            + alias
+            + " "
         )
+        in padded
+        for alias in aliases
     )
 
 
@@ -120,9 +121,7 @@ def find_name_position(
 ) -> int | None:
     normalised_response = (
         " "
-        + normalise_text(
-            response_text
-        )
+        + normalise_text(response_text)
         + " "
     )
 
@@ -144,13 +143,49 @@ def find_name_position(
         )
 
         if index >= 0:
-            positions.append(
-                index
-            )
+            positions.append(index)
 
-    return min(
-        positions
-    ) if positions else None
+    return min(positions) if positions else None
+
+
+def find_recommendation_position(
+    response_text: str,
+    business_name: str,
+) -> int | None:
+    aliases = name_aliases(
+        business_name
+    )
+
+    if not aliases:
+        return None
+
+    numbered_line = re.compile(
+        r"^\s*(?:#{1,6}\s*)?"
+        r"(\d+)[\.\)]\s*(.+)$"
+    )
+
+    for line in str(
+        response_text or ""
+    ).splitlines():
+        match = numbered_line.match(
+            line
+        )
+
+        if not match:
+            continue
+
+        item_number = int(
+            match.group(1)
+        )
+        item_text = match.group(2)
+
+        if _contains_alias(
+            item_text,
+            aliases,
+        ):
+            return item_number
+
+    return None
 
 
 def analyse_visibility_response(
@@ -181,27 +216,56 @@ def analyse_visibility_response(
         if not place_id or not name:
             continue
 
-        position = find_name_position(
-            response_text,
-            name,
+        character_position = (
+            find_name_position(
+                response_text,
+                name,
+            )
         )
 
-        if position is None:
+        if character_position is None:
             continue
+
+        recommendation_position = (
+            find_recommendation_position(
+                response_text,
+                name,
+            )
+        )
 
         mentions.append(
             {
                 "google_place_id":
                     place_id,
-                "business_name": name,
+                "business_name":
+                    name,
                 "character_position":
-                    int(position),
+                    int(
+                        character_position
+                    ),
+                "recommendation_position":
+                    recommendation_position,
+                "recommended":
+                    (
+                        recommendation_position
+                        is not None
+                    ),
             }
         )
 
     mentions = sorted(
         mentions,
         key=lambda item: (
+            (
+                item[
+                    "recommendation_position"
+                ]
+                if item[
+                    "recommendation_position"
+                ]
+                is not None
+                else 999
+            ),
             item[
                 "character_position"
             ],
@@ -210,12 +274,6 @@ def analyse_visibility_response(
             ],
         ),
     )
-
-    for rank, mention in enumerate(
-        mentions,
-        start=1,
-    ):
-        mention["rank"] = rank
 
     target_mention = next(
         (
@@ -246,9 +304,17 @@ def analyse_visibility_response(
         "target_mentioned": (
             target_mention is not None
         ),
+        "target_recommended": (
+            bool(
+                target_mention
+                and target_mention[
+                    "recommended"
+                ]
+            )
+        ),
         "target_position": (
             target_mention[
-                "rank"
+                "recommendation_position"
             ]
             if target_mention
             else None
@@ -260,51 +326,194 @@ def analyse_visibility_response(
     }
 
 
+def reanalyse_results(
+    results: pd.DataFrame,
+    *,
+    target_google_place_id: str,
+    target_business_name: str,
+    known_businesses: list[
+        dict[str, str]
+    ],
+) -> pd.DataFrame:
+    if results.empty:
+        return results
+
+    frame = results.copy()
+
+    for index, row in frame.iterrows():
+        if (
+            row.get("status")
+            != "completed"
+            or not str(
+                row.get(
+                    "raw_response"
+                )
+                or ""
+            ).strip()
+        ):
+            continue
+
+        analysis = (
+            analyse_visibility_response(
+                response_text=str(
+                    row[
+                        "raw_response"
+                    ]
+                ),
+                target_google_place_id=(
+                    target_google_place_id
+                ),
+                target_business_name=(
+                    target_business_name
+                ),
+                known_businesses=(
+                    known_businesses
+                ),
+            )
+        )
+
+        frame.at[
+            index,
+            "target_mentioned",
+        ] = analysis[
+            "target_mentioned"
+        ]
+
+        frame.at[
+            index,
+            "target_recommended",
+        ] = analysis[
+            "target_recommended"
+        ]
+
+        frame.at[
+            index,
+            "target_position",
+        ] = analysis[
+            "target_position"
+        ]
+
+        frame.at[
+            index,
+            "mentioned_competitors",
+        ] = analysis[
+            "mentioned_competitors"
+        ]
+
+        frame.at[
+            index,
+            "mentioned_known_businesses",
+        ] = analysis[
+            "mentioned_known_businesses"
+        ]
+
+    return frame
+
+
 def visibility_summary(
     results: pd.DataFrame,
 ) -> pd.DataFrame:
     if results.empty:
         return pd.DataFrame()
 
-    completed = results[
-        results["status"]
-        == "completed"
-    ].copy()
-
-    if completed.empty:
-        return pd.DataFrame()
-
     rows = []
 
-    for provider, frame in (
-        completed.groupby(
+    providers = sorted(
+        results[
             "provider"
+        ]
+        .dropna()
+        .astype(str)
+        .unique()
+        .tolist()
+    )
+
+    for provider in providers:
+        provider_frame = results[
+            results[
+                "provider"
+            ]
+            == provider
+        ].copy()
+
+        valid = provider_frame[
+            (
+                provider_frame[
+                    "status"
+                ]
+                == "completed"
+            )
+            & (
+                provider_frame[
+                    "response_complete"
+                ]
+                .fillna(False)
+                .astype(bool)
+            )
+        ].copy()
+
+        incomplete = provider_frame[
+            (
+                provider_frame[
+                    "status"
+                ]
+                == "completed"
+            )
+            & (
+                ~provider_frame[
+                    "response_complete"
+                ]
+                .fillna(False)
+                .astype(bool)
+            )
+        ]
+
+        failed = provider_frame[
+            provider_frame[
+                "status"
+            ]
+            == "failed"
+        ]
+
+        recommended = (
+            valid[
+                "target_recommended"
+            ]
+            .fillna(False)
+            .astype(bool)
         )
-    ):
-        mentions = frame[
-            "target_mentioned"
-        ].fillna(False).astype(bool)
 
         positions = pd.to_numeric(
-            frame[
+            valid[
                 "target_position"
             ],
             errors="coerce",
         ).dropna()
 
+        visibility_rate = (
+            float(
+                recommended.mean()
+            )
+            if not valid.empty
+            else None
+        )
+
         rows.append(
             {
-                "provider": provider,
-                "tests_completed":
-                    len(frame),
-                "target_mentions":
+                "provider":
+                    provider,
+                "valid_responses":
+                    len(valid),
+                "incomplete_responses":
+                    len(incomplete),
+                "failed_responses":
+                    len(failed),
+                "target_recommendations":
                     int(
-                        mentions.sum()
+                        recommended.sum()
                     ),
                 "visibility_rate":
-                    float(
-                        mentions.mean()
-                    ),
+                    visibility_rate,
                 "average_position":
                     (
                         float(
@@ -316,7 +525,7 @@ def visibility_summary(
                 "input_tokens":
                     int(
                         pd.to_numeric(
-                            frame[
+                            provider_frame[
                                 "input_tokens"
                             ],
                             errors="coerce",
@@ -327,8 +536,19 @@ def visibility_summary(
                 "output_tokens":
                     int(
                         pd.to_numeric(
-                            frame[
+                            provider_frame[
                                 "output_tokens"
+                            ],
+                            errors="coerce",
+                        )
+                        .fillna(0)
+                        .sum()
+                    ),
+                "reasoning_tokens":
+                    int(
+                        pd.to_numeric(
+                            provider_frame[
+                                "reasoning_tokens"
                             ],
                             errors="coerce",
                         )
@@ -338,12 +558,7 @@ def visibility_summary(
             }
         )
 
-    return pd.DataFrame(
-        rows
-    ).sort_values(
-        "visibility_rate",
-        ascending=False,
-    )
+    return pd.DataFrame(rows)
 
 
 def competitor_mention_summary(
@@ -352,19 +567,35 @@ def competitor_mention_summary(
     if results.empty:
         return pd.DataFrame()
 
+    valid = results[
+        (
+            results["status"]
+            == "completed"
+        )
+        & (
+            results[
+                "response_complete"
+            ]
+            .fillna(False)
+            .astype(bool)
+        )
+    ]
+
     counts = {}
 
-    for record in results.to_dict(
+    for record in valid.to_dict(
         "records"
     ):
-        if record.get("status") != "completed":
-            continue
-
         mentions = record.get(
             "mentioned_known_businesses"
         ) or []
 
         for mention in mentions:
+            if not mention.get(
+                "recommended"
+            ):
+                continue
+
             place_id = str(
                 mention.get(
                     "google_place_id"
@@ -395,7 +626,8 @@ def competitor_mention_summary(
                 place_id,
             "business_name":
                 name,
-            "mentions": count,
+            "recommendations":
+                count,
         }
         for (
             place_id,
@@ -410,7 +642,7 @@ def competitor_mention_summary(
         rows
     ).sort_values(
         [
-            "mentions",
+            "recommendations",
             "business_name",
         ],
         ascending=[
