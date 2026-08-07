@@ -25,7 +25,36 @@ from src.website_audit_repository import (
 )
 
 
-BUILD_VERSION = "Website Footprint Audit v1.0"
+BUILD_VERSION = "Website Footprint Audit v1.1"
+
+
+CRAWL_PRESETS = {
+    "Quick — up to 5 pages": {
+        "max_pages": 5,
+        "minimum_reuse_pages": 3,
+        "description": (
+            "Fast check for the homepage and highest-"
+            "priority commercial pages."
+        ),
+    },
+    "Standard — adaptive, up to 20 pages": {
+        "max_pages": 20,
+        "minimum_reuse_pages": 8,
+        "description": (
+            "Recommended. Uses the sitemap and internal "
+            "links to prioritise services, menus, pricing, "
+            "FAQs, booking, team, events and contact pages."
+        ),
+    },
+    "Deep — adaptive, up to 50 pages": {
+        "max_pages": 50,
+        "minimum_reuse_pages": 15,
+        "description": (
+            "For larger sites or final validation. May "
+            "take several minutes across a cohort."
+        ),
+    },
+}
 
 
 st.set_page_config(
@@ -139,8 +168,20 @@ def yes_no(value: object) -> str:
 def recent_enough(
     audit: dict,
     reuse_days: int,
+    minimum_pages: int,
 ) -> bool:
     if not audit or reuse_days <= 0:
+        return False
+
+    try:
+        pages_crawled = int(
+            audit.get("pages_crawled")
+            or 0
+        )
+    except (TypeError, ValueError):
+        pages_crawled = 0
+
+    if pages_crawled < minimum_pages:
         return False
 
     completed_at = audit.get("completed_at")
@@ -383,12 +424,39 @@ reuse_days = st.sidebar.slider(
     ),
 )
 
-max_pages = st.sidebar.slider(
-    "Maximum pages per website",
-    min_value=1,
-    max_value=10,
-    value=5,
-    step=1,
+crawl_preset_name = st.sidebar.selectbox(
+    "Crawl depth",
+    options=list(CRAWL_PRESETS),
+    index=1,
+)
+
+crawl_preset = CRAWL_PRESETS[
+    crawl_preset_name
+]
+
+max_pages = int(
+    crawl_preset["max_pages"]
+)
+
+minimum_reuse_pages = int(
+    crawl_preset[
+        "minimum_reuse_pages"
+    ]
+)
+
+st.sidebar.caption(
+    crawl_preset["description"]
+)
+
+adaptive_stop = st.sidebar.checkbox(
+    "Stop early when priority coverage is complete",
+    value=True,
+    help=(
+        "After enough pages have been sampled, the "
+        "crawler may stop before the cap when it has "
+        "covered most high-value page categories and "
+        "no high-priority URLs remain."
+    ),
 )
 
 timeout_seconds = st.sidebar.slider(
@@ -401,6 +469,16 @@ timeout_seconds = st.sidebar.slider(
 
 
 st.subheader("Selected audit cohort")
+
+st.caption(
+    f"Crawl plan: {crawl_preset_name}. "
+    f"Maximum {max_pages} pages per website"
+    + (
+        ", with adaptive early stopping."
+        if adaptive_stop
+        else "."
+    )
+)
 
 cohort_display = selected_businesses[
     [
@@ -479,6 +557,7 @@ if run_audits:
         if recent_enough(
             existing,
             reuse_days,
+            minimum_reuse_pages,
         ):
             reused += 1
             progress.progress(
@@ -528,9 +607,18 @@ if run_audits:
         try:
             result, pages = audit_website(
                 website_url=website_url,
+                business_group=str(
+                    business.get(
+                        "primary_group"
+                    )
+                    or "generic"
+                ),
                 max_pages=max_pages,
                 timeout_seconds=(
                     timeout_seconds
+                ),
+                adaptive_stop=(
+                    adaptive_stop
                 ),
             )
 
@@ -876,5 +964,7 @@ if final_url:
 st.info(
     "This is a website-footprint completeness score, "
     "not yet a full AI-discoverability score. "
-    "It measures owned-web evidence only."
+    "The adaptive crawler prioritises commercially "
+    "useful pages rather than simply following the "
+    "first links it encounters."
 )
