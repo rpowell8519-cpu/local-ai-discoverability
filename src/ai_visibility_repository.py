@@ -87,6 +87,7 @@ def create_visibility_queries(
     ],
 ) -> list[dict[str, Any]]:
     engine = get_engine()
+
     query = text(
         """
         insert into ai_visibility_queries (
@@ -161,7 +162,10 @@ def save_visibility_result(
     input_tokens: int | None,
     output_tokens: int | None,
     total_tokens: int | None,
+    reasoning_tokens: int | None,
     latency_ms: int | None,
+    finish_reason: str | None,
+    response_complete: bool,
     status: str,
     error_message: str | None = None,
 ) -> None:
@@ -176,13 +180,17 @@ def save_visibility_result(
             model,
             raw_response,
             target_mentioned,
+            target_recommended,
             target_position,
             mentioned_competitors,
             mentioned_known_businesses,
             input_tokens,
             output_tokens,
             total_tokens,
+            reasoning_tokens,
             latency_ms,
+            finish_reason,
+            response_complete,
             status,
             error_message
         )
@@ -193,13 +201,17 @@ def save_visibility_result(
             :model,
             :raw_response,
             :target_mentioned,
+            :target_recommended,
             :target_position,
             cast(:mentioned_competitors as jsonb),
             cast(:mentioned_known_businesses as jsonb),
             :input_tokens,
             :output_tokens,
             :total_tokens,
+            :reasoning_tokens,
             :latency_ms,
+            :finish_reason,
+            :response_complete,
             :status,
             :error_message
         )
@@ -214,6 +226,8 @@ def save_visibility_result(
                 excluded.raw_response,
             target_mentioned =
                 excluded.target_mentioned,
+            target_recommended =
+                excluded.target_recommended,
             target_position =
                 excluded.target_position,
             mentioned_competitors =
@@ -226,8 +240,14 @@ def save_visibility_result(
                 excluded.output_tokens,
             total_tokens =
                 excluded.total_tokens,
+            reasoning_tokens =
+                excluded.reasoning_tokens,
             latency_ms =
                 excluded.latency_ms,
+            finish_reason =
+                excluded.finish_reason,
+            response_complete =
+                excluded.response_complete,
             status =
                 excluded.status,
             error_message =
@@ -250,6 +270,13 @@ def save_visibility_result(
                     bool(
                         analysis.get(
                             "target_mentioned",
+                            False,
+                        )
+                    ),
+                "target_recommended":
+                    bool(
+                        analysis.get(
+                            "target_recommended",
                             False,
                         )
                     ),
@@ -277,8 +304,16 @@ def save_visibility_result(
                     output_tokens,
                 "total_tokens":
                     total_tokens,
+                "reasoning_tokens":
+                    reasoning_tokens,
                 "latency_ms":
                     latency_ms,
+                "finish_reason":
+                    finish_reason,
+                "response_complete":
+                    bool(
+                        response_complete
+                    ),
                 "status": status,
                 "error_message":
                     error_message,
@@ -394,13 +429,17 @@ def get_run_results(
             r.model,
             r.raw_response,
             r.target_mentioned,
+            r.target_recommended,
             r.target_position,
             r.mentioned_competitors,
             r.mentioned_known_businesses,
             r.input_tokens,
             r.output_tokens,
             r.total_tokens,
+            r.reasoning_tokens,
             r.latency_ms,
+            r.finish_reason,
+            r.response_complete,
             r.status,
             r.error_message,
             r.created_at
