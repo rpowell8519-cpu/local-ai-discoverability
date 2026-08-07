@@ -32,7 +32,7 @@ from src.review_repository import (
 from src.taxonomy import GROUP_LABELS
 
 
-BUILD_VERSION = "Review Intelligence v1.0"
+BUILD_VERSION = "Review Intelligence v1.1"
 
 
 st.set_page_config(
@@ -48,6 +48,64 @@ st.caption(
     "its validated competitor cohort."
 )
 st.caption(f"Build: {BUILD_VERSION}")
+
+
+active_diagnostic = (
+    st.session_state.get(
+        "active_diagnostic_cohort",
+        {},
+    )
+)
+
+active_ids = [
+    str(place_id)
+    for place_id in (
+        active_diagnostic.get(
+            "business_ids",
+            [],
+        )
+        or []
+    )
+]
+
+active_target_id = str(
+    active_diagnostic.get(
+        "target_google_place_id"
+    )
+    or ""
+)
+
+active_target_name = str(
+    active_diagnostic.get(
+        "target_business_name"
+    )
+    or ""
+)
+
+active_names = {
+    str(key): str(value)
+    for key, value in (
+        active_diagnostic.get(
+            "business_names",
+            {},
+        )
+        or {}
+    ).items()
+}
+
+if active_ids:
+    st.info(
+        "Active diagnostic cohort: "
+        f"**{active_target_name or 'Target'} + "
+        f"{max(len(active_ids) - 1, 0)} AI leader(s)**. "
+        "Review collection/import below is scoped to "
+        "the same cohort in this browser session."
+    )
+
+    st.page_link(
+        "pages/9_AI_Competitive_Diagnostic.py",
+        label="← Return to AI Competitive Diagnostic",
+    )
 
 
 @st.cache_data(ttl=300)
@@ -135,6 +193,154 @@ import_tab, insights_tab = st.tabs(
 
 with import_tab:
     st.subheader("Import Outscraper review files")
+
+    if active_ids:
+        st.write(
+            "### Active diagnostic review collection"
+        )
+
+        try:
+            active_inventory = (
+                get_review_counts()
+            )
+        except Exception:
+            active_inventory = (
+                pd.DataFrame()
+            )
+
+        active_count_lookup = {}
+
+        if not active_inventory.empty:
+            active_inventory[
+                "google_place_id"
+            ] = active_inventory[
+                "google_place_id"
+            ].astype(str)
+
+            active_count_lookup = (
+                active_inventory
+                .set_index(
+                    "google_place_id"
+                )[
+                    "review_count"
+                ]
+                .to_dict()
+            )
+
+        collection_rows = []
+
+        for place_id in active_ids:
+            stored = int(
+                active_count_lookup.get(
+                    str(place_id),
+                    0,
+                )
+                or 0
+            )
+
+            collection_rows.append(
+                {
+                    "Business":
+                        active_names.get(
+                            str(place_id),
+                            str(place_id),
+                        ),
+                    "Google Place ID":
+                        str(place_id),
+                    "Reviews stored":
+                        stored,
+                    "Recommended collection":
+                        (
+                            0
+                            if stored >= 100
+                            else max(
+                                100 - stored,
+                                0,
+                            )
+                        ),
+                    "Status":
+                        (
+                            "Ready"
+                            if stored > 0
+                            else "Missing"
+                        ),
+                }
+            )
+
+        collection_frame = (
+            pd.DataFrame(
+                collection_rows
+            )
+        )
+
+        st.dataframe(
+            collection_frame,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        missing_collection = (
+            collection_frame[
+                collection_frame[
+                    "Reviews stored"
+                ]
+                == 0
+            ].copy()
+        )
+
+        if missing_collection.empty:
+            st.success(
+                "Every business in the active diagnostic "
+                "cohort already has imported review evidence."
+            )
+        else:
+            export_frame = (
+                missing_collection[
+                    [
+                        "Business",
+                        "Google Place ID",
+                    ]
+                ]
+                .copy()
+            )
+
+            export_frame[
+                "Location"
+            ] = str(
+                active_diagnostic.get(
+                    "location_context"
+                )
+                or ""
+            )
+
+            export_frame[
+                "Recommended reviews"
+            ] = 100
+
+            st.download_button(
+                "Download Outscraper collection list",
+                data=(
+                    export_frame
+                    .to_csv(
+                        index=False
+                    )
+                    .encode(
+                        "utf-8"
+                    )
+                ),
+                file_name=(
+                    "diagnostic_review_collection.csv"
+                ),
+                mime="text/csv",
+            )
+
+            st.caption(
+                "Collect roughly 100 Google reviews per "
+                "missing business, then upload the resulting "
+                "Outscraper file(s) below."
+            )
+
+        st.divider()
 
     st.write(
         "Upload one or more original Outscraper Google "
@@ -395,6 +601,29 @@ with insights_tab:
         else 0
     )
 
+    if active_target_id:
+        active_target_rows = businesses[
+            businesses[
+                "google_place_id"
+            ].astype(str)
+            == active_target_id
+        ]
+
+        if not active_target_rows.empty:
+            active_group = str(
+                active_target_rows.iloc[0][
+                    "primary_group"
+                ]
+                or ""
+            )
+
+            if active_group in available_groups:
+                default_group_index = (
+                    available_groups.index(
+                        active_group
+                    )
+                )
+
     st.sidebar.header(
         "Review benchmark target"
     )
@@ -455,23 +684,30 @@ with insights_tab:
 
     default_target_index = 0
 
-    for index, place_id in enumerate(
-        target_ids
-    ):
-        if (
-            str(
-                target_name_lookup.get(
-                    place_id,
-                    "",
-                )
-            ).lower()
-            in {
-                "the george payne pub",
-                "george payne",
-            }
+    if active_target_id in target_ids:
+        default_target_index = (
+            target_ids.index(
+                active_target_id
+            )
+        )
+    else:
+        for index, place_id in enumerate(
+            target_ids
         ):
-            default_target_index = index
-            break
+            if (
+                str(
+                    target_name_lookup.get(
+                        place_id,
+                        "",
+                    )
+                ).lower()
+                in {
+                    "the george payne pub",
+                    "george payne",
+                }
+            ):
+                default_target_index = index
+                break
 
     target_id = st.sidebar.selectbox(
         "Target business",
@@ -525,15 +761,23 @@ with insights_tab:
         "Review cohort"
     )
 
+    review_scope_options = [
+        "Target only",
+        "Direct competitors",
+        "Direct + indirect competitors",
+        "Direct + indirect + possible",
+    ]
+
+    if active_ids:
+        review_scope_options.insert(
+            0,
+            "Active diagnostic cohort",
+        )
+
     cohort_scope = st.sidebar.selectbox(
         "Include",
-        options=[
-            "Target only",
-            "Direct competitors",
-            "Direct + indirect competitors",
-            "Direct + indirect + possible",
-        ],
-        index=2,
+        options=review_scope_options,
+        index=0 if active_ids else 2,
         key="review_scope",
     )
 
@@ -577,25 +821,36 @@ with insights_tab:
             0:0
         ].copy()
 
-    selected_ids = [
-        str(target_id)
-    ]
-
-    if not cohort.empty:
-        selected_ids.extend(
-            cohort[
-                "google_place_id"
-            ]
-            .dropna()
-            .astype(str)
-            .tolist()
+    if (
+        cohort_scope
+        == "Active diagnostic cohort"
+        and active_ids
+    ):
+        selected_ids = list(
+            dict.fromkeys(
+                active_ids
+            )
         )
+    else:
+        selected_ids = [
+            str(target_id)
+        ]
 
-    selected_ids = list(
-        dict.fromkeys(
-            selected_ids
+        if not cohort.empty:
+            selected_ids.extend(
+                cohort[
+                    "google_place_id"
+                ]
+                .dropna()
+                .astype(str)
+                .tolist()
+            )
+
+        selected_ids = list(
+            dict.fromkeys(
+                selected_ids
+            )
         )
-    )
 
     business_names = (
         businesses
