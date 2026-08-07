@@ -26,7 +26,7 @@ from src.website_audit_repository import (
 )
 
 
-BUILD_VERSION = "Website Footprint Audit v1.1.1"
+BUILD_VERSION = "Website Footprint Audit v1.1.2"
 
 
 CRAWL_PRESETS = {
@@ -222,6 +222,53 @@ if businesses.empty:
     st.stop()
 
 
+active_diagnostic = (
+    st.session_state.get(
+        "active_diagnostic_cohort",
+        {},
+    )
+)
+
+active_ids = [
+    str(place_id)
+    for place_id in (
+        active_diagnostic.get(
+            "business_ids",
+            [],
+        )
+        or []
+    )
+]
+
+active_target_id = str(
+    active_diagnostic.get(
+        "target_google_place_id"
+    )
+    or ""
+)
+
+active_target_name = str(
+    active_diagnostic.get(
+        "target_business_name"
+    )
+    or ""
+)
+
+if active_ids:
+    st.info(
+        "Active diagnostic cohort: "
+        f"**{active_target_name or 'Target'} + "
+        f"{max(len(active_ids) - 1, 0)} AI leader(s)**. "
+        "The audit scope has been preselected from "
+        "AI Competitive Diagnostic."
+    )
+
+    st.page_link(
+        "pages/9_AI_Competitive_Diagnostic.py",
+        label="← Return to AI Competitive Diagnostic",
+    )
+
+
 available_groups = sorted(
     businesses["primary_group"]
     .dropna()
@@ -234,9 +281,35 @@ available_groups = sorted(
 
 st.sidebar.header("Audit target")
 
+default_group_index = 0
+
+if active_target_id:
+    active_target_rows = businesses[
+        businesses[
+            "google_place_id"
+        ].astype(str)
+        == active_target_id
+    ]
+
+    if not active_target_rows.empty:
+        active_group = str(
+            active_target_rows.iloc[0][
+                "primary_group"
+            ]
+            or ""
+        )
+
+        if active_group in available_groups:
+            default_group_index = (
+                available_groups.index(
+                    active_group
+                )
+            )
+
 selected_group = st.sidebar.selectbox(
     "Canonical group",
     options=available_groups,
+    index=default_group_index,
     format_func=lambda value: GROUP_LABELS.get(
         value,
         value,
@@ -270,18 +343,30 @@ target_name_lookup = (
 
 default_target_index = 0
 
-for index, place_id in enumerate(target_ids):
-    if (
-        str(
-            target_name_lookup.get(
-                place_id,
-                "",
-            )
-        ).lower()
-        == "ciscos karma"
-    ):
-        default_target_index = index
-        break
+target_id_strings = [
+    str(place_id)
+    for place_id in target_ids
+]
+
+if active_target_id in target_id_strings:
+    default_target_index = (
+        target_id_strings.index(
+            active_target_id
+        )
+    )
+else:
+    for index, place_id in enumerate(target_ids):
+        if (
+            str(
+                target_name_lookup.get(
+                    place_id,
+                    "",
+                )
+            ).lower()
+            == "ciscos karma"
+        ):
+            default_target_index = index
+            break
 
 target_id = st.sidebar.selectbox(
     "Target business",
@@ -317,15 +402,24 @@ except Exception as exc:
 st.sidebar.divider()
 st.sidebar.header("Audit scope")
 
+scope_options = [
+    "Target only",
+    "Target + direct competitors",
+    "Target + direct and indirect",
+    "Target + direct, indirect and possible",
+    "Manual selection",
+]
+
+if active_ids:
+    scope_options.insert(
+        0,
+        "Active diagnostic cohort",
+    )
+
 scope = st.sidebar.selectbox(
     "Businesses to audit",
-    options=[
-        "Target only",
-        "Target + direct competitors",
-        "Target + direct and indirect",
-        "Target + direct, indirect and possible",
-        "Manual selection",
-    ],
+    options=scope_options,
+    index=0,
 )
 
 all_business_options = (
@@ -349,10 +443,21 @@ all_name_lookup = (
 manual_ids: list[str] = []
 
 if scope == "Manual selection":
+    manual_default = (
+        [
+            place_id
+            for place_id in all_ids
+            if str(place_id)
+            in set(active_ids)
+        ]
+        if active_ids
+        else [target_id]
+    )
+
     manual_ids = st.sidebar.multiselect(
         "Select businesses",
         options=all_ids,
-        default=[target_id],
+        default=manual_default,
         format_func=lambda value: (
             all_name_lookup.get(
                 value,
@@ -363,6 +468,17 @@ if scope == "Manual selection":
 
 
 selected_ids = [target_id]
+
+if (
+    scope
+    == "Active diagnostic cohort"
+):
+    selected_ids = [
+        place_id
+        for place_id in all_ids
+        if str(place_id)
+        in set(active_ids)
+    ]
 
 if scope == "Target + direct competitors":
     statuses = {"direct"}
@@ -517,8 +633,17 @@ if not missing_websites.empty:
     )
 
 
+run_button_label = (
+    "Run website audits for active diagnostic cohort"
+    if (
+        scope
+        == "Active diagnostic cohort"
+    )
+    else "Run website audits"
+)
+
 run_audits = st.button(
-    "Run website audits",
+    run_button_label,
     type="primary",
     disabled=selected_businesses.empty,
 )
