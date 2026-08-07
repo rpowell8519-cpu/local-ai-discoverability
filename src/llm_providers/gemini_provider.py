@@ -56,7 +56,10 @@ def call_gemini(
                 }
             ],
             "generationConfig": {
-                "maxOutputTokens": 700,
+                "maxOutputTokens": 1200,
+                "thinkingConfig": {
+                    "thinkingLevel": "minimal",
+                },
             },
         },
         timeout=timeout_seconds,
@@ -84,18 +87,33 @@ def call_gemini(
             f"Gemini HTTP {response.status_code}: {message}"
         )
 
+    candidates = payload.get(
+        "candidates",
+        [],
+    )
+
     parts = []
 
-    for candidate in payload.get("candidates", []):
-        content = candidate.get("content") or {}
+    first_candidate = (
+        candidates[0]
+        if candidates
+        else {}
+    )
 
-        for item in content.get("parts", []):
-            text_value = item.get("text")
-            if text_value:
-                parts.append(str(text_value))
+    content = (
+        first_candidate.get("content")
+        or {}
+    )
 
-        if parts:
-            break
+    for item in content.get(
+        "parts",
+        [],
+    ):
+        text_value = item.get("text")
+        if text_value:
+            parts.append(
+                str(text_value)
+            )
 
     text_value = "\n".join(parts).strip()
 
@@ -104,13 +122,33 @@ def call_gemini(
             "Gemini returned no text output."
         )
 
-    usage = payload.get("usageMetadata") or {}
+    usage = payload.get(
+        "usageMetadata"
+    ) or {}
 
-    input_tokens = usage.get("promptTokenCount")
+    input_tokens = usage.get(
+        "promptTokenCount"
+    )
     output_tokens = usage.get(
         "candidatesTokenCount"
     )
-    total_tokens = usage.get("totalTokenCount")
+    total_tokens = usage.get(
+        "totalTokenCount"
+    )
+    reasoning_tokens = usage.get(
+        "thoughtsTokenCount"
+    )
+
+    finish_reason = str(
+        first_candidate.get(
+            "finishReason"
+        )
+        or "UNKNOWN"
+    )
+
+    response_complete = (
+        finish_reason == "STOP"
+    )
 
     return ProviderResponse(
         provider="Gemini",
@@ -119,6 +157,9 @@ def call_gemini(
         input_tokens=input_tokens,
         output_tokens=output_tokens,
         total_tokens=total_tokens,
+        reasoning_tokens=reasoning_tokens,
         latency_ms=latency_ms,
+        finish_reason=finish_reason,
+        response_complete=response_complete,
         raw=payload,
     )
