@@ -25,6 +25,11 @@ from src.ai_recommendation_intelligence import (
     build_provider_share_table,
     build_recommendation_records,
 )
+from src.ai_enrichment_repository import (
+    get_enrichment_queue,
+    load_entity_aliases,
+    upsert_enrichment_candidates,
+)
 from src.ai_visibility_repository import (
     create_visibility_queries,
     create_visibility_run,
@@ -44,7 +49,7 @@ from src.review_repository import (
 from src.taxonomy import GROUP_LABELS
 
 
-BUILD_VERSION = "AI Results Intelligence v1.2.1"
+BUILD_VERSION = "AI Results Intelligence v1.3"
 
 DEFAULT_MODELS = {
     "OpenAI": "gpt-5.6-terra",
@@ -67,11 +72,12 @@ st.caption(
 st.caption(f"Build: {BUILD_VERSION}")
 
 st.info(
-    "V1.2 is a **model-memory benchmark**. It measures both "
-    "target visibility and **Share of Recommendation** across "
-    "every numbered venue recommendation. It also identifies "
-    "AI-discovered competitors outside the approved commercial "
-    "cohort. Search/browsing remains disabled."
+    "V1.3 is a **model-memory benchmark** with entity-aware "
+    "recommendation intelligence. It measures target visibility "
+    "and **Share of Recommendation**, resolves AI venue names "
+    "against the business database and identifies genuinely "
+    "new AI competitors for enrichment. Search/browsing remains "
+    "disabled."
 )
 
 
@@ -1427,10 +1433,20 @@ commercial_competitor_ids = set(
     .tolist()
 )
 
+try:
+    entity_aliases = (
+        load_entity_aliases()
+    )
+except Exception:
+    entity_aliases = (
+        pd.DataFrame()
+    )
+
 recommendations = (
     build_recommendation_records(
         results=results,
         businesses=businesses,
+        aliases=entity_aliases,
         target_google_place_id=(
             str(target_id)
         ),
@@ -1839,6 +1855,77 @@ if not business_share.empty:
             height=500,
         )
 
+    historical_aliases = (
+        recommendations[
+            recommendations[
+                "alias_type"
+            ]
+            == "historical_name"
+        ].copy()
+        if (
+            not recommendations.empty
+            and "alias_type"
+            in recommendations.columns
+        )
+        else pd.DataFrame()
+    )
+
+    if not historical_aliases.empty:
+        st.write(
+            "### Historical entity references"
+        )
+
+        st.caption(
+            "These are cases where a model used an older "
+            "venue identity that has been mapped to the "
+            "current business. We preserve the model's "
+            "original wording because it is useful evidence "
+            "about model knowledge freshness."
+        )
+
+        historical_display = (
+            historical_aliases.groupby(
+                [
+                    "raw_business_name",
+                    "business_name",
+                    "provider",
+                    "alias_source_note",
+                ],
+                dropna=False,
+            )
+            .agg(
+                Recommendations=(
+                    "position",
+                    "size",
+                ),
+                Best_position=(
+                    "position",
+                    "min",
+                ),
+            )
+            .reset_index()
+            .rename(
+                columns={
+                    "raw_business_name":
+                        "AI used",
+                    "business_name":
+                        "Current business",
+                    "provider":
+                        "Provider",
+                    "alias_source_note":
+                        "Entity note",
+                    "Best_position":
+                        "Best position",
+                }
+            )
+        )
+
+        st.dataframe(
+            historical_display,
+            use_container_width=True,
+            hide_index=True,
+        )
+
     unresolved = (
         business_share[
             business_share[
@@ -1849,49 +1936,244 @@ if not business_share.empty:
     )
 
     if not unresolved.empty:
-        with st.expander(
-            "Unresolved AI-recommended venue names"
-        ):
-            st.write(
-                "These names could not be confidently "
-                "matched to the current business database. "
-                "They may be outside the original ~800 "
-                "business pull, naming variants, or "
-                "occasionally model errors."
-            )
+        st.write(
+            "### Unresolved / external AI competitors"
+        )
 
-            st.dataframe(
-                unresolved[
+        st.caption(
+            "These venue names could not be confidently "
+            "matched to the current business database. "
+            "High-share names are candidates for a targeted "
+            "Google Maps lookup and then the same website + "
+            "review diagnostic used for the commercial cohort."
+        )
+
+        unresolved_display = (
+            unresolved.copy()
+        )
+
+        unresolved_display[
+            "Targeted lookup query"
+        ] = unresolved_display[
+            "business_name"
+        ].astype(str).apply(
+            lambda name: (
+                f"{name} {location_context}"
+            )
+        )
+
+        st.dataframe(
+            unresolved_display[
+                [
+                    "business_name",
+                    "recommendations",
+                    "providers",
+                    "average_position",
+                    "Targeted lookup query",
+                ]
+            ].rename(
+                columns={
+                    "business_name":
+                        "Raw venue name",
+                    "recommendations":
+                        "Recommendations",
+                    "providers":
+                        "Providers",
+                    "average_position":
+                        "Avg position",
+                }
+            ),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        action_columns = (
+            st.columns(2)
+        )
+
+        with action_columns[0]:
+            if st.button(
+                "Add unresolved venues to enrichment queue",
+                key=(
+                    "save_ai_enrichment_"
+                    + latest_run_id
+                ),
+            ):
+                saved_count = (
+                    upsert_enrichment_candidates(
+                        run_id=(
+                            latest_run_id
+                        ),
+                        unresolved_market=(
+                            unresolved
+                        ),
+                    )
+                )
+
+                st.success(
+                    f"Saved/updated {saved_count} "
+                    "AI competitor candidate(s)."
+                )
+                st.cache_data.clear()
+
+        with action_columns[1]:
+            lookup_csv = (
+                unresolved_display[
                     [
                         "business_name",
+                        "Targeted lookup query",
                         "recommendations",
                         "providers",
                         "average_position",
                     ]
-                ].rename(
+                ]
+                .rename(
                     columns={
                         "business_name":
-                            "Raw venue name",
+                            "business_name",
                         "recommendations":
-                            "Recommendations",
+                            "ai_recommendations",
                         "providers":
-                            "Providers",
+                            "provider_count",
                         "average_position":
-                            "Avg position",
+                            "average_ai_position",
                     }
-                ),
-                use_container_width=True,
-                hide_index=True,
+                )
+                .to_csv(
+                    index=False
+                )
+                .encode(
+                    "utf-8"
+                )
             )
+
+            st.download_button(
+                "Download targeted lookup CSV",
+                data=lookup_csv,
+                file_name=(
+                    "ai_competitor_lookup_"
+                    + str(
+                        target_name
+                    )
+                    .lower()
+                    .replace(
+                        " ",
+                        "_",
+                    )
+                    + ".csv"
+                ),
+                mime="text/csv",
+            )
+
+# Persistent queue
+try:
+    enrichment_queue = (
+        get_enrichment_queue()
+    )
+except Exception:
+    enrichment_queue = (
+        pd.DataFrame()
+    )
+
+if not enrichment_queue.empty:
+    st.write(
+        "### AI competitor enrichment queue"
+    )
+
+    st.caption(
+        "Persistent candidates discovered by AI but not yet "
+        "resolved to the business dataset. The next data step "
+        "is a targeted Maps pull for the highest-share names."
+    )
+
+    queue_display = (
+        enrichment_queue.copy()
+    )
+
+    if (
+        "providers"
+        in queue_display.columns
+    ):
+        queue_display[
+            "providers"
+        ] = queue_display[
+            "providers"
+        ].apply(
+            lambda value: (
+                ", ".join(
+                    value
+                )
+                if isinstance(
+                    value,
+                    list,
+                )
+                else str(
+                    value
+                    or ""
+                )
+            )
+        )
+
+    st.dataframe(
+        queue_display[
+            [
+                "raw_business_name",
+                "recommendation_count",
+                "provider_count",
+                "providers",
+                "best_position",
+                "status",
+                "notes",
+            ]
+        ].rename(
+            columns={
+                "raw_business_name":
+                    "Candidate",
+                "recommendation_count":
+                    "AI recommendations",
+                "provider_count":
+                    "Providers",
+                "providers":
+                    "Seen on",
+                "best_position":
+                    "Best position",
+                "status":
+                    "Status",
+                "notes":
+                    "Notes",
+            }
+        ),
+        use_container_width=True,
+        hide_index=True,
+    )
 
 
 # -----------------------------
 # Repeated-sampling stability
 # -----------------------------
 
-st.write(
-    "### Intent stability"
+latest_repeat_count = int(
+    latest_run.get(
+        "repeat_count"
+    )
+    or 1
 )
+
+st.write(
+    (
+        "### Intent stability"
+        if latest_repeat_count > 1
+        else "### Intent performance"
+    )
+)
+
+if latest_repeat_count == 1:
+    st.caption(
+        "This run contains one sample per customer intent, "
+        "so this section shows intent-level performance. "
+        "Run 2–3 repetitions in a future benchmark to turn "
+        "this into a true stability measure."
+    )
 
 stability = (
     build_intent_stability_table(
@@ -2220,6 +2502,21 @@ with st.expander(
         "matching against business_features, then a high-"
         "confidence fuzzy match. Ambiguous names remain "
         "unresolved rather than being forced to a business."
+    )
+
+
+    st.write(
+        "V1.3 also supports persistent short-name and "
+        "historical aliases. Historical names remain visible "
+        "in the evidence so a stale model entity is not "
+        "silently rewritten as if the model used the current "
+        "business name."
+    )
+
+    st.write(
+        "Unresolved high-share venues can be saved to the AI "
+        "competitor enrichment queue for a targeted Maps pull "
+        "and subsequent website/review analysis."
     )
 
     st.write(
