@@ -32,7 +32,7 @@ def call_anthropic(
         },
         json={
             "model": model,
-            "max_tokens": 700,
+            "max_tokens": 1200,
             "system": SYSTEM_INSTRUCTION,
             "messages": [
                 {
@@ -92,6 +92,16 @@ def call_anthropic(
     except (TypeError, ValueError):
         total_tokens = None
 
+    stop_reason = str(
+        payload.get("stop_reason")
+        or "unknown"
+    )
+
+    response_complete = stop_reason in {
+        "end_turn",
+        "stop_sequence",
+    }
+
     return ProviderResponse(
         provider="Claude",
         model=model,
@@ -99,6 +109,9 @@ def call_anthropic(
         input_tokens=input_tokens,
         output_tokens=output_tokens,
         total_tokens=total_tokens,
+        reasoning_tokens=None,
         latency_ms=latency_ms,
+        finish_reason=stop_reason,
+        response_complete=response_complete,
         raw=payload,
     )
