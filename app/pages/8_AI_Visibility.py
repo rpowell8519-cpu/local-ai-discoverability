@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -15,35 +16,30 @@ from src.ai_prompt_generator import (
     generate_prompts,
 )
 from src.ai_visibility_analysis import (
-    analyse_visibility_response,
     competitor_mention_summary,
+    reanalyse_results,
     visibility_summary,
 )
 from src.ai_visibility_repository import (
     create_visibility_queries,
     create_visibility_run,
-    finish_visibility_run,
     get_latest_run,
+    get_run_queries,
     get_run_results,
-    save_visibility_result,
+)
+from src.ai_visibility_runner import (
+    build_retry_plan,
+    execute_calls,
+    finalise_run_from_results,
 )
 from src.database import get_engine
-from src.llm_providers.anthropic_provider import (
-    call_anthropic,
-)
-from src.llm_providers.gemini_provider import (
-    call_gemini,
-)
-from src.llm_providers.openai_provider import (
-    call_openai,
-)
 from src.review_repository import (
     get_reviews,
 )
 from src.taxonomy import GROUP_LABELS
 
 
-BUILD_VERSION = "AI Visibility v1.0"
+BUILD_VERSION = "AI Visibility v1.1"
 
 DEFAULT_MODELS = {
     "OpenAI": "gpt-5.6-terra",
@@ -66,11 +62,10 @@ st.caption(
 st.caption(f"Build: {BUILD_VERSION}")
 
 st.info(
-    "V1 is a **model-memory benchmark**. It deliberately "
-    "does not enable web-search tools. This measures what "
-    "the selected API models recommend from their existing "
-    "model knowledge, not an exact reproduction of the "
-    "consumer ChatGPT, Claude or Gemini apps."
+    "V1.1 is a **model-memory benchmark**. It deliberately "
+    "does not enable web-search tools. Visibility is scored "
+    "only from valid, naturally completed responses; "
+    "truncated, failed or missing calls are excluded."
 )
 
 
@@ -89,6 +84,42 @@ def secret_value(
     return str(
         value or default
     )
+
+
+def jsonish(
+    value,
+    default,
+):
+    if isinstance(
+        value,
+        (
+            list,
+            dict,
+        ),
+    ):
+        return value
+
+    if value is None:
+        return default
+
+    try:
+        if pd.isna(value):
+            return default
+    except (TypeError, ValueError):
+        pass
+
+    if isinstance(
+        value,
+        str,
+    ):
+        try:
+            return json.loads(
+                value
+            )
+        except json.JSONDecodeError:
+            return default
+
+    return default
 
 
 @st.cache_data(ttl=300)
@@ -248,10 +279,8 @@ target_options = businesses[
     == selected_group
 ].copy()
 
-target_options = (
-    target_options.sort_values(
-        "business_name"
-    )
+target_options = target_options.sort_values(
+    "business_name"
 )
 
 target_ids = (
@@ -336,11 +365,6 @@ default_location = str(
 location_context = st.sidebar.text_input(
     "Customer search location",
     value=default_location,
-    help=(
-        "This is inserted into the recommendation "
-        "questions. Edit it if a broader or more "
-        "specific location is more realistic."
-    ),
 )
 
 
@@ -406,28 +430,52 @@ st.sidebar.caption(
 )
 
 
+known_businesses = [
+    {
+        "google_place_id":
+            str(target_id),
+        "business_name":
+            target_name,
+    }
+]
+
+if not selected_cohort.empty:
+    known_businesses.extend(
+        [
+            {
+                "google_place_id":
+                    str(
+                        row[
+                            "google_place_id"
+                        ]
+                    ),
+                "business_name":
+                    str(
+                        row[
+                            "business_name"
+                        ]
+                    ),
+            }
+            for row in (
+                selected_cohort
+                .to_dict("records")
+            )
+        ]
+    )
+
+
 st.sidebar.divider()
 st.sidebar.header("Providers")
 
-openai_key = secret_value(
-    "OPENAI_API_KEY"
-)
-anthropic_key = secret_value(
-    "ANTHROPIC_API_KEY"
-)
-gemini_key = secret_value(
-    "GEMINI_API_KEY"
-)
-
-provider_availability = {
-    "OpenAI": bool(
-        openai_key
+api_keys = {
+    "OpenAI": secret_value(
+        "OPENAI_API_KEY"
     ),
-    "Claude": bool(
-        anthropic_key
+    "Claude": secret_value(
+        "ANTHROPIC_API_KEY"
     ),
-    "Gemini": bool(
-        gemini_key
+    "Gemini": secret_value(
+        "GEMINI_API_KEY"
     ),
 }
 
@@ -438,26 +486,16 @@ for provider_name in [
     "Claude",
     "Gemini",
 ]:
+    available = bool(
+        api_keys[
+            provider_name
+        ]
+    )
+
     enabled = st.sidebar.checkbox(
         provider_name,
-        value=provider_availability[
-            provider_name
-        ],
-        disabled=not (
-            provider_availability[
-                provider_name
-            ]
-        ),
-        help=(
-            None
-            if provider_availability[
-                provider_name
-            ]
-            else (
-                f"{provider_name} API key "
-                "was not found in Streamlit Secrets."
-            )
-        ),
+        value=available,
+        disabled=not available,
     )
 
     if enabled:
@@ -540,10 +578,9 @@ if (
 st.subheader("1. Review the test questions")
 
 st.write(
-    "These prompts are generated from the business vertical "
-    "and, where review data is available, recurring customer "
-    "associations. The target business name is never inserted "
-    "into the question."
+    "The target and competitor names are not inserted "
+    "into these customer questions. You can edit, add "
+    "or remove prompts before running the benchmark."
 )
 
 control_columns = st.columns(
@@ -608,19 +645,15 @@ edited_prompts = st.data_editor(
     column_config={
         "include":
             st.column_config.CheckboxColumn(
-                "Run",
-                help=(
-                    "Only checked prompts "
-                    "will be sent."
-                ),
+                "Run"
             ),
         "category":
             st.column_config.TextColumn(
-                "Intent",
+                "Intent"
             ),
         "source":
             st.column_config.TextColumn(
-                "Source",
+                "Source"
             ),
         "prompt":
             st.column_config.TextColumn(
@@ -638,13 +671,11 @@ st.session_state[
     prompt_state_key
 ] = edited_prompts.copy()
 
-selected_prompt_frame = (
+selected_prompt_frame = edited_prompts[
     edited_prompts[
-        edited_prompts[
-            "include"
-        ].fillna(False)
-    ].copy()
-)
+        "include"
+    ].fillna(False)
+].copy()
 
 selected_prompt_frame[
     "prompt"
@@ -666,69 +697,50 @@ selected_prompt_frame = (
 )
 
 st.caption(
-    f"{len(selected_prompt_frame)} prompt(s) selected × "
+    f"{len(selected_prompt_frame)} prompt(s) × "
     f"{len(selected_providers)} provider(s) = "
     f"{len(selected_prompt_frame) * len(selected_providers)} "
-    "API call(s)."
+    "API call(s). Providers for each prompt run in "
+    "parallel to reduce total run time."
 )
 
 
 st.divider()
-st.subheader("2. Run the model-memory benchmark")
+st.subheader("2. Run or resume benchmark")
 
-known_businesses = [
-    {
-        "google_place_id":
-            str(target_id),
-        "business_name":
-            target_name,
-    }
-]
 
-if not selected_cohort.empty:
-    known_businesses.extend(
-        [
-            {
-                "google_place_id":
-                    str(
-                        row[
-                            "google_place_id"
-                        ]
-                    ),
-                "business_name":
-                    str(
-                        row[
-                            "business_name"
-                        ]
-                    ),
-            }
-            for row in selected_cohort.to_dict(
-                "records"
+def run_progress_ui():
+    progress = st.progress(0)
+    status_box = st.empty()
+
+    def progress_callback(
+        processed: int,
+        total: int,
+    ):
+        progress.progress(
+            processed / max(
+                total,
+                1,
             )
-        ]
-    )
+        )
 
-with st.expander(
-    "Known businesses used for result detection"
-):
-    st.dataframe(
-        pd.DataFrame(
-            known_businesses
-        ).rename(
-            columns={
-                "business_name":
-                    "Business",
-                "google_place_id":
-                    "Google Place ID",
-            }
-        ),
-        use_container_width=True,
-        hide_index=True,
+    def status_callback(
+        prompt_text: str,
+    ):
+        status_box.write(
+            f"Testing: **{prompt_text}**"
+        )
+
+    return (
+        progress,
+        status_box,
+        progress_callback,
+        status_callback,
     )
 
 
 run_button = st.button(
-    "Run AI visibility test",
+    "Run new AI visibility test",
     type="primary",
     disabled=(
         len(
@@ -741,7 +753,6 @@ run_button = st.button(
         == 0
     ),
 )
-
 
 if run_button:
     prompt_records = (
@@ -796,203 +807,63 @@ if run_button:
         )
     )
 
-    total_calls = (
-        len(query_records)
-        * len(
-            selected_providers
-        )
-    )
+    call_plan = [
+        {
+            **query_record,
+            "provider":
+                provider,
+        }
+        for query_record
+        in query_records
+        for provider
+        in selected_providers
+    ]
 
-    progress = st.progress(0)
-    status_box = st.empty()
+    (
+        progress,
+        status_box,
+        progress_callback,
+        status_callback,
+    ) = run_progress_ui()
 
-    completed_calls = 0
-    failed_calls = 0
-
-    for query_record in (
-        query_records
-    ):
-        prompt_text = str(
-            query_record[
-                "prompt_text"
-            ]
-        )
-
-        for provider in (
-            selected_providers
-        ):
-            status_box.write(
-                f"Testing **{provider}**: "
-                f"{prompt_text}"
-            )
-
-            model = (
-                models_for_run[
-                    provider
-                ]
-            )
-
-            try:
-                if provider == "OpenAI":
-                    provider_response = (
-                        call_openai(
-                            api_key=(
-                                openai_key
-                            ),
-                            model=model,
-                            prompt=(
-                                prompt_text
-                            ),
-                        )
-                    )
-                elif provider == "Claude":
-                    provider_response = (
-                        call_anthropic(
-                            api_key=(
-                                anthropic_key
-                            ),
-                            model=model,
-                            prompt=(
-                                prompt_text
-                            ),
-                        )
-                    )
-                else:
-                    provider_response = (
-                        call_gemini(
-                            api_key=(
-                                gemini_key
-                            ),
-                            model=model,
-                            prompt=(
-                                prompt_text
-                            ),
-                        )
-                    )
-
-                analysis = (
-                    analyse_visibility_response(
-                        response_text=(
-                            provider_response.text
-                        ),
-                        target_google_place_id=(
-                            str(
-                                target_id
-                            )
-                        ),
-                        target_business_name=(
-                            target_name
-                        ),
-                        known_businesses=(
-                            known_businesses
-                        ),
-                    )
-                )
-
-                save_visibility_result(
-                    run_id=run_id,
-                    query_id=str(
-                        query_record[
-                            "id"
-                        ]
-                    ),
-                    provider=provider,
-                    model=model,
-                    raw_response=(
-                        provider_response.text
-                    ),
-                    analysis=analysis,
-                    input_tokens=(
-                        provider_response.input_tokens
-                    ),
-                    output_tokens=(
-                        provider_response.output_tokens
-                    ),
-                    total_tokens=(
-                        provider_response.total_tokens
-                    ),
-                    latency_ms=(
-                        provider_response.latency_ms
-                    ),
-                    status="completed",
-                )
-
-                completed_calls += 1
-
-            except Exception as exc:
-                save_visibility_result(
-                    run_id=run_id,
-                    query_id=str(
-                        query_record[
-                            "id"
-                        ]
-                    ),
-                    provider=provider,
-                    model=model,
-                    raw_response=None,
-                    analysis={
-                        "target_mentioned":
-                            False,
-                        "target_position":
-                            None,
-                        "mentioned_competitors":
-                            [],
-                        "mentioned_known_businesses":
-                            [],
-                    },
-                    input_tokens=None,
-                    output_tokens=None,
-                    total_tokens=None,
-                    latency_ms=None,
-                    status="failed",
-                    error_message=str(
-                        exc
-                    )[:2000],
-                )
-
-                failed_calls += 1
-
-            progress.progress(
-                (
-                    completed_calls
-                    + failed_calls
-                )
-                / total_calls
-            )
-
-    status_box.empty()
-
-    if failed_calls == 0:
-        run_status = "completed"
-    elif completed_calls > 0:
-        run_status = "partial"
-    else:
-        run_status = "failed"
-
-    finish_visibility_run(
+    execute_calls(
         run_id=run_id,
-        status=run_status,
-        error_message=(
-            (
-                f"{failed_calls} API "
-                "call(s) failed."
-            )
-            if failed_calls
-            else None
+        call_plan=call_plan,
+        models=models_for_run,
+        api_keys=api_keys,
+        target_google_place_id=(
+            str(target_id)
+        ),
+        target_business_name=(
+            target_name
+        ),
+        known_businesses=(
+            known_businesses
+        ),
+        progress_callback=(
+            progress_callback
+        ),
+        status_callback=(
+            status_callback
         ),
     )
 
-    st.success(
-        f"Run complete: {completed_calls} successful "
-        f"API call(s), {failed_calls} failed."
+    status_box.empty()
+
+    finalise_run_from_results(
+        run_id=run_id,
+        expected_call_count=len(
+            call_plan
+        ),
     )
 
     st.cache_data.clear()
+    st.success(
+        "Benchmark finished. Results have been "
+        "saved after every individual API call."
+    )
     st.rerun()
 
-
-st.divider()
-st.subheader("3. Latest visibility results")
 
 try:
     latest_run = get_latest_run(
@@ -1000,12 +871,212 @@ try:
     )
 except Exception as exc:
     st.info(
-        "The AI Visibility database tables are not "
+        "The AI Visibility reliability columns are not "
         "available yet. Run the supplied SQL migration."
     )
     st.exception(exc)
     st.stop()
 
+
+latest_queries = pd.DataFrame()
+latest_results = pd.DataFrame()
+retry_plan = []
+latest_run_providers = []
+latest_run_models = {}
+
+if latest_run:
+    latest_run_id = str(
+        latest_run["id"]
+    )
+
+    latest_queries = (
+        get_run_queries(
+            latest_run_id
+        )
+    )
+
+    latest_results = (
+        get_run_results(
+            latest_run_id
+        )
+    )
+
+    latest_run_providers = [
+        str(item)
+        for item in jsonish(
+            latest_run.get(
+                "providers"
+            ),
+            [],
+        )
+    ]
+
+    latest_run_models = {
+        str(key): str(value)
+        for key, value in jsonish(
+            latest_run.get(
+                "models"
+            ),
+            {},
+        ).items()
+    }
+
+    retry_plan = build_retry_plan(
+        queries=latest_queries,
+        results=latest_results,
+        providers=(
+            latest_run_providers
+        ),
+    )
+
+
+if latest_run and retry_plan:
+    pending_counts = {}
+
+    for item in retry_plan:
+        provider = str(
+            item["provider"]
+        )
+        pending_counts[
+            provider
+        ] = (
+            pending_counts.get(
+                provider,
+                0,
+            )
+            + 1
+        )
+
+    st.warning(
+        "The latest run has missing, failed or "
+        "truncated responses. They are excluded from "
+        "visibility scoring and can be resumed without "
+        "repeating valid calls."
+    )
+
+    retry_provider_options = [
+        provider
+        for provider in (
+            latest_run_providers
+        )
+        if pending_counts.get(
+            provider,
+            0,
+        )
+        > 0
+    ]
+
+    retry_providers = st.multiselect(
+        "Providers to resume/retry",
+        options=(
+            retry_provider_options
+        ),
+        default=(
+            retry_provider_options
+        ),
+        format_func=lambda provider: (
+            f"{provider} "
+            f"({pending_counts.get(provider, 0)} call(s))"
+        ),
+    )
+
+    filtered_retry_plan = [
+        item
+        for item in retry_plan
+        if item[
+            "provider"
+        ]
+        in retry_providers
+    ]
+
+    if st.button(
+        f"Resume/retry {len(filtered_retry_plan)} incomplete call(s)",
+        disabled=(
+            not filtered_retry_plan
+        ),
+    ):
+        unavailable = [
+            provider
+            for provider
+            in retry_providers
+            if not api_keys.get(
+                provider
+            )
+        ]
+
+        if unavailable:
+            st.error(
+                "Missing API secret(s) for: "
+                + ", ".join(
+                    unavailable
+                )
+            )
+        else:
+            (
+                progress,
+                status_box,
+                progress_callback,
+                status_callback,
+            ) = run_progress_ui()
+
+            execute_calls(
+                run_id=(
+                    latest_run_id
+                ),
+                call_plan=(
+                    filtered_retry_plan
+                ),
+                models=(
+                    latest_run_models
+                ),
+                api_keys=api_keys,
+                target_google_place_id=(
+                    str(target_id)
+                ),
+                target_business_name=(
+                    target_name
+                ),
+                known_businesses=(
+                    known_businesses
+                ),
+                progress_callback=(
+                    progress_callback
+                ),
+                status_callback=(
+                    status_callback
+                ),
+            )
+
+            status_box.empty()
+
+            expected_call_count = (
+                len(
+                    latest_queries
+                )
+                * len(
+                    latest_run_providers
+                )
+            )
+
+            finalise_run_from_results(
+                run_id=(
+                    latest_run_id
+                ),
+                expected_call_count=(
+                    expected_call_count
+                ),
+            )
+
+            st.cache_data.clear()
+            st.success(
+                "Resume/retry finished. Valid previous "
+                "responses were not repeated."
+            )
+            st.rerun()
+
+
+st.divider()
+st.subheader("3. Latest visibility results")
 
 if not latest_run:
     st.info(
@@ -1014,21 +1085,28 @@ if not latest_run:
     )
     st.stop()
 
-
-latest_run_id = str(
-    latest_run["id"]
-)
-
-results = get_run_results(
-    latest_run_id
-)
-
-if results.empty:
+if latest_results.empty:
     st.info(
         "The latest run does not yet contain results."
     )
     st.stop()
 
+
+# Re-run the latest detection logic over stored raw responses. This fixes
+# historical V1 ranking without requiring the paid model calls to be run
+# again.
+results = reanalyse_results(
+    latest_results,
+    target_google_place_id=(
+        str(target_id)
+    ),
+    target_business_name=(
+        target_name
+    ),
+    known_businesses=(
+        known_businesses
+    ),
+)
 
 summary = visibility_summary(
     results
@@ -1046,36 +1124,97 @@ if not summary.empty:
         ),
     ):
         with column:
-            average_position = (
-                row[
-                    "average_position"
-                ]
-            )
+            rate = row[
+                "visibility_rate"
+            ]
+
+            if (
+                rate is None
+                or pd.isna(rate)
+            ):
+                metric_value = (
+                    "No valid responses"
+                )
+            else:
+                metric_value = (
+                    f"{float(rate):.0%} visible"
+                )
+
+            average_position = row[
+                "average_position"
+            ]
+
+            delta = None
+
+            if (
+                average_position
+                is not None
+                and pd.notna(
+                    average_position
+                )
+            ):
+                delta = (
+                    "Avg position "
+                    f"{float(average_position):.1f}"
+                )
 
             st.metric(
                 str(
-                    row[
-                        "provider"
-                    ]
+                    row["provider"]
                 ),
-                (
-                    f"{row['visibility_rate']:.0%} visible"
-                ),
-                delta=(
-                    (
-                        f"Avg position "
-                        f"{average_position:.1f}"
-                    )
-                    if average_position
-                    is not None
-                    else (
-                        "No target mentions"
-                    )
-                ),
+                metric_value,
+                delta=delta,
             )
+
+            if (
+                row[
+                    "incomplete_responses"
+                ]
+                or row[
+                    "failed_responses"
+                ]
+            ):
+                st.caption(
+                    f"{row['incomplete_responses']} incomplete · "
+                    f"{row['failed_responses']} failed"
+                )
+
+    prompt_count = int(
+        latest_run.get(
+            "prompt_count"
+        )
+        or len(
+            latest_queries
+        )
+    )
 
     summary_display = (
         summary.copy()
+    )
+
+    summary_display[
+        "Missing"
+    ] = summary_display.apply(
+        lambda row: max(
+            prompt_count
+            - int(
+                row[
+                    "valid_responses"
+                ]
+            )
+            - int(
+                row[
+                    "incomplete_responses"
+                ]
+            )
+            - int(
+                row[
+                    "failed_responses"
+                ]
+            ),
+            0,
+        ),
+        axis=1,
     )
 
     summary_display[
@@ -1085,6 +1224,11 @@ if not summary.empty:
     ].apply(
         lambda value: (
             f"{float(value):.0%}"
+            if (
+                value is not None
+                and pd.notna(value)
+            )
+            else "—"
         )
     )
 
@@ -1104,25 +1248,35 @@ if not summary.empty:
         summary_display[
             [
                 "provider",
-                "tests_completed",
-                "target_mentions",
+                "valid_responses",
+                "incomplete_responses",
+                "failed_responses",
+                "Missing",
+                "target_recommendations",
                 "Visibility",
                 "Avg position",
                 "input_tokens",
                 "output_tokens",
+                "reasoning_tokens",
             ]
         ].rename(
             columns={
                 "provider":
                     "Provider",
-                "tests_completed":
-                    "Tests",
-                "target_mentions":
-                    "Target mentions",
+                "valid_responses":
+                    "Valid",
+                "incomplete_responses":
+                    "Incomplete",
+                "failed_responses":
+                    "Failed",
+                "target_recommendations":
+                    "Target recommendations",
                 "input_tokens":
                     "Input tokens",
                 "output_tokens":
                     "Output tokens",
+                "reasoning_tokens":
+                    "Reasoning tokens",
             }
         ),
         use_container_width=True,
@@ -1130,96 +1284,119 @@ if not summary.empty:
     )
 
 
-completed_results = results[
-    results[
-        "status"
-    ]
-    == "completed"
-].copy()
+st.write(
+    "### Prompt-by-provider visibility"
+)
 
-if not completed_results.empty:
-    matrix = completed_results[
-        [
-            "prompt_order",
-            "prompt_text",
-            "provider",
-            "target_mentioned",
-            "target_position",
-        ]
-    ].copy()
+result_lookup = {}
 
-    matrix[
-        "Result"
-    ] = matrix.apply(
-        lambda row: (
+for row in results.to_dict(
+    "records"
+):
+    result_lookup[
+        (
+            str(
+                row[
+                    "query_id"
+                ]
+            ),
+            str(
+                row[
+                    "provider"
+                ]
+            ),
+        )
+    ] = row
+
+matrix_rows = []
+
+for query in latest_queries.to_dict(
+    "records"
+):
+    matrix_row = {
+        "#":
+            int(
+                query[
+                    "prompt_order"
+                ]
+            ),
+        "Customer question":
+            str(
+                query[
+                    "prompt_text"
+                ]
+            ),
+    }
+
+    for provider in (
+        latest_run_providers
+    ):
+        result = result_lookup.get(
             (
+                str(
+                    query[
+                        "id"
+                    ]
+                ),
+                provider,
+            )
+        )
+
+        if result is None:
+            value = "… missing"
+        elif (
+            result.get(
+                "status"
+            )
+            == "failed"
+        ):
+            value = "✕ failed"
+        elif not bool(
+            result.get(
+                "response_complete"
+            )
+        ):
+            value = "⚠ incomplete"
+        elif bool(
+            result.get(
+                "target_recommended"
+            )
+        ):
+            position = result.get(
+                "target_position"
+            )
+
+            value = (
                 "✓ #"
                 + str(
                     int(
-                        row[
-                            "target_position"
-                        ]
+                        position
                     )
                 )
-            )
-            if (
-                bool(
-                    row[
-                        "target_mentioned"
-                    ]
+                if pd.notna(
+                    position
                 )
-                and pd.notna(
-                    row[
-                        "target_position"
-                    ]
-                )
+                else "✓"
             )
-            else (
-                "✓"
-                if bool(
-                    row[
-                        "target_mentioned"
-                    ]
-                )
-                else "—"
-            )
-        ),
-        axis=1,
+        else:
+            value = "—"
+
+        matrix_row[
+            provider
+        ] = value
+
+    matrix_rows.append(
+        matrix_row
     )
 
-    matrix_display = (
-        matrix.pivot_table(
-            index=[
-                "prompt_order",
-                "prompt_text",
-            ],
-            columns="provider",
-            values="Result",
-            aggfunc="first",
-        )
-        .reset_index()
-        .sort_values(
-            "prompt_order"
-        )
-        .rename(
-            columns={
-                "prompt_order":
-                    "#",
-                "prompt_text":
-                    "Customer question",
-            }
-        )
-    )
-
-    st.write(
-        "### Prompt-by-provider visibility"
-    )
-
-    st.dataframe(
-        matrix_display,
-        use_container_width=True,
-        hide_index=True,
-    )
+st.dataframe(
+    pd.DataFrame(
+        matrix_rows
+    ),
+    use_container_width=True,
+    hide_index=True,
+    height=700,
+)
 
 
 competitor_summary = (
@@ -1237,9 +1414,7 @@ if not competitor_summary.empty:
         lambda value: (
             "Yes"
             if value
-            == str(
-                target_id
-            )
+            == str(target_id)
             else "No"
         )
     )
@@ -1253,14 +1428,14 @@ if not competitor_summary.empty:
             [
                 "business_name",
                 "Target?",
-                "mentions",
+                "recommendations",
             ]
         ].rename(
             columns={
                 "business_name":
                     "Business",
-                "mentions":
-                    "Mentions",
+                "recommendations":
+                    "Recommendations",
             }
         ),
         use_container_width=True,
@@ -1268,43 +1443,9 @@ if not competitor_summary.empty:
     )
 
 
-failed_results = results[
-    results[
-        "status"
-    ]
-    == "failed"
-]
-
-if not failed_results.empty:
-    with st.expander(
-        f"API failures ({len(failed_results)})"
-    ):
-        st.dataframe(
-            failed_results[
-                [
-                    "provider",
-                    "model",
-                    "prompt_text",
-                    "error_message",
-                ]
-            ].rename(
-                columns={
-                    "provider":
-                        "Provider",
-                    "model":
-                        "Model",
-                    "prompt_text":
-                        "Prompt",
-                    "error_message":
-                        "Error",
-                }
-            ),
-            use_container_width=True,
-            hide_index=True,
-        )
-
-
-st.write("### Inspect raw model response")
+st.write(
+    "### Inspect raw model response"
+)
 
 response_options = (
     results.index.tolist()
@@ -1326,11 +1467,39 @@ selected_result = results.loc[
     selected_response_index
 ]
 
+completion_label = (
+    "Valid complete response"
+    if (
+        selected_result[
+            "status"
+        ]
+        == "completed"
+        and bool(
+            selected_result[
+                "response_complete"
+            ]
+        )
+    )
+    else (
+        "Incomplete / truncated"
+        if selected_result[
+            "status"
+        ]
+        == "completed"
+        else "Failed"
+    )
+)
+
 st.write(
     f"**Provider:** {selected_result['provider']}  \n"
     f"**Model:** {selected_result['model']}  \n"
-    f"**Target detected:** "
-    f"{'Yes' if bool(selected_result['target_mentioned']) else 'No'}"
+    f"**Completion:** {completion_label}  \n"
+    f"**Finish reason:** "
+    f"{selected_result.get('finish_reason') or '—'}  \n"
+    f"**Target recommended:** "
+    f"{'Yes' if bool(selected_result.get('target_recommended')) else 'No'}  \n"
+    f"**Recommendation position:** "
+    f"{int(selected_result['target_position']) if pd.notna(selected_result.get('target_position')) else '—'}"
 )
 
 if (
@@ -1339,6 +1508,54 @@ if (
     ]
     == "completed"
 ):
+    token_columns = st.columns(4)
+
+    token_values = [
+        (
+            "Input tokens",
+            selected_result.get(
+                "input_tokens"
+            ),
+        ),
+        (
+            "Visible output",
+            selected_result.get(
+                "output_tokens"
+            ),
+        ),
+        (
+            "Reasoning tokens",
+            selected_result.get(
+                "reasoning_tokens"
+            ),
+        ),
+        (
+            "Total tokens",
+            selected_result.get(
+                "total_tokens"
+            ),
+        ),
+    ]
+
+    for column, (
+        label,
+        value,
+    ) in zip(
+        token_columns,
+        token_values,
+    ):
+        with column:
+            st.metric(
+                label,
+                (
+                    int(value)
+                    if pd.notna(
+                        value
+                    )
+                    else "—"
+                ),
+            )
+
     st.text_area(
         "Raw response",
         value=str(
@@ -1365,30 +1582,34 @@ with st.expander(
     "Methodology and limitations"
 ):
     st.write(
-        "The target name and competitor names are not "
-        "included in the customer prompts. They are used "
-        "only after each response to detect whether known "
-        "businesses were mentioned."
+        "Visibility is now based on an actual numbered "
+        "recommendation position, not merely the order "
+        "in which known cohort businesses happen to "
+        "appear in the response."
     )
 
     st.write(
-        "Position is currently the order in which known "
-        "business names first appear in the response. "
-        "Because providers are instructed to return a "
-        "numbered recommendation list, this is a useful "
-        "V1 proxy for recommendation rank."
+        "Incomplete, truncated, failed and missing calls "
+        "are excluded from the visibility denominator. "
+        "They can be retried without repeating valid calls."
     )
 
     st.write(
-        "V1 does not attempt to identify unknown venues "
-        "outside the stored target/competitor set. Raw "
-        "responses are retained so this can be added later."
+        "Gemini runs with minimal thinking for this "
+        "simple recommendation task so hidden reasoning "
+        "does not consume most of the response budget."
     )
 
     st.write(
-        "Model/API results should not be presented as "
-        "identical to the consumer ChatGPT, Claude or "
-        "Gemini applications. Consumer products may use "
-        "different models, search, location context and "
-        "product-level orchestration."
+        "V1.1 still detects only the target and known "
+        "competitor set. Raw responses are retained so "
+        "unknown recommended businesses can be extracted "
+        "in a future iteration."
+    )
+
+    st.write(
+        "API model results are not presented as identical "
+        "to the consumer ChatGPT, Claude or Gemini apps, "
+        "which may use different search, location and "
+        "product orchestration."
     )
