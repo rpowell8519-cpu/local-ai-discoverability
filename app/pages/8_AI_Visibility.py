@@ -44,7 +44,7 @@ from src.review_repository import (
 from src.taxonomy import GROUP_LABELS
 
 
-BUILD_VERSION = "AI Results Intelligence v1.2"
+BUILD_VERSION = "AI Results Intelligence v1.2.1"
 
 DEFAULT_MODELS = {
     "OpenAI": "gpt-5.6-terra",
@@ -798,16 +798,15 @@ selected_prompt_frame = (
 
 st.write("### Sampling")
 
-repetitions = st.select_slider(
+repetitions = st.radio(
     "Repetitions per customer question",
     options=[1, 2, 3],
-    value=1,
+    index=0,
+    horizontal=True,
     help=(
-        "Use 1 for quick QA. Use 3 for a more robust "
-        "client benchmark: repeated sampling lets us "
-        "measure how consistently each model recommends "
-        "the business rather than treating one answer "
-        "as deterministic."
+        "1 = quick QA. 3 = recommended for a more robust "
+        "client benchmark, because repeated sampling shows "
+        "how consistently each model recommends the business."
     ),
 )
 
