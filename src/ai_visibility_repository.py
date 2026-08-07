@@ -19,6 +19,7 @@ def create_visibility_run(
     providers: list[str],
     models: dict[str, str],
     prompt_count: int,
+    repeat_count: int = 1,
 ) -> str:
     run_id = str(uuid.uuid4())
     engine = get_engine()
@@ -35,6 +36,7 @@ def create_visibility_run(
             providers,
             models,
             prompt_count,
+            repeat_count,
             status
         )
         values (
@@ -47,6 +49,7 @@ def create_visibility_run(
             cast(:providers as jsonb),
             cast(:models as jsonb),
             :prompt_count,
+            :repeat_count,
             'running'
         )
         """
@@ -73,6 +76,13 @@ def create_visibility_run(
                 ),
                 "prompt_count":
                     int(prompt_count),
+                "repeat_count":
+                    int(
+                        max(
+                            1,
+                            repeat_count,
+                        )
+                    ),
             },
         )
 
@@ -85,6 +95,7 @@ def create_visibility_queries(
     prompts: list[
         dict[str, Any]
     ],
+    repetitions: int = 1,
 ) -> list[dict[str, Any]]:
     engine = get_engine()
 
@@ -94,6 +105,8 @@ def create_visibility_queries(
             id,
             run_id,
             prompt_order,
+            base_prompt_order,
+            repeat_index,
             prompt_category,
             prompt_source,
             prompt_text
@@ -102,6 +115,8 @@ def create_visibility_queries(
             :id,
             :run_id,
             :prompt_order,
+            :base_prompt_order,
+            :repeat_index,
             :prompt_category,
             :prompt_source,
             :prompt_text
@@ -110,36 +125,51 @@ def create_visibility_queries(
     )
 
     payloads = []
+    physical_order = 0
+    repetitions = max(
+        1,
+        int(repetitions),
+    )
 
-    for index, prompt in enumerate(
+    for base_order, prompt in enumerate(
         prompts,
         start=1,
     ):
-        query_id = str(
-            uuid.uuid4()
-        )
+        for repeat_index in range(
+            1,
+            repetitions + 1,
+        ):
+            physical_order += 1
 
-        payloads.append(
-            {
-                "id": query_id,
-                "run_id": run_id,
-                "prompt_order":
-                    index,
-                "prompt_category":
-                    prompt.get(
-                        "category"
-                    ),
-                "prompt_source":
-                    prompt.get(
-                        "source",
-                        "generated",
-                    ),
-                "prompt_text":
-                    prompt.get(
-                        "prompt"
-                    ),
-            }
-        )
+            query_id = str(
+                uuid.uuid4()
+            )
+
+            payloads.append(
+                {
+                    "id": query_id,
+                    "run_id": run_id,
+                    "prompt_order":
+                        physical_order,
+                    "base_prompt_order":
+                        base_order,
+                    "repeat_index":
+                        repeat_index,
+                    "prompt_category":
+                        prompt.get(
+                            "category"
+                        ),
+                    "prompt_source":
+                        prompt.get(
+                            "source",
+                            "generated",
+                        ),
+                    "prompt_text":
+                        prompt.get(
+                            "prompt"
+                        ),
+                }
+            )
 
     if payloads:
         with engine.begin() as connection:
@@ -392,12 +422,17 @@ def get_run_queries(
         select
             id,
             prompt_order,
+            base_prompt_order,
+            repeat_index,
             prompt_category,
             prompt_source,
             prompt_text
         from ai_visibility_queries
         where run_id = :run_id
-        order by prompt_order
+        order by
+            base_prompt_order,
+            repeat_index,
+            prompt_order
         """
     )
 
@@ -423,7 +458,10 @@ def get_run_results(
             r.id,
             r.query_id,
             q.prompt_order,
+            q.base_prompt_order,
+            q.repeat_index,
             q.prompt_category,
+            q.prompt_source,
             q.prompt_text,
             r.provider,
             r.model,
@@ -448,7 +486,8 @@ def get_run_results(
           on q.id = r.query_id
         where r.run_id = :run_id
         order by
-            q.prompt_order,
+            q.base_prompt_order,
+            q.repeat_index,
             r.provider
         """
     )
