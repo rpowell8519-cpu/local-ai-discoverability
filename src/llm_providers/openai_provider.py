@@ -57,7 +57,7 @@ def call_openai(
             "reasoning": {
                 "effort": "none",
             },
-            "max_output_tokens": 700,
+            "max_output_tokens": 900,
         },
         timeout=timeout_seconds,
     )
@@ -91,20 +91,42 @@ def call_openai(
         )
 
     usage = payload.get("usage") or {}
+    output_details = (
+        usage.get("output_tokens_details")
+        or {}
+    )
 
     input_tokens = usage.get("input_tokens")
     output_tokens = usage.get("output_tokens")
-
     total_tokens = usage.get("total_tokens")
+    reasoning_tokens = output_details.get(
+        "reasoning_tokens"
+    )
 
-    if total_tokens is None:
-        try:
-            total_tokens = (
-                int(input_tokens or 0)
-                + int(output_tokens or 0)
-            )
-        except (TypeError, ValueError):
-            total_tokens = None
+    status = str(
+        payload.get("status")
+        or "completed"
+    )
+
+    incomplete_details = (
+        payload.get("incomplete_details")
+        or {}
+    )
+
+    incomplete_reason = (
+        incomplete_details.get("reason")
+    )
+
+    response_complete = (
+        status == "completed"
+    )
+
+    finish_reason = status
+
+    if incomplete_reason:
+        finish_reason = (
+            f"{status}:{incomplete_reason}"
+        )
 
     return ProviderResponse(
         provider="OpenAI",
@@ -113,6 +135,9 @@ def call_openai(
         input_tokens=input_tokens,
         output_tokens=output_tokens,
         total_tokens=total_tokens,
+        reasoning_tokens=reasoning_tokens,
         latency_ms=latency_ms,
+        finish_reason=finish_reason,
+        response_complete=response_complete,
         raw=payload,
     )
