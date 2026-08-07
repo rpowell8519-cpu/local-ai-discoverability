@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import sys
 import uuid
 from pathlib import Path
@@ -25,7 +26,7 @@ from src.website_audit_repository import (
 )
 
 
-BUILD_VERSION = "Website Footprint Audit v1.1"
+BUILD_VERSION = "Website Footprint Audit v1.1.1"
 
 
 CRAWL_PRESETS = {
@@ -770,14 +771,35 @@ st.dataframe(
 st.divider()
 st.subheader("Inspect an audit")
 
-audit_ids = comparison["id"].tolist()
+# Normalise database UUIDs to strings. A fresh crawl creates new audit
+# IDs, so the selectbox key also changes when the latest-audit set changes.
+# This prevents Streamlit from retaining a stale selection from the
+# previous comparison table.
+comparison = comparison.copy()
+comparison["audit_id_string"] = (
+    comparison["id"]
+    .astype(str)
+)
+
+audit_ids = comparison[
+    "audit_id_string"
+].tolist()
 
 audit_name_lookup = (
     comparison
-    .set_index("id")[
-        "business_name"
-    ]
+    .set_index(
+        "audit_id_string"
+    )["business_name"]
     .to_dict()
+)
+
+audit_selection_signature = (
+    hashlib.sha1(
+        "|".join(
+            audit_ids
+        ).encode("utf-8")
+    )
+    .hexdigest()[:12]
 )
 
 selected_audit_id = st.selectbox(
@@ -789,12 +811,34 @@ selected_audit_id = st.selectbox(
             value,
         )
     ),
+    key=(
+        "website_audit_inspector_"
+        f"{audit_selection_signature}"
+    ),
 )
 
-selected_audit = comparison[
-    comparison["id"]
-    == selected_audit_id
-].iloc[0]
+selected_rows = comparison[
+    comparison[
+        "audit_id_string"
+    ]
+    == str(selected_audit_id)
+]
+
+# Defensive fallback: even if widget/session state becomes stale during a
+# rerun, always display a current audit rather than raising IndexError.
+if selected_rows.empty:
+    selected_audit = (
+        comparison.iloc[0]
+    )
+    selected_audit_id = str(
+        selected_audit[
+            "audit_id_string"
+        ]
+    )
+else:
+    selected_audit = (
+        selected_rows.iloc[0]
+    )
 
 
 metric_columns = st.columns(5)
@@ -915,7 +959,11 @@ if issues:
 
 
 pages = get_audit_pages(
-    str(selected_audit_id)
+    str(
+        selected_audit[
+            "audit_id_string"
+        ]
+    )
 )
 
 if not pages.empty:
