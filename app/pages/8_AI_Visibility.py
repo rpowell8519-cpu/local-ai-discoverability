@@ -16,9 +16,14 @@ from src.ai_prompt_generator import (
     generate_prompts,
 )
 from src.ai_visibility_analysis import (
-    competitor_mention_summary,
     reanalyse_results,
     visibility_summary,
+)
+from src.ai_recommendation_intelligence import (
+    build_business_share_table,
+    build_intent_stability_table,
+    build_provider_share_table,
+    build_recommendation_records,
 )
 from src.ai_visibility_repository import (
     create_visibility_queries,
@@ -39,7 +44,7 @@ from src.review_repository import (
 from src.taxonomy import GROUP_LABELS
 
 
-BUILD_VERSION = "AI Visibility v1.1"
+BUILD_VERSION = "AI Results Intelligence v1.2"
 
 DEFAULT_MODELS = {
     "OpenAI": "gpt-5.6-terra",
@@ -62,10 +67,11 @@ st.caption(
 st.caption(f"Build: {BUILD_VERSION}")
 
 st.info(
-    "V1.1 is a **model-memory benchmark**. It deliberately "
-    "does not enable web-search tools. Visibility is scored "
-    "only from valid, naturally completed responses; "
-    "truncated, failed or missing calls are excluded."
+    "V1.2 is a **model-memory benchmark**. It measures both "
+    "target visibility and **Share of Recommendation** across "
+    "every numbered venue recommendation. It also identifies "
+    "AI-discovered competitors outside the approved commercial "
+    "cohort. Search/browsing remains disabled."
 )
 
 
@@ -162,6 +168,100 @@ def load_businesses() -> pd.DataFrame:
         ).mappings().all()
 
     return pd.DataFrame(rows)
+
+
+
+@st.cache_data(ttl=120)
+def load_evidence_status(
+    google_place_ids: list[str],
+) -> pd.DataFrame:
+    columns = [
+        "google_place_id",
+        "latest_website_audit",
+        "website_audit_status",
+        "website_score",
+        "reviews_stored",
+    ]
+
+    if not google_place_ids:
+        return pd.DataFrame(
+            columns=columns
+        )
+
+    engine = get_engine()
+
+    query = text(
+        """
+        with latest_audits as (
+            select distinct on (
+                google_place_id
+            )
+                google_place_id,
+                completed_at
+                    as latest_website_audit,
+                audit_status
+                    as website_audit_status,
+                website_completeness_score
+                    as website_score
+            from website_audit_runs
+            where google_place_id = any(
+                :google_place_ids
+            )
+            order by
+                google_place_id,
+                completed_at desc nulls last,
+                started_at desc
+        ),
+        review_counts as (
+            select
+                google_place_id,
+                count(*)::integer
+                    as reviews_stored
+            from business_reviews
+            where google_place_id = any(
+                :google_place_ids
+            )
+            group by google_place_id
+        )
+        select
+            ids.google_place_id,
+            la.latest_website_audit,
+            la.website_audit_status,
+            la.website_score,
+            coalesce(
+                rc.reviews_stored,
+                0
+            ) as reviews_stored
+        from unnest(
+            cast(
+                :google_place_ids
+                as text[]
+            )
+        ) as ids(
+            google_place_id
+        )
+        left join latest_audits la
+          on la.google_place_id =
+             ids.google_place_id
+        left join review_counts rc
+          on rc.google_place_id =
+             ids.google_place_id
+        """
+    )
+
+    with engine.connect() as connection:
+        rows = connection.execute(
+            query,
+            {
+                "google_place_ids":
+                    google_place_ids,
+            },
+        ).mappings().all()
+
+    return pd.DataFrame(
+        rows,
+        columns=columns,
+    )
 
 
 @st.cache_data(ttl=60)
@@ -696,13 +796,40 @@ selected_prompt_frame = (
     ]
 )
 
-st.caption(
-    f"{len(selected_prompt_frame)} prompt(s) × "
-    f"{len(selected_providers)} provider(s) = "
-    f"{len(selected_prompt_frame) * len(selected_providers)} "
-    "API call(s). Providers for each prompt run in "
-    "parallel to reduce total run time."
+st.write("### Sampling")
+
+repetitions = st.select_slider(
+    "Repetitions per customer question",
+    options=[1, 2, 3],
+    value=1,
+    help=(
+        "Use 1 for quick QA. Use 3 for a more robust "
+        "client benchmark: repeated sampling lets us "
+        "measure how consistently each model recommends "
+        "the business rather than treating one answer "
+        "as deterministic."
+    ),
 )
+
+total_api_calls = (
+    len(selected_prompt_frame)
+    * len(selected_providers)
+    * int(repetitions)
+)
+
+st.caption(
+    f"{len(selected_prompt_frame)} customer question(s) × "
+    f"{int(repetitions)} repetition(s) × "
+    f"{len(selected_providers)} provider(s) = "
+    f"{total_api_calls} API call(s). Providers for each "
+    "question/repetition run in parallel."
+)
+
+if repetitions == 3:
+    st.success(
+        "3 repetitions is the recommended client-grade "
+        "sampling level for this stage of the pilot."
+    )
 
 
 st.divider()
@@ -798,12 +925,18 @@ if run_button:
         prompt_count=len(
             prompt_records
         ),
+        repeat_count=int(
+            repetitions
+        ),
     )
 
     query_records = (
         create_visibility_queries(
             run_id=run_id,
             prompts=prompt_records,
+            repetitions=int(
+                repetitions
+            ),
         )
     )
 
@@ -1179,11 +1312,8 @@ if not summary.empty:
                     f"{row['failed_responses']} failed"
                 )
 
-    prompt_count = int(
-        latest_run.get(
-            "prompt_count"
-        )
-        or len(
+    expected_responses_per_provider = (
+        len(
             latest_queries
         )
     )
@@ -1196,7 +1326,7 @@ if not summary.empty:
         "Missing"
     ] = summary_display.apply(
         lambda row: max(
-            prompt_count
+            expected_responses_per_provider
             - int(
                 row[
                     "valid_responses"
@@ -1284,164 +1414,643 @@ if not summary.empty:
     )
 
 
-st.write(
-    "### Prompt-by-provider visibility"
-)
 
-result_lookup = {}
+# -----------------------------
+# Recommendation market
+# -----------------------------
 
-for row in results.to_dict(
-    "records"
-):
-    result_lookup[
-        (
-            str(
-                row[
-                    "query_id"
-                ]
-            ),
-            str(
-                row[
-                    "provider"
-                ]
-            ),
-        )
-    ] = row
-
-matrix_rows = []
-
-for query in latest_queries.to_dict(
-    "records"
-):
-    matrix_row = {
-        "#":
-            int(
-                query[
-                    "prompt_order"
-                ]
-            ),
-        "Customer question":
-            str(
-                query[
-                    "prompt_text"
-                ]
-            ),
-    }
-
-    for provider in (
-        latest_run_providers
-    ):
-        result = result_lookup.get(
-            (
-                str(
-                    query[
-                        "id"
-                    ]
-                ),
-                provider,
-            )
-        )
-
-        if result is None:
-            value = "… missing"
-        elif (
-            result.get(
-                "status"
-            )
-            == "failed"
-        ):
-            value = "✕ failed"
-        elif not bool(
-            result.get(
-                "response_complete"
-            )
-        ):
-            value = "⚠ incomplete"
-        elif bool(
-            result.get(
-                "target_recommended"
-            )
-        ):
-            position = result.get(
-                "target_position"
-            )
-
-            value = (
-                "✓ #"
-                + str(
-                    int(
-                        position
-                    )
-                )
-                if pd.notna(
-                    position
-                )
-                else "✓"
-            )
-        else:
-            value = "—"
-
-        matrix_row[
-            provider
-        ] = value
-
-    matrix_rows.append(
-        matrix_row
-    )
-
-st.dataframe(
-    pd.DataFrame(
-        matrix_rows
-    ),
-    use_container_width=True,
-    hide_index=True,
-    height=700,
-)
-
-
-competitor_summary = (
-    competitor_mention_summary(
-        results
-    )
-)
-
-if not competitor_summary.empty:
-    competitor_summary[
-        "Target?"
-    ] = competitor_summary[
+commercial_competitor_ids = set(
+    selected_cohort[
         "google_place_id"
-    ].astype(str).apply(
+    ]
+    .dropna()
+    .astype(str)
+    .tolist()
+)
+
+recommendations = (
+    build_recommendation_records(
+        results=results,
+        businesses=businesses,
+        target_google_place_id=(
+            str(target_id)
+        ),
+        commercial_competitor_ids=(
+            commercial_competitor_ids
+        ),
+        primary_group=(
+            selected_group
+        ),
+    )
+)
+
+provider_share = (
+    build_provider_share_table(
+        recommendations,
+        target_google_place_id=(
+            str(target_id)
+        ),
+    )
+)
+
+business_share = (
+    build_business_share_table(
+        recommendations
+    )
+)
+
+if not provider_share.empty:
+    st.write(
+        "### Share of Recommendation"
+    )
+
+    st.caption(
+        "Share of Recommendation = the target's share of "
+        "all numbered venue recommendation slots returned "
+        "by that provider. Position-weighted share gives "
+        "higher value to recommendations nearer #1."
+    )
+
+    overall_share_rows = (
+        provider_share[
+            provider_share[
+                "provider"
+            ]
+            == "All providers"
+        ]
+    )
+
+    if not overall_share_rows.empty:
+        overall_share = (
+            overall_share_rows.iloc[0]
+        )
+
+        overall_columns = (
+            st.columns(3)
+        )
+
+        with overall_columns[0]:
+            st.metric(
+                "Overall Share of Recommendation",
+                f"{float(overall_share['share_of_recommendation']):.1%}",
+            )
+
+        with overall_columns[1]:
+            st.metric(
+                "Position-weighted share",
+                f"{float(overall_share['position_weighted_share']):.1%}",
+            )
+
+        with overall_columns[2]:
+            st.metric(
+                "Target recommendation slots",
+                (
+                    f"{int(overall_share['target_recommendations'])}"
+                    f" / {int(overall_share['recommendation_slots'])}"
+                ),
+            )
+
+    share_display = (
+        provider_share.copy()
+    )
+
+    share_display[
+        "Share of Recommendation"
+    ] = share_display[
+        "share_of_recommendation"
+    ].apply(
         lambda value: (
-            "Yes"
-            if value
-            == str(target_id)
-            else "No"
+            f"{float(value):.1%}"
         )
     )
 
-    st.write(
-        "### Known-business recommendation mentions"
+    share_display[
+        "Position-weighted share"
+    ] = share_display[
+        "position_weighted_share"
+    ].apply(
+        lambda value: (
+            f"{float(value):.1%}"
+        )
     )
 
     st.dataframe(
-        competitor_summary[
+        share_display[
             [
-                "business_name",
-                "Target?",
-                "recommendations",
+                "provider",
+                "recommendation_slots",
+                "target_recommendations",
+                "Share of Recommendation",
+                "Position-weighted share",
             ]
         ].rename(
             columns={
-                "business_name":
-                    "Business",
-                "recommendations":
-                    "Recommendations",
+                "provider":
+                    "Provider",
+                "recommendation_slots":
+                    "Recommendation slots",
+                "target_recommendations":
+                    "Target recommendations",
             }
         ),
         use_container_width=True,
         hide_index=True,
     )
 
+
+if not business_share.empty:
+    st.write(
+        "### AI recommendation market"
+    )
+
+    st.caption(
+        "This includes every venue extracted from valid "
+        "model answers — not only the approved commercial "
+        "competitor set."
+    )
+
+    market_display = (
+        business_share.copy()
+    )
+
+    market_display[
+        "Share"
+    ] = market_display[
+        "share_of_recommendation"
+    ].apply(
+        lambda value: (
+            f"{float(value):.1%}"
+        )
+    )
+
+    market_display[
+        "Weighted share"
+    ] = market_display[
+        "position_weighted_share"
+    ].apply(
+        lambda value: (
+            f"{float(value):.1%}"
+        )
+    )
+
+    market_display[
+        "Avg position"
+    ] = market_display[
+        "average_position"
+    ].apply(
+        lambda value: (
+            f"{float(value):.2f}"
+        )
+    )
+
+    provider_columns = [
+        column
+        for column in [
+            "OpenAI_recommendations",
+            "Claude_recommendations",
+            "Gemini_recommendations",
+        ]
+        if column
+        in market_display.columns
+    ]
+
+    display_columns = [
+        "business_name",
+        "classification",
+        "recommendations",
+        "Share",
+        "Weighted share",
+        "Avg position",
+        *provider_columns,
+    ]
+
+    rename_map = {
+        "business_name":
+            "Business",
+        "classification":
+            "Relationship",
+        "recommendations":
+            "Recommendations",
+        "OpenAI_recommendations":
+            "OpenAI",
+        "Claude_recommendations":
+            "Claude",
+        "Gemini_recommendations":
+            "Gemini",
+    }
+
+    st.dataframe(
+        market_display[
+            display_columns
+        ].head(40).rename(
+            columns=rename_map
+        ),
+        use_container_width=True,
+        hide_index=True,
+        height=700,
+    )
+
+
+# -----------------------------
+# AI-discovered competitor queue
+# -----------------------------
+
+if not business_share.empty:
+    ai_discovered = (
+        business_share[
+            business_share[
+                "classification"
+            ]
+            == "AI-discovered"
+        ].copy()
+    )
+
+    if not ai_discovered.empty:
+        resolved_ids = (
+            ai_discovered[
+                "google_place_id"
+            ]
+            .dropna()
+            .astype(str)
+            .tolist()
+        )
+
+        try:
+            evidence_status = (
+                load_evidence_status(
+                    resolved_ids
+                )
+            )
+        except Exception:
+            evidence_status = pd.DataFrame()
+
+        if not evidence_status.empty:
+            evidence_status[
+                "google_place_id"
+            ] = evidence_status[
+                "google_place_id"
+            ].astype(str)
+
+            ai_discovered[
+                "google_place_id"
+            ] = ai_discovered[
+                "google_place_id"
+            ].astype(str)
+
+            ai_discovered = (
+                ai_discovered.merge(
+                    evidence_status,
+                    on="google_place_id",
+                    how="left",
+                )
+            )
+        else:
+            ai_discovered[
+                "latest_website_audit"
+            ] = None
+            ai_discovered[
+                "website_audit_status"
+            ] = None
+            ai_discovered[
+                "website_score"
+            ] = None
+            ai_discovered[
+                "reviews_stored"
+            ] = 0
+
+        ai_discovered[
+            "Website audit"
+        ] = ai_discovered[
+            "latest_website_audit"
+        ].apply(
+            lambda value: (
+                "Yes"
+                if pd.notna(value)
+                else "No"
+            )
+        )
+
+        ai_discovered[
+            "Reviews"
+        ] = pd.to_numeric(
+            ai_discovered[
+                "reviews_stored"
+            ],
+            errors="coerce",
+        ).fillna(0).astype(int)
+
+        def readiness_label(
+            row,
+        ):
+            has_site = (
+                row[
+                    "Website audit"
+                ]
+                == "Yes"
+            )
+            has_reviews = (
+                int(
+                    row[
+                        "Reviews"
+                    ]
+                )
+                > 0
+            )
+
+            if (
+                has_site
+                and has_reviews
+            ):
+                return (
+                    "Ready to compare"
+                )
+
+            if (
+                not has_site
+                and not has_reviews
+            ):
+                return (
+                    "Need website + reviews"
+                )
+
+            if not has_site:
+                return (
+                    "Need website audit"
+                )
+
+            return (
+                "Need reviews"
+            )
+
+        ai_discovered[
+            "Diagnostic readiness"
+        ] = ai_discovered.apply(
+            readiness_label,
+            axis=1,
+        )
+
+        ai_discovered[
+            "Share"
+        ] = ai_discovered[
+            "share_of_recommendation"
+        ].apply(
+            lambda value: (
+                f"{float(value):.1%}"
+            )
+        )
+
+        st.write(
+            "### AI-discovered competitor diagnostic queue"
+        )
+
+        st.caption(
+            "These businesses were not in the approved "
+            "commercial cohort but the AI models repeatedly "
+            "placed them into the same recommendation market. "
+            "They are candidates for website/review diagnostic "
+            "comparison."
+        )
+
+        st.dataframe(
+            ai_discovered[
+                [
+                    "business_name",
+                    "recommendations",
+                    "providers",
+                    "Share",
+                    "average_position",
+                    "Website audit",
+                    "Reviews",
+                    "Diagnostic readiness",
+                ]
+            ].rename(
+                columns={
+                    "business_name":
+                        "Business",
+                    "recommendations":
+                        "AI recommendations",
+                    "providers":
+                        "Providers",
+                    "average_position":
+                        "Avg position",
+                }
+            ),
+            use_container_width=True,
+            hide_index=True,
+            height=500,
+        )
+
+    unresolved = (
+        business_share[
+            business_share[
+                "classification"
+            ]
+            == "Unresolved"
+        ].copy()
+    )
+
+    if not unresolved.empty:
+        with st.expander(
+            "Unresolved AI-recommended venue names"
+        ):
+            st.write(
+                "These names could not be confidently "
+                "matched to the current business database. "
+                "They may be outside the original ~800 "
+                "business pull, naming variants, or "
+                "occasionally model errors."
+            )
+
+            st.dataframe(
+                unresolved[
+                    [
+                        "business_name",
+                        "recommendations",
+                        "providers",
+                        "average_position",
+                    ]
+                ].rename(
+                    columns={
+                        "business_name":
+                            "Raw venue name",
+                        "recommendations":
+                            "Recommendations",
+                        "providers":
+                            "Providers",
+                        "average_position":
+                            "Avg position",
+                    }
+                ),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+
+# -----------------------------
+# Repeated-sampling stability
+# -----------------------------
+
+st.write(
+    "### Intent stability"
+)
+
+stability = (
+    build_intent_stability_table(
+        results
+    )
+)
+
+if stability.empty:
+    st.info(
+        "No valid repeated-sampling results are available."
+    )
+else:
+    matrix_rows = []
+
+    prompt_groups = (
+        stability[
+            [
+                "base_prompt_order",
+                "prompt_text",
+            ]
+        ]
+        .drop_duplicates()
+        .sort_values(
+            "base_prompt_order"
+        )
+    )
+
+    for prompt in (
+        prompt_groups.to_dict(
+            "records"
+        )
+    ):
+        row = {
+            "#":
+                int(
+                    prompt[
+                        "base_prompt_order"
+                    ]
+                ),
+            "Customer question":
+                prompt[
+                    "prompt_text"
+                ],
+        }
+
+        prompt_rows = stability[
+            stability[
+                "base_prompt_order"
+            ]
+            == prompt[
+                "base_prompt_order"
+            ]
+        ]
+
+        for provider in (
+            latest_run_providers
+        ):
+            provider_row = (
+                prompt_rows[
+                    prompt_rows[
+                        "provider"
+                    ]
+                    == provider
+                ]
+            )
+
+            if provider_row.empty:
+                row[
+                    provider
+                ] = "… missing"
+                continue
+
+            item = (
+                provider_row.iloc[0]
+            )
+
+            valid_repeats = int(
+                item[
+                    "valid_repeats"
+                ]
+            )
+            target_hits = int(
+                item[
+                    "target_hits"
+                ]
+            )
+            invalid = int(
+                item[
+                    "incomplete_or_failed"
+                ]
+            )
+
+            if valid_repeats == 0:
+                value = (
+                    "⚠ no valid response"
+                )
+            elif valid_repeats == 1:
+                if target_hits:
+                    position = (
+                        item[
+                            "average_position"
+                        ]
+                    )
+
+                    value = (
+                        "✓ #"
+                        + str(
+                            int(
+                                round(
+                                    float(
+                                        position
+                                    )
+                                )
+                            )
+                        )
+                    )
+                else:
+                    value = "—"
+            else:
+                position = (
+                    item[
+                        "average_position"
+                    ]
+                )
+
+                value = (
+                    f"{target_hits}/{valid_repeats}"
+                )
+
+                if (
+                    target_hits
+                    and pd.notna(
+                        position
+                    )
+                ):
+                    value += (
+                        f" · avg #{float(position):.1f}"
+                    )
+
+            if invalid:
+                value += (
+                    f" · {invalid} invalid"
+                )
+
+            row[
+                provider
+            ] = value
+
+        matrix_rows.append(row)
+
+    st.dataframe(
+        pd.DataFrame(
+            matrix_rows
+        ),
+        use_container_width=True,
+        hide_index=True,
+        height=700,
+    )
 
 st.write(
     "### Inspect raw model response"
@@ -1457,7 +2066,8 @@ selected_response_index = (
         options=response_options,
         format_func=lambda index: (
             f"{results.loc[index, 'provider']} — "
-            f"Prompt {results.loc[index, 'prompt_order']}: "
+            f"Prompt {int(results.loc[index, 'base_prompt_order'])}"
+            f" / repeat {int(results.loc[index, 'repeat_index'])}: "
             f"{results.loc[index, 'prompt_text']}"
         ),
     )
@@ -1582,10 +2192,35 @@ with st.expander(
     "Methodology and limitations"
 ):
     st.write(
-        "Visibility is now based on an actual numbered "
-        "recommendation position, not merely the order "
-        "in which known cohort businesses happen to "
-        "appear in the response."
+        "Visibility Rate answers: **how often is the target "
+        "recommended for the tested customer questions?**"
+    )
+
+    st.write(
+        "Share of Recommendation answers: **what share of "
+        "all numbered recommendation slots does the target "
+        "occupy?** This includes businesses outside the "
+        "pre-approved competitor cohort."
+    )
+
+    st.write(
+        "Position-weighted Share of Recommendation uses "
+        "1 / recommendation rank, so #1 recommendations "
+        "contribute more than #5 recommendations."
+    )
+
+    st.write(
+        "Repeated sampling allows the same customer intent "
+        "to be tested up to three times per provider. The "
+        "Intent stability table reports how often the target "
+        "appeared across those repetitions."
+    )
+
+    st.write(
+        "Business-name resolution first uses exact/alias "
+        "matching against business_features, then a high-"
+        "confidence fuzzy match. Ambiguous names remain "
+        "unresolved rather than being forced to a business."
     )
 
     st.write(
