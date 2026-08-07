@@ -1168,6 +1168,54 @@ def build_intent_stability_table(
 
     working = results.copy()
 
+    # Backward compatibility:
+    # runs created before repeated sampling do not necessarily expose
+    # base_prompt_order / repeat_index in the result DataFrame.
+    # Treat every legacy row as repeat 1 of its original prompt.
+    if (
+        "base_prompt_order"
+        not in working.columns
+    ):
+        if "prompt_order" in working.columns:
+            working[
+                "base_prompt_order"
+            ] = working[
+                "prompt_order"
+            ]
+        else:
+            working[
+                "base_prompt_order"
+            ] = range(
+                1,
+                len(working) + 1,
+            )
+    else:
+        fallback_order = (
+            working[
+                "prompt_order"
+            ]
+            if "prompt_order"
+            in working.columns
+            else pd.Series(
+                range(
+                    1,
+                    len(working) + 1,
+                ),
+                index=working.index,
+            )
+        )
+
+        working[
+            "base_prompt_order"
+        ] = pd.to_numeric(
+            working[
+                "base_prompt_order"
+            ],
+            errors="coerce",
+        ).fillna(
+            fallback_order
+        )
+
     working[
         "base_prompt_order"
     ] = pd.to_numeric(
@@ -1175,14 +1223,24 @@ def build_intent_stability_table(
             "base_prompt_order"
         ],
         errors="coerce",
-    ).fillna(
+    ).fillna(0).astype(int)
+
+    if (
+        "repeat_index"
+        not in working.columns
+    ):
         working[
-            "prompt_order"
-        ]
-        if "prompt_order"
-        in working
-        else 0
-    )
+            "repeat_index"
+        ] = 1
+    else:
+        working[
+            "repeat_index"
+        ] = pd.to_numeric(
+            working[
+                "repeat_index"
+            ],
+            errors="coerce",
+        ).fillna(1).astype(int)
 
     rows = []
 
