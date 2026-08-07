@@ -261,6 +261,7 @@ def _candidate_name_variants(
 
 def build_directory_index(
     businesses: pd.DataFrame,
+    aliases: pd.DataFrame | None = None,
 ) -> dict[str, Any]:
     exact = {}
     records = []
@@ -293,7 +294,7 @@ def build_directory_index(
         ):
             continue
 
-        aliases = (
+        business_aliases = (
             _candidate_name_variants(
                 business_name
             )
@@ -313,24 +314,111 @@ def build_directory_index(
                     "business_format"
                 ),
             "aliases":
-                aliases,
+                business_aliases,
         }
 
         records.append(
             directory_record
         )
 
-        for alias in aliases:
+        for business_alias in business_aliases:
             exact.setdefault(
-                alias,
+                business_alias,
                 [],
             ).append(
                 directory_record
             )
 
+    alias_records = []
+
+    if (
+        aliases is not None
+        and not aliases.empty
+    ):
+        business_lookup = {
+            str(
+                record[
+                    "google_place_id"
+                ]
+            ): record
+            for record in records
+        }
+
+        for alias in aliases.to_dict(
+            "records"
+        ):
+            place_id = str(
+                alias.get(
+                    "google_place_id"
+                )
+                or ""
+            )
+            alias_name = str(
+                alias.get(
+                    "alias_name"
+                )
+                or ""
+            )
+
+            canonical = (
+                business_lookup.get(
+                    place_id
+                )
+            )
+
+            if (
+                not place_id
+                or not alias_name
+                or canonical is None
+            ):
+                continue
+
+            alias_variants = (
+                _candidate_name_variants(
+                    alias_name
+                )
+            )
+
+            alias_record = {
+                **canonical,
+                "alias_type":
+                    alias.get(
+                        "alias_type"
+                    ),
+                "source_note":
+                    alias.get(
+                        "source_note"
+                    ),
+                "source_url":
+                    alias.get(
+                        "source_url"
+                    ),
+            }
+
+            alias_records.append(
+                {
+                    "alias_name":
+                        alias_name,
+                    "aliases":
+                        alias_variants,
+                    "record":
+                        alias_record,
+                }
+            )
+
+            for variant in alias_variants:
+                exact.setdefault(
+                    variant,
+                    [],
+                ).append(
+                    alias_record
+                )
+
     return {
         "exact": exact,
         "records": records,
+        "alias_records":
+            alias_records,
     }
 
 
@@ -402,6 +490,18 @@ def resolve_business_name(
                 match.get(
                     "business_format"
                 ),
+            "alias_type":
+                match.get(
+                    "alias_type"
+                ),
+            "source_note":
+                match.get(
+                    "source_note"
+                ),
+            "source_url":
+                match.get(
+                    "source_url"
+                ),
         }
 
     if (
@@ -467,6 +567,10 @@ def resolve_business_name(
         for query_variant in (
             query_variants
         ):
+            query_words = (
+                query_variant.split()
+            )
+
             for alias in (
                 record[
                     "aliases"
@@ -479,6 +583,33 @@ def resolve_business_name(
                         alias,
                     ).ratio()
                 )
+
+                # Safe short-name matching:
+                # "the ginger pig" should resolve to
+                # "the ginger pig restaurant and rooms".
+                # Require at least two meaningful words and a unique
+                # leading-name relationship to avoid matching generic
+                # one-word names.
+                if (
+                    len(query_words) >= 2
+                    and len(
+                        query_variant
+                    ) >= 7
+                    and (
+                        alias.startswith(
+                            query_variant
+                            + " "
+                        )
+                        or query_variant.startswith(
+                            alias
+                            + " "
+                        )
+                    )
+                ):
+                    score = max(
+                        score,
+                        0.975,
+                    )
 
                 best_score = max(
                     best_score,
@@ -567,6 +698,18 @@ def resolve_business_name(
                 match.get(
                     "business_format"
                 ),
+            "alias_type":
+                match.get(
+                    "alias_type"
+                ),
+            "source_note":
+                match.get(
+                    "source_note"
+                ),
+            "source_url":
+                match.get(
+                    "source_url"
+                ),
         }
 
     return {
@@ -589,6 +732,12 @@ def resolve_business_name(
             None,
         "business_format":
             None,
+        "alias_type":
+            None,
+        "source_note":
+            None,
+        "source_url":
+            None,
     }
 
 
@@ -596,6 +745,7 @@ def build_recommendation_records(
     *,
     results: pd.DataFrame,
     businesses: pd.DataFrame,
+    aliases: pd.DataFrame | None = None,
     target_google_place_id: str,
     commercial_competitor_ids: set[
         str
@@ -616,6 +766,9 @@ def build_recommendation_records(
         "business_name",
         "resolution_status",
         "resolution_score",
+        "alias_type",
+        "alias_source_note",
+        "alias_source_url",
         "classification",
         "rank_weight",
     ]
@@ -643,7 +796,8 @@ def build_recommendation_records(
 
     directory_index = (
         build_directory_index(
-            businesses
+            businesses,
+            aliases=aliases,
         )
     )
 
@@ -785,6 +939,18 @@ def build_recommendation_records(
                         resolved[
                             "resolution_score"
                         ],
+                    "alias_type":
+                        resolved.get(
+                            "alias_type"
+                        ),
+                    "alias_source_note":
+                        resolved.get(
+                            "source_note"
+                        ),
+                    "alias_source_url":
+                        resolved.get(
+                            "source_url"
+                        ),
                     "classification":
                         classification,
                     "rank_weight":
