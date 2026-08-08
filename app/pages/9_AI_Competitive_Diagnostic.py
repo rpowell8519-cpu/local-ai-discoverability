@@ -57,7 +57,7 @@ from src.website_benchmark import (
 )
 
 
-BUILD_VERSION = "AI Competitive Diagnostic v1.1"
+BUILD_VERSION = "AI Competitive Diagnostic v1.1.1"
 
 
 st.set_page_config(
@@ -222,6 +222,15 @@ target_name = str(
     run[
         "target_business_name"
     ]
+)
+
+st.success(
+    f"**Target business: {target_name}**"
+)
+
+st.caption(
+    "All evidence and competitor comparisons on this page are "
+    f"being built around **{target_name}** as the client/target."
 )
 
 primary_group = str(
@@ -818,8 +827,9 @@ with progress_columns[2]:
 st.dataframe(
     readiness_display[
         [
-            "business_name",
             "role",
+            "business_name",
+            "google_place_id",
             "Website",
             "pages_crawled",
             "website_score",
@@ -827,10 +837,12 @@ st.dataframe(
         ]
     ].rename(
         columns={
-            "business_name":
-                "Business",
             "role":
                 "Role",
+            "business_name":
+                "Business",
+            "google_place_id":
+                "Place ID",
             "pages_crawled":
                 "Pages crawled",
             "website_score":
@@ -913,6 +925,12 @@ else:
             "#### Step B — Customer-review evidence"
         )
 
+        st.caption(
+            f"Review collection is for **{target_name} (Target)** "
+            "and the selected AI leaders. Use the **Place ID** "
+            "shown below when locating each business in Outscraper."
+        )
+
         if missing_reviews.empty:
             st.success(
                 "All selected businesses have imported reviews."
@@ -937,6 +955,7 @@ else:
             collection_frame = (
                 missing_reviews[
                     [
+                        "role",
                         "business_name",
                         "google_place_id",
                     ]
@@ -957,17 +976,48 @@ else:
                 or ""
             )
 
+            st.dataframe(
+                collection_frame[
+                    [
+                        "role",
+                        "business_name",
+                        "google_place_id",
+                        "location",
+                        "recommended_reviews",
+                    ]
+                ].rename(
+                    columns={
+                        "role": "Role",
+                        "business_name": "Business",
+                        "google_place_id": "Place ID",
+                        "location": "Location",
+                        "recommended_reviews": "Reviews to collect",
+                    }
+                ),
+                use_container_width=True,
+                hide_index=True,
+            )
+
             st.download_button(
                 "Download Outscraper collection list",
                 data=(
                     collection_frame[
                         [
+                            "role",
                             "business_name",
                             "google_place_id",
                             "location",
                             "recommended_reviews",
                         ]
-                    ]
+                    ].rename(
+                        columns={
+                            "role": "Role",
+                            "business_name": "Business",
+                            "google_place_id": "Place ID",
+                            "location": "Location",
+                            "recommended_reviews": "Recommended reviews",
+                        }
+                    )
                     .to_csv(
                         index=False
                     )
