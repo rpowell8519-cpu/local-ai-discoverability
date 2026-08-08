@@ -32,7 +32,7 @@ from src.review_repository import (
 from src.taxonomy import GROUP_LABELS
 
 
-BUILD_VERSION = "Review Intelligence v1.1"
+BUILD_VERSION = "Review Intelligence v1.1.1"
 
 
 st.set_page_config(
@@ -94,6 +94,10 @@ active_names = {
 }
 
 if active_ids:
+    st.success(
+        f"**Target business: {active_target_name or 'Target'}**"
+    )
+
     st.info(
         "Active diagnostic cohort: "
         f"**{active_target_name or 'Target'} + "
@@ -240,12 +244,18 @@ with import_tab:
 
             collection_rows.append(
                 {
+                    "Role":
+                        (
+                            "Target"
+                            if str(place_id) == active_target_id
+                            else "AI leader"
+                        ),
                     "Business":
                         active_names.get(
                             str(place_id),
                             str(place_id),
                         ),
-                    "Google Place ID":
+                    "Place ID":
                         str(place_id),
                     "Reviews stored":
                         stored,
@@ -273,6 +283,13 @@ with import_tab:
             )
         )
 
+        st.caption(
+            f"Collect reviews for **{active_target_name or 'the target'} "
+            "(Target)** and the selected AI leaders. The **Place ID** "
+            "column is the identifier to use when locating each business "
+            "in Outscraper."
+        )
+
         st.dataframe(
             collection_frame,
             use_container_width=True,
@@ -297,8 +314,9 @@ with import_tab:
             export_frame = (
                 missing_collection[
                     [
+                        "Role",
                         "Business",
-                        "Google Place ID",
+                        "Place ID",
                     ]
                 ]
                 .copy()
