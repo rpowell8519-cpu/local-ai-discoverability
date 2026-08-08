@@ -45,6 +45,9 @@ from src.review_profiles import (
 from src.review_repository import (
     get_reviews,
 )
+from src.recommendation_synthesis import (
+    build_recommendation_synthesis,
+)
 from src.vertical_audit_profiles import (
     get_audit_profile,
 )
@@ -57,7 +60,7 @@ from src.website_benchmark import (
 )
 
 
-BUILD_VERSION = "AI Competitive Diagnostic v1.1.1"
+BUILD_VERSION = "AI Competitive Diagnostic v1.2 / Recommendation Synthesis v1.0"
 
 
 st.set_page_config(
@@ -1553,12 +1556,12 @@ else:
 
 
 # =========================================================
-# 6. SYNTHESIS
+# 6. RECOMMENDATION SYNTHESIS
 # =========================================================
 
 st.divider()
 st.subheader(
-    "5. Prioritised opportunities"
+    "5. Recommended action plan"
 )
 
 combined = (
@@ -1575,75 +1578,491 @@ combined = (
     )
 )
 
-opportunities = combined[
+raw_opportunities = combined[
     "opportunities"
 ]
 
-strengths = combined[
+raw_strengths = combined[
     "strengths"
 ]
 
-if opportunities.empty:
-    if not evidence_complete:
-        st.info(
-            "Diagnostic not ready yet. There is not enough "
-            "website/review evidence to identify meaningful "
-            "differences. Complete the outstanding evidence "
-            "tasks in section 2."
+
+if not evidence_complete:
+    st.info(
+        "Recommendation synthesis is waiting for complete "
+        "website and review evidence. Finish the outstanding "
+        "tasks in section 2."
+    )
+else:
+    synthesis = (
+        build_recommendation_synthesis(
+            primary_group=(
+                primary_group
+            ),
+            target_name=(
+                target_name
+            ),
+            website_result=(
+                website_result
+            ),
+            proposition_benchmark=(
+                proposition_benchmark
+            ),
+            review_result=(
+                review_result
+            ),
+            results=results,
+            max_actions=6,
+        )
+    )
+
+    st.caption(
+        "This action plan is generated deterministically from "
+        "the evidence above. It applies a business-relevance "
+        "gate so competitor differences are not automatically "
+        "treated as recommendations."
+    )
+
+    summary_columns = st.columns(
+        3
+    )
+
+    visibility_rate = (
+        synthesis.get(
+            "visibility_rate"
+        )
+    )
+
+    with summary_columns[0]:
+        st.metric(
+            "Target AI visibility",
+            (
+                f"{float(visibility_rate):.0%}"
+                if (
+                    visibility_rate
+                    is not None
+                )
+                else "—"
+            ),
+        )
+
+    website_score = (
+        synthesis.get(
+            "website_score"
+        )
+    )
+
+    leader_website_median = (
+        synthesis.get(
+            "leader_website_median"
+        )
+    )
+
+    with summary_columns[1]:
+        st.metric(
+            "Website score",
+            (
+                f"{float(website_score):.0f}/100"
+                if website_score
+                is not None
+                else "—"
+            ),
+            delta=(
+                (
+                    f"{float(website_score - leader_website_median):+.0f} "
+                    "vs AI-leader median"
+                )
+                if (
+                    website_score
+                    is not None
+                    and leader_website_median
+                    is not None
+                )
+                else None
+            ),
+        )
+
+    review_summary = (
+        synthesis.get(
+            "review_summary",
+            {},
+        )
+    )
+
+    target_rating = (
+        review_summary.get(
+            "target_rating"
+        )
+        if review_summary
+        else None
+    )
+
+    leader_rating = (
+        review_summary.get(
+            "leader_rating_median"
+        )
+        if review_summary
+        else None
+    )
+
+    with summary_columns[2]:
+        st.metric(
+            "Customer rating sample",
+            (
+                f"{float(target_rating):.2f}"
+                if target_rating
+                is not None
+                else "—"
+            ),
+            delta=(
+                (
+                    f"{float(target_rating - leader_rating):+.2f} "
+                    "vs AI-leader median"
+                )
+                if (
+                    target_rating
+                    is not None
+                    and leader_rating
+                    is not None
+                )
+                else None
+            ),
+        )
+
+    strategic_insight = (
+        synthesis.get(
+            "strategic_insight"
+        )
+    )
+
+    if strategic_insight:
+        st.success(
+            strategic_insight
+        )
+
+    st.write(
+        "### Priority actions"
+    )
+
+    actions = synthesis[
+        "actions"
+    ]
+
+    if actions.empty:
+        st.success(
+            "The completed evidence does not currently identify "
+            "a strong client-controllable action that passes the "
+            "relevance and evidence thresholds."
         )
     else:
-        st.success(
-            "Evidence is complete and no clear observable "
-            "gaps were identified from the current website "
-            "and review diagnostic."
-        )
-else:
-    st.caption(
-        "These are prioritised **hypotheses for action**, "
-        "not claims that a particular signal caused the AI "
-        "ranking. They identify differences between the target "
-        "and businesses that AI is currently recommending."
-    )
-
-    st.dataframe(
-        opportunities.rename(
-            columns={
-                "layer":
-                    "Evidence layer",
-                "priority":
-                    "Priority",
-                "signal":
-                    "Observable signal",
-                "observation":
-                    "What we observed",
-                "suggested_action":
-                    "Potential action",
-            }
-        ),
-        use_container_width=True,
-        hide_index=True,
-        height=600,
-    )
-
-
-if not strengths.empty:
-    with st.expander(
-        "Existing target strengths"
-    ):
-        st.dataframe(
-            strengths.rename(
-                columns={
-                    "layer":
-                        "Evidence layer",
-                    "signal":
-                        "Signal",
-                    "observation":
-                        "What we observed",
-                }
+        for index, action in enumerate(
+            actions.to_dict(
+                "records"
             ),
-            use_container_width=True,
-            hide_index=True,
+            start=1,
+        ):
+            with st.container(
+                border=True
+            ):
+                st.markdown(
+                    f"#### {index}. {action['title']}"
+                )
+
+                action_columns = st.columns(
+                    [
+                        0.8,
+                        0.8,
+                        2.4,
+                    ]
+                )
+
+                with action_columns[0]:
+                    st.markdown(
+                        f"**Priority**  \n"
+                        f"{action['priority']}"
+                    )
+
+                with action_columns[1]:
+                    st.markdown(
+                        f"**Confidence**  \n"
+                        f"{action['confidence']}"
+                    )
+
+                with action_columns[2]:
+                    st.markdown(
+                        f"**Evidence layer**  \n"
+                        f"{action['evidence_layer']}"
+                    )
+
+                st.markdown(
+                    f"**Why this is worth acting on**  \n"
+                    f"{action['why']}"
+                )
+
+                st.markdown(
+                    f"**Evidence**  \n"
+                    f"{action['evidence']}"
+                )
+
+                st.markdown(
+                    f"**Recommended action**  \n"
+                    f"{action['action']}"
+                )
+
+    st.write(
+        "### Existing strengths to protect"
+    )
+
+    strengths = synthesis[
+        "strengths"
+    ]
+
+    if strengths.empty:
+        st.caption(
+            "No distinctive target strengths passed the current "
+            "evidence thresholds."
         )
+    else:
+        strength_columns = st.columns(
+            2
+        )
+
+        for index, strength in enumerate(
+            strengths.to_dict(
+                "records"
+            )
+        ):
+            with strength_columns[
+                index % 2
+            ]:
+                with st.container(
+                    border=True
+                ):
+                    st.markdown(
+                        f"**{strength['title']}**"
+                    )
+                    st.caption(
+                        strength[
+                            "category"
+                        ]
+                    )
+                    st.write(
+                        strength[
+                            "evidence"
+                        ]
+                    )
+                    st.write(
+                        "**Implication:** "
+                        + strength[
+                            "implication"
+                        ]
+                    )
+                    st.caption(
+                        "Confidence: "
+                        + strength[
+                            "confidence"
+                        ]
+                    )
+
+    observations = synthesis[
+        "observations"
+    ]
+
+    if not observations.empty:
+        non_suppressed = observations[
+            observations[
+                "category"
+            ]
+            != "Suppressed difference"
+        ].copy()
+
+        suppressed = observations[
+            observations[
+                "category"
+            ]
+            == "Suppressed difference"
+        ].copy()
+
+        if not non_suppressed.empty:
+            st.write(
+                "### Lower-confidence observations"
+            )
+
+            st.dataframe(
+                non_suppressed[
+                    [
+                        "category",
+                        "title",
+                        "evidence",
+                        "interpretation",
+                        "confidence",
+                    ]
+                ].rename(
+                    columns={
+                        "category":
+                            "Evidence layer",
+                        "title":
+                            "Observation",
+                        "evidence":
+                            "Evidence",
+                        "interpretation":
+                            "Interpretation",
+                        "confidence":
+                            "Confidence",
+                    }
+                ),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+        if not suppressed.empty:
+            with st.expander(
+                "Suppressed / non-priority differences"
+            ):
+                st.write(
+                    "These differences remain visible for technical "
+                    "transparency but are deliberately excluded from "
+                    "the client action plan because they are not "
+                    "sufficiently relevant to this business type."
+                )
+
+                st.dataframe(
+                    suppressed[
+                        [
+                            "title",
+                            "evidence",
+                            "interpretation",
+                            "confidence",
+                        ]
+                    ].rename(
+                        columns={
+                            "title":
+                                "Difference",
+                            "evidence":
+                                "Evidence",
+                            "interpretation":
+                                "Why it is suppressed",
+                            "confidence":
+                                "Confidence",
+                        }
+                    ),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+    with st.expander(
+        "Supporting recommendation evidence"
+    ):
+        st.write(
+            "The tables below are the more mechanical evidence "
+            "layer used by the synthesis. They are retained so "
+            "every recommendation remains traceable."
+        )
+
+        if not raw_opportunities.empty:
+            st.write(
+                "#### Raw detected opportunities"
+            )
+
+            st.dataframe(
+                raw_opportunities.rename(
+                    columns={
+                        "layer":
+                            "Evidence layer",
+                        "priority":
+                            "Raw priority",
+                        "signal":
+                            "Observable signal",
+                        "observation":
+                            "What we observed",
+                        "suggested_action":
+                            "Raw potential action",
+                    }
+                ),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+        if not raw_strengths.empty:
+            st.write(
+                "#### Raw detected strengths"
+            )
+
+            st.dataframe(
+                raw_strengths.rename(
+                    columns={
+                        "layer":
+                            "Evidence layer",
+                        "signal":
+                            "Signal",
+                        "observation":
+                            "What we observed",
+                    }
+                ),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+        technical_evidence = (
+            synthesis[
+                "technical_evidence"
+            ]
+        )
+
+        if not technical_evidence.empty:
+            st.write(
+                "#### Relevance-gated website evidence"
+            )
+
+            technical_display = (
+                technical_evidence.copy()
+            )
+
+            technical_display[
+                "Business relevance"
+            ] = technical_display[
+                "relevance"
+            ].apply(
+                lambda value: (
+                    f"{float(value):.0%}"
+                )
+            )
+
+            technical_display[
+                "AI-leader prevalence"
+            ] = technical_display[
+                "prevalence"
+            ].apply(
+                lambda value: (
+                    f"{float(value):.0%}"
+                )
+            )
+
+            st.dataframe(
+                technical_display[
+                    [
+                        "signal",
+                        "Business relevance",
+                        "AI-leader prevalence",
+                        "score",
+                        "confidence",
+                        "disposition",
+                    ]
+                ].rename(
+                    columns={
+                        "signal":
+                            "Website signal",
+                        "score":
+                            "Recommendation score",
+                        "confidence":
+                            "Confidence",
+                        "disposition":
+                            "Outcome",
+                    }
+                ),
+                use_container_width=True,
+                hide_index=True,
+            )
 
 
 # =========================================================
@@ -1669,6 +2088,21 @@ st.write(
     "Those should become a separate **External Authority & "
     "Citation** layer rather than being mixed into the website "
     "diagnostic before this workflow is proven."
+)
+
+st.write(
+    "The Recommendation Synthesis layer applies a vertical-"
+    "relevance gate before a detected difference can become "
+    "a client recommendation. This prevents mechanically "
+    "copying competitor behaviours that may be irrelevant "
+    "to the target business."
+)
+
+st.write(
+    "Recommendations are rule/evidence driven rather than "
+    "written by another LLM. Each priority remains traceable "
+    "to the website, proposition and/or customer-review "
+    "evidence shown above."
 )
 
 st.write(
