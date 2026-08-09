@@ -567,9 +567,8 @@ def _validate_supported_schema(
     supported_required = {
         "google_place_id",
         "raw_data",
+        "import_id",
         "source_row_number",
-        "source_file_name",
-        "source_file",
     }
 
     unsupported_required = []
@@ -619,14 +618,21 @@ def import_business_records(
     ],
     source_file_name: str,
 ) -> dict[str, Any]:
+    """
+    Create one proper data_imports batch, then append every uploaded
+    business row to raw_outscraper_locations under that import_id.
+
+    We deliberately preserve raw import history rather than overwriting
+    earlier raw rows. Existing Google Place IDs are counted as updates at
+    the entity/feature layer; genuinely new Place IDs are counted as new.
+    """
     if not records:
         return {
-            "inserted":
-                0,
-            "updated":
-                0,
-            "records":
-                [],
+            "inserted": 0,
+            "updated": 0,
+            "raw_rows_added": 0,
+            "import_id": None,
+            "records": [],
         }
 
     columns = (
@@ -639,182 +645,136 @@ def import_business_records(
         columns
     )
 
-    existing = (
+    existing_before = (
         fetch_existing_place_ids(
             engine
         )
     )
 
-    has_source_row = (
-        "source_row_number"
-        in columns
+    incoming_ids = {
+        str(
+            record[
+                "google_place_id"
+            ]
+        ).strip()
+        for record in records
+    }
+
+    updated_count = len(
+        incoming_ids
+        & existing_before
     )
 
-    has_source_file_name = (
-        "source_file_name"
-        in columns
+    inserted_count = len(
+        incoming_ids
+        - existing_before
     )
 
-    has_source_file = (
-        "source_file"
-        in columns
-    )
-
-    has_updated_at = (
-        "updated_at"
-        in columns
-    )
-
-    max_source_row = 0
-
-    if has_source_row:
-        with engine.connect() as connection:
-            max_source_row = int(
-                connection.execute(
-                    text(
-                        """
-                        select coalesce(
-                            max(source_row_number),
-                            0
-                        )
-                        from raw_outscraper_locations
-                        """
-                    )
-                ).scalar_one()
-                or 0
-            )
-
-    inserted = 0
-    updated = 0
-
-    update_assignments = [
-        "raw_data = cast(:raw_data as jsonb)",
-    ]
-
-    if has_source_file_name:
-        update_assignments.append(
-            "source_file_name = :source_file_name"
+    create_import_query = text(
+        """
+        insert into data_imports (
+            source_name,
+            source_file,
+            collected_at,
+            row_count,
+            notes
         )
-
-    if has_source_file:
-        update_assignments.append(
-            "source_file = :source_file_name"
+        values (
+            :source_name,
+            :source_file,
+            null,
+            :row_count,
+            :notes
         )
-
-    if has_updated_at:
-        update_assignments.append(
-            "updated_at = now()"
-        )
-
-    update_query = text(
-        f"""
-        update raw_outscraper_locations
-        set
-            {", ".join(update_assignments)}
-        where google_place_id = :google_place_id
+        returning id
         """
     )
 
-    insert_columns = [
-        "google_place_id",
-        "raw_data",
-    ]
-
-    insert_values = [
-        ":google_place_id",
-        "cast(:raw_data as jsonb)",
-    ]
-
-    if has_source_row:
-        insert_columns.append(
-            "source_row_number"
-        )
-        insert_values.append(
-            ":source_row_number"
-        )
-
-    if has_source_file_name:
-        insert_columns.append(
-            "source_file_name"
-        )
-        insert_values.append(
-            ":source_file_name"
-        )
-
-    if has_source_file:
-        insert_columns.append(
-            "source_file"
-        )
-        insert_values.append(
-            ":source_file_name"
-        )
-
-    insert_query = text(
-        f"""
+    insert_raw_query = text(
+        """
         insert into raw_outscraper_locations (
-            {", ".join(insert_columns)}
+            import_id,
+            source_row_number,
+            google_place_id,
+            raw_data
         )
         values (
-            {", ".join(insert_values)}
+            :import_id,
+            :source_row_number,
+            :google_place_id,
+            cast(:raw_data as jsonb)
         )
         """
     )
 
     with engine.begin() as connection:
-        next_source_row = (
-            max_source_row
-            + 1
-        )
-
-        for record in records:
-            place_id = str(
-                record[
-                    "google_place_id"
-                ]
-            )
-
-            params = {
-                "google_place_id":
-                    place_id,
-                "raw_data":
-                    json.dumps(
-                        record[
-                            "raw_data"
-                        ],
-                        ensure_ascii=False,
-                    ),
-                "source_file_name":
+        import_id = connection.execute(
+            create_import_query,
+            {
+                "source_name":
+                    "outscraper_business_upload",
+                "source_file":
                     source_file_name,
-                "source_row_number":
-                    next_source_row,
-            }
+                "row_count":
+                    len(
+                        records
+                    ),
+                "notes":
+                    (
+                        "Imported through Streamlit Data Admin "
+                        "Business Import v1.1."
+                    ),
+            },
+        ).scalar_one()
 
-            if place_id in existing:
-                connection.execute(
-                    update_query,
-                    params,
-                )
-                updated += 1
-
-            else:
-                connection.execute(
-                    insert_query,
-                    params,
-                )
-                inserted += 1
-                existing.add(
-                    place_id
-                )
-                next_source_row += 1
+        for source_row_number, record in enumerate(
+            records,
+            start=1,
+        ):
+            connection.execute(
+                insert_raw_query,
+                {
+                    "import_id":
+                        str(
+                            import_id
+                        ),
+                    "source_row_number":
+                        int(
+                            source_row_number
+                        ),
+                    "google_place_id":
+                        str(
+                            record[
+                                "google_place_id"
+                            ]
+                        ).strip(),
+                    "raw_data":
+                        json.dumps(
+                            record[
+                                "raw_data"
+                            ],
+                            ensure_ascii=False,
+                        ),
+                },
+            )
 
     return {
         "inserted":
-            inserted,
+            inserted_count,
         "updated":
-            updated,
+            updated_count,
+        "raw_rows_added":
+            len(
+                records
+            ),
+        "import_id":
+            str(
+                import_id
+            ),
         "records":
             records,
     }
+
 
 
 def business_import_preview_frame(
