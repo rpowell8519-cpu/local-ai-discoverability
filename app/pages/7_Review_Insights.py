@@ -30,16 +30,18 @@ from src.review_repository import (
     save_theme_analysis,
 )
 from src.outscraper_reviews import (
+    DEFAULT_APP_COST_CEILING_GBP,
     OutscraperError,
     api_import_source_name,
     flatten_google_reviews_response,
     get_request_result,
+    review_pull_within_cost_ceiling,
     submit_google_reviews,
 )
 from src.taxonomy import GROUP_LABELS
 
 
-BUILD_VERSION = "Review Intelligence v1.2 / Direct Outscraper v1.0"
+BUILD_VERSION = "Review Intelligence v1.2.1 / Outscraper Cost Guard v1.0"
 
 
 st.set_page_config(
@@ -636,7 +638,71 @@ with import_tab:
                 )
             )
 
+            # Hard product guardrail: deliberately not configurable
+            # through the UI or Streamlit secrets.
+            cost_ceiling_gbp = (
+                DEFAULT_APP_COST_CEILING_GBP
+            )
+
+            (
+                within_cost_ceiling,
+                projected_cost_gbp,
+            ) = review_pull_within_cost_ceiling(
+                requested_reviews=(
+                    requested_max_reviews
+                ),
+                ceiling_gbp=(
+                    cost_ceiling_gbp
+                ),
+            )
+
             if request_place_ids:
+                cost_columns = st.columns(
+                    3
+                )
+
+                with cost_columns[0]:
+                    st.metric(
+                        "Maximum review records",
+                        f"{requested_max_reviews:,}",
+                    )
+
+                with cost_columns[1]:
+                    st.metric(
+                        "Conservative projected cost",
+                        f"£{projected_cost_gbp:.2f}",
+                    )
+
+                with cost_columns[2]:
+                    st.metric(
+                        "App cost ceiling",
+                        f"£{cost_ceiling_gbp:.2f}",
+                    )
+
+                st.caption(
+                    "The cost guard deliberately assumes every requested "
+                    "review is billable at the published $3 / 1,000 "
+                    "medium-tier rate and uses a conservative fixed "
+                    "currency assumption. It ignores Outscraper's free "
+                    "tier, lower-volume returns and volume discounts, so "
+                    "actual cost may be lower. The estimate is a safety "
+                    "ceiling, not an invoice forecast."
+                )
+
+                if not within_cost_ceiling:
+                    st.error(
+                        f"API pull blocked: the conservative projected "
+                        f"cost is £{projected_cost_gbp:.2f}, above the "
+                        f"£{cost_ceiling_gbp:.2f} in-app ceiling. "
+                        "For a pull of this size, use Outscraper directly "
+                        "rather than submitting it from this app."
+                    )
+                else:
+                    st.success(
+                        f"Cost guard passed: conservative projected "
+                        f"maximum £{projected_cost_gbp:.2f}."
+                    )
+
                 st.caption(
                     f"This request will query "
                     f"**{len(request_place_ids)} business(es)** "
@@ -653,6 +719,9 @@ with import_tab:
                     "Fetch reviews from Outscraper",
                     type="primary",
                     key="outscraper_start_request",
+                    disabled=(
+                        not within_cost_ceiling
+                    ),
                 )
 
                 if start_request:
