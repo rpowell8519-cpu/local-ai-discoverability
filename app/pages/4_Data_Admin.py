@@ -38,7 +38,7 @@ st.caption(
     "derived business-feature layer"
 )
 st.caption(
-    "Build: Data Admin v1.1 / Business Import v1.0"
+    "Build: Data Admin v1.1.1 / Business Import v1.1"
 )
 
 
@@ -500,10 +500,13 @@ if business_upload is not None:
 
                 st.success(
                     f"Import complete: "
-                    f"{int(import_result['inserted'])} new "
+                    f"{int(import_result['inserted'])} genuinely new "
                     f"business(es), "
                     f"{int(import_result['updated'])} existing "
-                    f"business(es) updated, and "
+                    f"Place ID(s) refreshed, "
+                    f"{int(import_result['raw_rows_added'])} raw row(s) "
+                    f"saved under import batch "
+                    f"`{import_result['import_id']}`, and "
                     f"{len(feature_records)} feature record(s) "
                     "rebuilt automatically."
                 )
