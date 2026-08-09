@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from decimal import Decimal, ROUND_CEILING
 from datetime import datetime, timezone
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -22,6 +23,100 @@ REQUEST_RESULT_ENDPOINT = (
 
 class OutscraperError(RuntimeError):
     pass
+
+
+# ---------------------------------------------------------------------
+# App-side cost guard
+# ---------------------------------------------------------------------
+
+# Outscraper currently publishes a medium-tier Google Reviews rate of
+# USD $3 per 1,000 reviews. The app deliberately uses a conservative
+# GBP conversion assumption and ignores the free tier / volume discounts
+# when deciding whether an API pull is safe to submit.
+#
+# This makes the estimate an upper-bound guardrail rather than an invoice
+# forecast.
+COST_GUARD_USD_PER_1000_REVIEWS = 3.00
+COST_GUARD_USD_PER_GBP = 1.20
+DEFAULT_APP_COST_CEILING_GBP = 7.50
+
+
+def estimate_review_pull_cost_gbp(
+    *,
+    requested_reviews: int,
+    usd_per_1000_reviews: float = (
+        COST_GUARD_USD_PER_1000_REVIEWS
+    ),
+    usd_per_gbp: float = (
+        COST_GUARD_USD_PER_GBP
+    ),
+) -> float:
+    requested_reviews = max(
+        0,
+        int(
+            requested_reviews
+        ),
+    )
+
+    if requested_reviews == 0:
+        return 0.0
+
+    usd_cost = (
+        Decimal(
+            requested_reviews
+        )
+        / Decimal("1000")
+        * Decimal(
+            str(
+                usd_per_1000_reviews
+            )
+        )
+    )
+
+    gbp_cost = (
+        usd_cost
+        / Decimal(
+            str(
+                usd_per_gbp
+            )
+        )
+    )
+
+    # Round UP rather than to nearest penny so the cost guard
+    # never understates the projected upper-bound cost.
+    return float(
+        gbp_cost.quantize(
+            Decimal("0.01"),
+            rounding=ROUND_CEILING,
+        )
+    )
+
+
+def review_pull_within_cost_ceiling(
+    *,
+    requested_reviews: int,
+    ceiling_gbp: float = (
+        DEFAULT_APP_COST_CEILING_GBP
+    ),
+) -> tuple[
+    bool,
+    float,
+]:
+    projected_gbp = (
+        estimate_review_pull_cost_gbp(
+            requested_reviews=(
+                requested_reviews
+            )
+        )
+    )
+
+    return (
+        projected_gbp
+        <= float(
+            ceiling_gbp
+        ),
+        projected_gbp,
+    )
 
 
 def _request_json(
