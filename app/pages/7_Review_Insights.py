@@ -29,10 +29,17 @@ from src.review_repository import (
     get_reviews,
     save_theme_analysis,
 )
+from src.outscraper_reviews import (
+    OutscraperError,
+    api_import_source_name,
+    flatten_google_reviews_response,
+    get_request_result,
+    submit_google_reviews,
+)
 from src.taxonomy import GROUP_LABELS
 
 
-BUILD_VERSION = "Review Intelligence v1.1.1"
+BUILD_VERSION = "Review Intelligence v1.2 / Direct Outscraper v1.0"
 
 
 st.set_page_config(
@@ -189,14 +196,14 @@ def load_saved_cohort(
 
 import_tab, insights_tab = st.tabs(
     [
-        "Import reviews",
+        "Get / import reviews",
         "Review insights & benchmark",
     ]
 )
 
 
 with import_tab:
-    st.subheader("Import Outscraper review files")
+    st.subheader("Get Google reviews")
 
     if active_ids:
         st.write(
@@ -361,10 +368,634 @@ with import_tab:
         st.divider()
 
     st.write(
-        "Upload one or more original Outscraper Google "
-        "Reviews files. Both `.xlsx` and `.csv` are "
-        "supported, and a single file may contain one "
-        "or many businesses."
+        "### Fetch directly from Outscraper"
+    )
+
+    st.caption(
+        "Use the Google Place IDs already stored in the platform. "
+        "Reviews returned by Outscraper are normalised through the "
+        "same ingestion pipeline as manual files and upserted into "
+        "the existing `business_reviews` table."
+    )
+
+    try:
+        outscraper_api_key = str(
+            st.secrets.get(
+                "OUTSCRAPER_API_KEY",
+                "",
+            )
+            or ""
+        ).strip()
+    except Exception:
+        outscraper_api_key = ""
+
+    if not outscraper_api_key:
+        st.warning(
+            "Outscraper is not connected yet. Add "
+            "`OUTSCRAPER_API_KEY` to the Streamlit app secrets. "
+            "The manual file-upload workflow remains available below."
+        )
+    else:
+        st.success(
+            "Outscraper API key detected."
+        )
+
+        # Build a candidate list from the active diagnostic cohort
+        # where possible. If there is no active cohort, allow a
+        # manual selection from business_features.
+        try:
+            all_businesses_for_fetch = (
+                load_businesses()
+            )
+        except Exception:
+            all_businesses_for_fetch = (
+                pd.DataFrame()
+            )
+
+        fetch_inventory = (
+            get_review_counts()
+        )
+
+        stored_count_lookup = {}
+
+        if not fetch_inventory.empty:
+            fetch_inventory[
+                "google_place_id"
+            ] = fetch_inventory[
+                "google_place_id"
+            ].astype(str)
+
+            stored_count_lookup = (
+                fetch_inventory
+                .set_index(
+                    "google_place_id"
+                )[
+                    "review_count"
+                ]
+                .to_dict()
+            )
+
+        if active_ids:
+            fetch_ids = list(
+                dict.fromkeys(
+                    str(place_id)
+                    for place_id in active_ids
+                )
+            )
+
+            fetch_name_lookup = {
+                str(place_id):
+                    active_names.get(
+                        str(place_id),
+                        str(place_id),
+                    )
+                for place_id in fetch_ids
+            }
+
+        elif not all_businesses_for_fetch.empty:
+            all_businesses_for_fetch[
+                "google_place_id"
+            ] = all_businesses_for_fetch[
+                "google_place_id"
+            ].astype(str)
+
+            fetch_name_lookup = (
+                all_businesses_for_fetch
+                .drop_duplicates(
+                    "google_place_id"
+                )
+                .set_index(
+                    "google_place_id"
+                )[
+                    "business_name"
+                ]
+                .astype(str)
+                .to_dict()
+            )
+
+            all_fetch_ids = list(
+                fetch_name_lookup.keys()
+            )
+
+            fetch_ids = st.multiselect(
+                "Businesses to fetch reviews for",
+                options=all_fetch_ids,
+                default=[],
+                max_selections=20,
+                format_func=lambda value: (
+                    fetch_name_lookup.get(
+                        value,
+                        value,
+                    )
+                ),
+                key="outscraper_manual_business_selection",
+            )
+        else:
+            fetch_ids = []
+            fetch_name_lookup = {}
+
+        if fetch_ids:
+            api_controls = st.columns(
+                [
+                    1,
+                    1,
+                    1.3,
+                ]
+            )
+
+            with api_controls[0]:
+                reviews_limit = (
+                    st.selectbox(
+                        "Reviews per business",
+                        options=[
+                            50,
+                            100,
+                            200,
+                        ],
+                        index=1,
+                        key="outscraper_reviews_limit",
+                    )
+                )
+
+            with api_controls[1]:
+                sort_label = (
+                    st.selectbox(
+                        "Review sample",
+                        options=[
+                            "Most relevant",
+                            "Newest",
+                        ],
+                        index=0,
+                        key="outscraper_sort_label",
+                    )
+                )
+
+            with api_controls[2]:
+                only_below_target = (
+                    st.checkbox(
+                        "Only businesses below target count",
+                        value=True,
+                        help=(
+                            "If checked, businesses that already have "
+                            "at least the selected number of stored "
+                            "reviews are excluded from the API request."
+                        ),
+                        key="outscraper_only_below_target",
+                    )
+                )
+
+            sort_value = (
+                "newest"
+                if sort_label
+                == "Newest"
+                else "most_relevant"
+            )
+
+            fetch_rows = []
+
+            for place_id in fetch_ids:
+                stored = int(
+                    stored_count_lookup.get(
+                        str(place_id),
+                        0,
+                    )
+                    or 0
+                )
+
+                fetch_rows.append(
+                    {
+                        "Role":
+                            (
+                                "Target"
+                                if (
+                                    active_target_id
+                                    and str(place_id)
+                                    == active_target_id
+                                )
+                                else (
+                                    "AI leader"
+                                    if active_ids
+                                    else "Business"
+                                )
+                            ),
+                        "Business":
+                            fetch_name_lookup.get(
+                                str(place_id),
+                                str(place_id),
+                            ),
+                        "Place ID":
+                            str(place_id),
+                        "Reviews stored":
+                            stored,
+                        "API limit":
+                            int(
+                                reviews_limit
+                            ),
+                        "Will fetch":
+                            (
+                                "Yes"
+                                if (
+                                    not only_below_target
+                                    or stored
+                                    < reviews_limit
+                                )
+                                else "No — already ready"
+                            ),
+                    }
+                )
+
+            fetch_frame = pd.DataFrame(
+                fetch_rows
+            )
+
+            st.dataframe(
+                fetch_frame,
+                use_container_width=True,
+                hide_index=True,
+            )
+
+            request_place_ids = (
+                fetch_frame[
+                    fetch_frame[
+                        "Will fetch"
+                    ]
+                    == "Yes"
+                ][
+                    "Place ID"
+                ]
+                .astype(str)
+                .tolist()
+            )
+
+            requested_max_reviews = (
+                len(
+                    request_place_ids
+                )
+                * int(
+                    reviews_limit
+                )
+            )
+
+            if request_place_ids:
+                st.caption(
+                    f"This request will query "
+                    f"**{len(request_place_ids)} business(es)** "
+                    f"with a limit of **{reviews_limit} reviews "
+                    f"per business** (maximum "
+                    f"{requested_max_reviews:,} returned review "
+                    "records before validation/deduplication). "
+                    "Reviews without text are ignored because the "
+                    "current Review Intelligence analysis requires "
+                    "review text."
+                )
+
+                start_request = st.button(
+                    "Fetch reviews from Outscraper",
+                    type="primary",
+                    key="outscraper_start_request",
+                )
+
+                if start_request:
+                    try:
+                        with st.spinner(
+                            "Submitting Outscraper review request..."
+                        ):
+                            submitted = (
+                                submit_google_reviews(
+                                    api_key=(
+                                        outscraper_api_key
+                                    ),
+                                    place_ids=(
+                                        request_place_ids
+                                    ),
+                                    reviews_limit=(
+                                        int(
+                                            reviews_limit
+                                        )
+                                    ),
+                                    sort=(
+                                        sort_value
+                                    ),
+                                    language="en",
+                                    region="GB",
+                                    ignore_empty=True,
+                                )
+                            )
+
+                        st.session_state[
+                            "outscraper_review_request"
+                        ] = {
+                            "request_id":
+                                submitted.get(
+                                    "id"
+                                ),
+                            "status":
+                                submitted.get(
+                                    "status"
+                                ),
+                            "data":
+                                submitted.get(
+                                    "data"
+                                ),
+                            "place_ids":
+                                request_place_ids,
+                            "reviews_limit":
+                                int(
+                                    reviews_limit
+                                ),
+                            "sort":
+                                sort_value,
+                            "imported":
+                                False,
+                        }
+
+                    except OutscraperError as exc:
+                        st.error(
+                            str(exc)
+                        )
+
+            else:
+                st.success(
+                    "All selected businesses already meet the "
+                    "chosen stored-review target. Uncheck "
+                    "'Only businesses below target count' if you "
+                    "want to refresh them."
+                )
+
+        current_request = (
+            st.session_state.get(
+                "outscraper_review_request"
+            )
+        )
+
+        if current_request:
+            st.write(
+                "#### Current Outscraper request"
+            )
+
+            request_id = str(
+                current_request.get(
+                    "request_id"
+                )
+                or ""
+            )
+
+            current_status = str(
+                current_request.get(
+                    "status"
+                )
+                or "Pending"
+            )
+
+            status_columns = st.columns(
+                [
+                    2.2,
+                    1,
+                    1,
+                ]
+            )
+
+            with status_columns[0]:
+                st.write(
+                    f"**Request ID:** `{request_id}`"
+                )
+
+            with status_columns[1]:
+                st.write(
+                    f"**Status:** {current_status}"
+                )
+
+            with status_columns[2]:
+                st.write(
+                    f"**Businesses:** "
+                    f"{len(current_request.get('place_ids', []))}"
+                )
+
+            check_status = st.button(
+                "Check Outscraper status",
+                key="outscraper_check_status",
+            )
+
+            if check_status:
+                try:
+                    with st.spinner(
+                        "Checking Outscraper..."
+                    ):
+                        checked = (
+                            get_request_result(
+                                api_key=(
+                                    outscraper_api_key
+                                ),
+                                request_id=(
+                                    request_id
+                                ),
+                            )
+                        )
+
+                    current_request[
+                        "status"
+                    ] = checked.get(
+                        "status"
+                    )
+
+                    current_request[
+                        "data"
+                    ] = checked.get(
+                        "data"
+                    )
+
+                    st.session_state[
+                        "outscraper_review_request"
+                    ] = current_request
+
+                except OutscraperError as exc:
+                    st.error(
+                        str(exc)
+                    )
+
+            # The initial submit can occasionally complete immediately,
+            # otherwise the user checks the async request later.
+            request_status = str(
+                current_request.get(
+                    "status"
+                )
+                or ""
+            ).lower()
+
+            request_data = (
+                current_request.get(
+                    "data"
+                )
+            )
+
+            if (
+                request_status
+                == "success"
+                and request_data is not None
+                and not current_request.get(
+                    "imported",
+                    False,
+                )
+            ):
+                api_frame = (
+                    flatten_google_reviews_response(
+                        request_data
+                    )
+                )
+
+                if api_frame.empty:
+                    st.warning(
+                        "Outscraper completed the request but no "
+                        "text review records were returned."
+                    )
+                else:
+                    valid_api_frame, (
+                        invalid_api_frame
+                    ) = (
+                        normalise_review_frame(
+                            api_frame
+                        )
+                    )
+
+                    st.write(
+                        "##### Review pull preview"
+                    )
+
+                    preview_columns = st.columns(
+                        4
+                    )
+
+                    with preview_columns[0]:
+                        st.metric(
+                            "Returned rows",
+                            len(
+                                api_frame
+                            ),
+                        )
+
+                    with preview_columns[1]:
+                        st.metric(
+                            "Valid text reviews",
+                            len(
+                                valid_api_frame
+                            ),
+                        )
+
+                    with preview_columns[2]:
+                        st.metric(
+                            "Businesses",
+                            (
+                                valid_api_frame[
+                                    "google_place_id"
+                                ].nunique()
+                                if not valid_api_frame.empty
+                                else 0
+                            ),
+                        )
+
+                    with preview_columns[3]:
+                        st.metric(
+                            "Invalid/skipped",
+                            len(
+                                invalid_api_frame
+                            ),
+                        )
+
+                    if st.button(
+                        "Import fetched reviews into Review Intelligence",
+                        type="primary",
+                        key="outscraper_import_api_reviews",
+                    ):
+                        result = import_reviews(
+                            api_frame,
+                            source_file_name=(
+                                api_import_source_name(
+                                    request_id
+                                )
+                            ),
+                        )
+
+                        current_request[
+                            "imported"
+                        ] = True
+
+                        current_request[
+                            "import_result"
+                        ] = result
+
+                        st.session_state[
+                            "outscraper_review_request"
+                        ] = current_request
+
+                        st.cache_data.clear()
+
+                        st.success(
+                            f"Direct import complete: "
+                            f"{int(result['processed_rows'])} "
+                            f"review rows processed across "
+                            f"{int(result['business_count'])} "
+                            "business(es). Review Intelligence "
+                            "can use them immediately."
+                        )
+
+            elif (
+                request_status
+                in {
+                    "pending",
+                    "",
+                }
+            ):
+                st.info(
+                    "The Outscraper task is still running. "
+                    "You can leave this page open or come back "
+                    "and press **Check Outscraper status**."
+                )
+
+            elif (
+                request_status
+                == "failure"
+            ):
+                st.error(
+                    "Outscraper marked this request as failed."
+                )
+
+            if current_request.get(
+                "imported"
+            ):
+                import_result = (
+                    current_request.get(
+                        "import_result",
+                        {},
+                    )
+                )
+
+                st.success(
+                    f"Reviews from this request have already "
+                    f"been imported "
+                    f"({int(import_result.get('processed_rows', 0))} "
+                    "rows processed)."
+                )
+
+            if st.button(
+                "Clear Outscraper request",
+                key="outscraper_clear_request",
+            ):
+                st.session_state.pop(
+                    "outscraper_review_request",
+                    None,
+                )
+                st.rerun()
+
+        st.divider()
+
+    st.write(
+        "### Manual upload fallback"
+    )
+
+    st.write(
+        "You can still upload one or more original Outscraper Google "
+        "Reviews files. Both `.xlsx` and `.csv` are supported, and "
+        "a single file may contain one or many businesses."
     )
 
     uploaded_files = st.file_uploader(
