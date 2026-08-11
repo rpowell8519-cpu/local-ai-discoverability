@@ -49,7 +49,7 @@ from src.review_repository import (
 from src.taxonomy import GROUP_LABELS
 
 
-BUILD_VERSION = "AI Results Intelligence v1.3"
+BUILD_VERSION = "AI Results Intelligence v1.3.1 / Export Clarity v1.0"
 
 DEFAULT_MODELS = {
     "OpenAI": "gpt-5.6-terra",
@@ -161,9 +161,17 @@ def load_businesses() -> pd.DataFrame:
                 'Brighton and Hove'
             ) as location_hint
         from business_features bf
-        join raw_outscraper_locations rol
-          on rol.google_place_id =
-             bf.google_place_id
+        left join lateral (
+            select
+                raw_data
+            from raw_outscraper_locations
+            where google_place_id =
+                  bf.google_place_id
+            order by
+                created_at desc,
+                id desc
+            limit 1
+        ) rol on true
         order by bf.business_name
         """
     )
@@ -1987,8 +1995,29 @@ if not business_share.empty:
             hide_index=True,
         )
 
+        unresolved_count = len(
+            unresolved_display
+        )
+
+        resolved_market_count = int(
+            (
+                business_share[
+                    "classification"
+                ]
+                != "Unresolved"
+            ).sum()
+        )
+
+        st.info(
+            f"**{unresolved_count} AI-mentioned venue(s)** currently "
+            "need a Google Maps lookup. "
+            f"**{resolved_market_count} other market entities** already "
+            "resolve to businesses/entities in the platform, so they are "
+            "not included in the targeted lookup file."
+        )
+
         action_columns = (
-            st.columns(2)
+            st.columns(3)
         )
 
         with action_columns[0]:
@@ -1998,6 +2027,7 @@ if not business_share.empty:
                     "save_ai_enrichment_"
                     + latest_run_id
                 ),
+                use_container_width=True,
             ):
                 saved_count = (
                     upsert_enrichment_candidates(
@@ -2048,10 +2078,13 @@ if not business_share.empty:
             )
 
             st.download_button(
-                "Download targeted lookup CSV",
+                (
+                    "Download Maps lookup CSV "
+                    f"({unresolved_count})"
+                ),
                 data=lookup_csv,
                 file_name=(
-                    "ai_competitor_lookup_"
+                    "ai_unresolved_maps_lookup_"
                     + str(
                         target_name
                     )
@@ -2063,6 +2096,82 @@ if not business_share.empty:
                     + ".csv"
                 ),
                 mime="text/csv",
+                use_container_width=True,
+            )
+
+        with action_columns[2]:
+            full_market_export = (
+                business_share.copy()
+            )
+
+            full_market_export[
+                "targeted_lookup_query"
+            ] = full_market_export.apply(
+                lambda row: (
+                    (
+                        f"{row.get('business_name', '')} "
+                        f"{location_context}"
+                    ).strip()
+                    if row.get(
+                        "classification"
+                    )
+                    == "Unresolved"
+                    else ""
+                ),
+                axis=1,
+            )
+
+            export_columns = [
+                column
+                for column in [
+                    "business_name",
+                    "classification",
+                    "google_place_id",
+                    "recommendations",
+                    "providers",
+                    "share_of_recommendation",
+                    "position_weighted_share",
+                    "average_position",
+                    "targeted_lookup_query",
+                ]
+                if column
+                in full_market_export.columns
+            ]
+
+            full_market_csv = (
+                full_market_export[
+                    export_columns
+                ]
+                .to_csv(
+                    index=False
+                )
+                .encode(
+                    "utf-8"
+                )
+            )
+
+            st.download_button(
+                (
+                    "Download full AI market CSV "
+                    f"({len(full_market_export)})"
+                ),
+                data=(
+                    full_market_csv
+                ),
+                file_name=(
+                    "ai_recommendation_market_"
+                    + str(
+                        target_name
+                    )
+                    .lower()
+                    .replace(
+                        " ",
+                        "_",
+                    )
+                    + ".csv"
+                ),
+                mime="text/csv",
+                use_container_width=True,
             )
 
 # Persistent queue
