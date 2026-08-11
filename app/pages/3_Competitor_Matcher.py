@@ -21,7 +21,7 @@ from src.database import get_engine
 from src.taxonomy import GROUP_LABELS
 
 
-BUILD_VERSION = "Feature Matcher v3.1"
+BUILD_VERSION = "Feature Matcher v3.2 / Manual Database Add v1.0"
 
 
 st.set_page_config(
@@ -74,8 +74,16 @@ def load_feature_businesses() -> pd.DataFrame:
             rol.raw_data->>'google_maps_url'
                 as google_maps_url
         from business_features bf
-        join raw_outscraper_locations rol
-          on rol.google_place_id = bf.google_place_id
+        left join lateral (
+            select
+                raw_data
+            from raw_outscraper_locations
+            where google_place_id = bf.google_place_id
+            order by
+                created_at desc,
+                id desc
+            limit 1
+        ) rol on true
         order by bf.business_name
         """
     )
@@ -456,6 +464,371 @@ st.dataframe(
     hide_index=True,
     height=650,
 )
+
+
+st.divider()
+st.subheader(
+    "Add a competitor manually"
+)
+
+st.caption(
+    "The matcher is a recommendation system, not a gatekeeper. "
+    "Search the **entire business database** here and add a venue "
+    "to the validated competitor cohort even when its category, "
+    "format or similarity score placed it outside the automatic list."
+)
+
+manual_query = st.text_input(
+    "Search entire database",
+    placeholder=(
+        "Search by business name, type, subtype, format or group..."
+    ),
+    key=(
+        "manual_competitor_search_"
+        + str(
+            target_place_id
+        )
+    ),
+)
+
+manual_candidates = businesses[
+    businesses[
+        "google_place_id"
+    ].astype(str)
+    != str(
+        target_place_id
+    )
+].copy()
+
+if manual_query.strip():
+    search_term = (
+        manual_query
+        .strip()
+        .lower()
+    )
+
+    searchable_columns = [
+        "business_name",
+        "raw_category",
+        "raw_type",
+        "raw_subtypes",
+        "business_format",
+        "primary_group",
+    ]
+
+    search_blob = (
+        manual_candidates[
+            searchable_columns
+        ]
+        .fillna("")
+        .astype(str)
+        .agg(
+            " | ".join,
+            axis=1,
+        )
+        .str.lower()
+    )
+
+    manual_candidates = (
+        manual_candidates[
+            search_blob.str.contains(
+                search_term,
+                regex=False,
+            )
+        ]
+        .copy()
+    )
+
+    manual_candidates = (
+        manual_candidates
+        .drop_duplicates(
+            "google_place_id"
+        )
+        .sort_values(
+            "business_name",
+            na_position="last",
+        )
+        .head(50)
+    )
+
+    if manual_candidates.empty:
+        st.info(
+            "No businesses in the full database match that search."
+        )
+    else:
+        manual_lookup = {
+            str(
+                row[
+                    "google_place_id"
+                ]
+            ): row
+            for row in manual_candidates.to_dict(
+                "records"
+            )
+        }
+
+        manual_candidate_id = st.selectbox(
+            (
+                f"Matching businesses "
+                f"({len(manual_candidates)} shown)"
+            ),
+            options=list(
+                manual_lookup.keys()
+            ),
+            format_func=lambda value: (
+                str(
+                    manual_lookup[
+                        value
+                    ].get(
+                        "business_name"
+                    )
+                    or value
+                )
+                + " — "
+                + str(
+                    manual_lookup[
+                        value
+                    ].get(
+                        "raw_type"
+                    )
+                    or manual_lookup[
+                        value
+                    ].get(
+                        "business_format"
+                    )
+                    or "Unclassified"
+                )
+            ),
+            key=(
+                "manual_competitor_candidate_"
+                + str(
+                    target_place_id
+                )
+            ),
+        )
+
+        manual_candidate = (
+            manual_lookup[
+                str(
+                    manual_candidate_id
+                )
+            ]
+        )
+
+        manual_existing_review = (
+            review_lookup.get(
+                str(
+                    manual_candidate_id
+                ),
+                {},
+            )
+        )
+
+        manual_existing_status = (
+            manual_existing_review.get(
+                "relationship_status"
+            )
+        )
+
+        manual_existing_label = (
+            STATUS_LABELS.get(
+                manual_existing_status,
+                "Possible competitor",
+            )
+        )
+
+        detail_cols = st.columns(
+            [
+                2.0,
+                1.1,
+                1.1,
+                1.0,
+            ]
+        )
+
+        with detail_cols[0]:
+            st.write(
+                "**"
+                + str(
+                    manual_candidate.get(
+                        "business_name"
+                    )
+                    or manual_candidate_id
+                )
+                + "**"
+            )
+            st.caption(
+                str(
+                    manual_candidate.get(
+                        "raw_subtypes"
+                    )
+                    or manual_candidate.get(
+                        "raw_type"
+                    )
+                    or ""
+                )
+            )
+
+        with detail_cols[1]:
+            st.write(
+                "**Group**"
+            )
+            st.write(
+                GROUP_LABELS.get(
+                    manual_candidate.get(
+                        "primary_group"
+                    ),
+                    manual_candidate.get(
+                        "primary_group"
+                    )
+                    or "—",
+                )
+            )
+
+        with detail_cols[2]:
+            st.write(
+                "**Format**"
+            )
+            st.write(
+                manual_candidate.get(
+                    "business_format"
+                )
+                or "—"
+            )
+
+        with detail_cols[3]:
+            current_decision = (
+                STATUS_LABELS.get(
+                    manual_existing_status,
+                    "Unreviewed",
+                )
+            )
+            st.write(
+                "**Current decision**"
+            )
+            st.write(
+                current_decision
+            )
+
+        with st.form(
+            key=(
+                "manual_competitor_add_form_"
+                + str(
+                    target_place_id
+                )
+                + "_"
+                + str(
+                    manual_candidate_id
+                )
+            )
+        ):
+            manual_relationship = (
+                st.selectbox(
+                    "Relationship to target",
+                    options=list(
+                        LABEL_TO_STATUS.keys()
+                    ),
+                    index=list(
+                        LABEL_TO_STATUS.keys()
+                    ).index(
+                        manual_existing_label
+                    ),
+                    key=(
+                        "manual_relationship_"
+                        + str(
+                            manual_candidate_id
+                        )
+                    ),
+                )
+            )
+
+            manual_notes = st.text_area(
+                "Notes",
+                value=(
+                    manual_existing_review.get(
+                        "reviewer_notes",
+                        "",
+                    )
+                    or ""
+                ),
+                placeholder=(
+                    "For example: known local competitor despite "
+                    "being classified in another Google category."
+                ),
+                key=(
+                    "manual_notes_"
+                    + str(
+                        manual_candidate_id
+                    )
+                ),
+            )
+
+            manual_reviewed_by = (
+                st.text_input(
+                    "Reviewed by",
+                    value=(
+                        manual_existing_review.get(
+                            "reviewed_by",
+                            "",
+                        )
+                        or ""
+                    ),
+                    key=(
+                        "manual_reviewed_by_"
+                        + str(
+                            manual_candidate_id
+                        )
+                    ),
+                )
+            )
+
+            manual_save = (
+                st.form_submit_button(
+                    (
+                        "Add / update validated competitor"
+                        if not manual_existing_review
+                        else "Update competitor decision"
+                    ),
+                    type="primary",
+                )
+            )
+
+        if manual_save:
+            save_review(
+                target_google_place_id=(
+                    target_place_id
+                ),
+                candidate_google_place_id=(
+                    str(
+                        manual_candidate_id
+                    )
+                ),
+                relationship_status=(
+                    LABEL_TO_STATUS[
+                        manual_relationship
+                    ]
+                ),
+                reviewer_notes=(
+                    manual_notes
+                ),
+                reviewed_by=(
+                    manual_reviewed_by
+                ),
+            )
+
+            load_target_reviews.clear()
+
+            st.success(
+                f"{manual_candidate.get('business_name')} "
+                "has been added to the validated competitor cohort."
+            )
+
+            st.rerun()
+else:
+    st.info(
+        "Start typing to search every business currently held "
+        "in `business_features`."
+    )
 
 
 st.divider()
