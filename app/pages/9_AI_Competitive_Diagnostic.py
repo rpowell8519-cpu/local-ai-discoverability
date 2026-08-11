@@ -43,6 +43,7 @@ from src.review_profiles import (
     get_review_profile,
 )
 from src.review_repository import (
+    get_review_counts,
     get_reviews,
 )
 from src.recommendation_synthesis import (
@@ -60,7 +61,7 @@ from src.website_benchmark import (
 )
 
 
-BUILD_VERSION = "AI Competitive Diagnostic v1.2 / Recommendation Synthesis v1.0"
+BUILD_VERSION = "AI Competitive Diagnostic v1.2.1 / Evidence Readiness v1.0"
 
 
 st.set_page_config(
@@ -108,12 +109,33 @@ def load_business_directory() -> pd.DataFrame:
     query = text(
         """
         select
-            google_place_id,
-            business_name,
-            primary_group,
-            business_format
-        from business_features
-        order by business_name
+            bf.google_place_id,
+            bf.business_name,
+            bf.primary_group,
+            bf.business_format,
+            coalesce(
+                nullif(
+                    rol.raw_data->>'website',
+                    ''
+                ),
+                nullif(
+                    rol.raw_data->>'site',
+                    ''
+                )
+            ) as website_url
+        from business_features bf
+        left join lateral (
+            select
+                raw_data
+            from raw_outscraper_locations
+            where google_place_id =
+                  bf.google_place_id
+            order by
+                created_at desc,
+                id desc
+            limit 1
+        ) rol on true
+        order by bf.business_name
         """
     )
 
@@ -573,6 +595,29 @@ st.dataframe(
 st.divider()
 st.subheader("2. Complete the evidence")
 
+refresh_columns = st.columns(
+    [
+        1,
+        4,
+    ]
+)
+
+with refresh_columns[0]:
+    if st.button(
+        "Refresh evidence status",
+        use_container_width=True,
+        key="refresh_competitive_diagnostic_evidence",
+    ):
+        st.cache_data.clear()
+        st.rerun()
+
+with refresh_columns[1]:
+    st.caption(
+        "Evidence readiness is read from persisted website audits, "
+        "stored review records and the latest raw business record "
+        "for each Google Place ID."
+    )
+
 comparison_ids = [
     target_id,
     *selected_ids,
@@ -600,6 +645,30 @@ business_name_lookup = {
     )
 }
 
+
+website_url_lookup = {
+    str(
+        row[
+            "google_place_id"
+        ]
+    ): str(
+        row.get(
+            "website_url"
+        )
+        or ""
+    ).strip()
+    for row in businesses[
+        businesses[
+            "google_place_id"
+        ].astype(str)
+        .isin(
+            comparison_ids
+        )
+    ].to_dict(
+        "records"
+    )
+}
+
 try:
     audits = get_latest_audits(
         comparison_ids
@@ -613,12 +682,10 @@ except Exception as exc:
 
 
 try:
-    reviews = get_reviews(
-        comparison_ids
-    )
+    review_inventory = get_review_counts()
 except Exception as exc:
     st.error(
-        "Review data could not be loaded."
+        "Stored review counts could not be loaded."
     )
     st.exception(exc)
     st.stop()
@@ -647,17 +714,31 @@ if not audits.empty:
 
 review_counts = {}
 
-if not reviews.empty:
-    reviews[
+if not review_inventory.empty:
+    review_inventory[
         "google_place_id"
-    ] = reviews[
+    ] = review_inventory[
         "google_place_id"
     ].astype(str)
 
     review_counts = (
-        reviews.groupby(
+        review_inventory[
+            review_inventory[
+                "google_place_id"
+            ].isin(
+                [
+                    str(value)
+                    for value in comparison_ids
+                ]
+            )
+        ]
+        .set_index(
             "google_place_id"
-        ).size().to_dict()
+        )[
+            "review_count"
+        ]
+        .astype(int)
+        .to_dict()
     )
 
 
@@ -701,6 +782,13 @@ for place_id in comparison_ids:
                     )
                     == target_id
                     else "AI leader"
+                ),
+            "website_url":
+                website_url_lookup.get(
+                    str(
+                        place_id
+                    ),
+                    "",
                 ),
             "website_audit":
                 (
@@ -752,15 +840,43 @@ readiness = pd.DataFrame(
 readiness_display = readiness.copy()
 
 readiness_display[
-    "Website"
+    "Website URL"
 ] = readiness_display[
-    "website_audit"
+    "website_url"
 ].apply(
     lambda value: (
-        "✓ Ready"
-        if value == "Yes"
-        else "○ Missing"
+        str(
+            value
+        )
+        if str(
+            value
+            or ""
+        ).strip()
+        else "⚠ Not found"
     )
+)
+
+readiness_display[
+    "Website audit"
+] = readiness_display.apply(
+    lambda row: (
+        "✓ Audited"
+        if row[
+            "website_audit"
+        ]
+        == "Yes"
+        else (
+            "○ Not audited"
+            if str(
+                row[
+                    "website_url"
+                ]
+                or ""
+            ).strip()
+            else "⚠ URL required"
+        )
+    ),
+    axis=1,
 )
 
 readiness_display[
@@ -833,7 +949,8 @@ st.dataframe(
             "role",
             "business_name",
             "google_place_id",
-            "Website",
+            "Website URL",
+            "Website audit",
             "pages_crawled",
             "website_score",
             "Reviews",
@@ -856,7 +973,7 @@ st.dataframe(
     hide_index=True,
 )
 
-missing_website = readiness[
+missing_website_audits = readiness[
     readiness[
         "website_audit"
     ]
@@ -871,7 +988,7 @@ missing_reviews = readiness[
 ]
 
 evidence_complete = (
-    missing_website.empty
+    missing_website_audits.empty
     and missing_reviews.empty
 )
 
@@ -896,13 +1013,13 @@ else:
             "#### Step A — Website evidence"
         )
 
-        if missing_website.empty:
+        if missing_website_audits.empty:
             st.success(
                 "All selected websites have been audited."
             )
         else:
             missing_website_names = (
-                missing_website[
+                missing_website_audits[
                     "business_name"
                 ]
                 .astype(str)
@@ -911,15 +1028,46 @@ else:
 
             st.write(
                 f"**{len(missing_website_names)} website "
-                "audit(s) missing:** "
+                "audit(s) required:** "
                 + ", ".join(
                     missing_website_names
                 )
             )
 
+            missing_url_rows = (
+                missing_website_audits[
+                    missing_website_audits[
+                        "website_url"
+                    ]
+                    .fillna("")
+                    .astype(str)
+                    .str.strip()
+                    .eq("")
+                ]
+            )
+
+            if not missing_url_rows.empty:
+                st.warning(
+                    "**Website URL genuinely missing for:** "
+                    + ", ".join(
+                        missing_url_rows[
+                            "business_name"
+                        ]
+                        .astype(str)
+                        .tolist()
+                    )
+                    + ". These businesses need URL enrichment before "
+                    "they can be audited."
+                )
+            else:
+                st.caption(
+                    "Website URLs are already stored for all businesses "
+                    "above. They only need the website audit to be run."
+                )
+
             st.page_link(
                 "pages/5_Website_Audits.py",
-                label="Run missing website audits →",
+                label="Run required website audits →",
                 use_container_width=True,
             )
 
@@ -929,9 +1077,11 @@ else:
         )
 
         st.caption(
-            f"Review collection is for **{target_name} (Target)** "
-            "and the selected AI leaders. Use the **Place ID** "
-            "shown below when locating each business in Outscraper."
+            "Review readiness is counted directly from stored "
+            "`business_reviews` records by **Place ID** — the same "
+            "source used by Review Insights. Reviews fetched through "
+            "the in-app Outscraper API count as ready once they have "
+            "been imported into Review Intelligence."
         )
 
         if missing_reviews.empty:
