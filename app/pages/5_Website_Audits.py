@@ -26,7 +26,7 @@ from src.website_audit_repository import (
 )
 
 
-BUILD_VERSION = "Website Footprint Audit v1.1.2"
+BUILD_VERSION = "Website Footprint Audit v1.1.3 / Latest Raw URL v1.0"
 
 
 CRAWL_PRESETS = {
@@ -85,18 +85,26 @@ def load_businesses() -> pd.DataFrame:
             bf.business_format,
             coalesce(
                 nullif(
-                    rol.raw_data->>'site',
+                    rol.raw_data->>'website',
                     ''
                 ),
                 nullif(
-                    rol.raw_data->>'website',
+                    rol.raw_data->>'site',
                     ''
                 )
             ) as website_url
         from business_features bf
-        join raw_outscraper_locations rol
-          on rol.google_place_id =
-             bf.google_place_id
+        left join lateral (
+            select
+                raw_data
+            from raw_outscraper_locations
+            where google_place_id =
+                  bf.google_place_id
+            order by
+                created_at desc,
+                id desc
+            limit 1
+        ) rol on true
         order by bf.business_name
         """
     )
@@ -126,11 +134,11 @@ def load_saved_cohort(
             bf.business_format,
             coalesce(
                 nullif(
-                    rol.raw_data->>'site',
+                    rol.raw_data->>'website',
                     ''
                 ),
                 nullif(
-                    rol.raw_data->>'website',
+                    rol.raw_data->>'site',
                     ''
                 )
             ) as website_url
@@ -138,9 +146,17 @@ def load_saved_cohort(
         join business_features bf
           on bf.google_place_id =
              crr.candidate_google_place_id
-        join raw_outscraper_locations rol
-          on rol.google_place_id =
-             crr.candidate_google_place_id
+        left join lateral (
+            select
+                raw_data
+            from raw_outscraper_locations
+            where google_place_id =
+                  crr.candidate_google_place_id
+            order by
+                created_at desc,
+                id desc
+            limit 1
+        ) rol on true
         where
             crr.target_google_place_id =
                 :target_google_place_id
