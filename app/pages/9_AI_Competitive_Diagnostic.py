@@ -59,9 +59,30 @@ from src.website_audit_repository import (
 from src.website_benchmark import (
     build_website_benchmark,
 )
+from src.poc_audit_operator_workflow import (
+    APPROVAL_KEYS,
+    bind_reviewable_report,
+    freeze_initial_snapshot,
+    freeze_readiness,
+    stored_pdf_bytes,
+    sync_payload_session,
+)
+from src.poc_audit_payload import payload_sha256
+from src.poc_audit_pdf import PDF_RENDERER_VERSION
+from src.poc_audit_production import (
+    build_reviewable_poc_audit,
+    find_poc_audit_definition,
+)
+from src.poc_audit_repository import (
+    SnapshotConflictError,
+    SnapshotPersistenceError,
+    create_snapshot,
+    get_snapshot,
+    list_snapshots,
+)
 
 
-BUILD_VERSION = "AI Competitive Diagnostic v1.2.1 / Evidence Readiness v1.0"
+BUILD_VERSION = "AI Competitive Diagnostic v1.3.0 / Generic POC Reporting v1.0"
 
 
 st.set_page_config(
@@ -69,6 +90,7 @@ st.set_page_config(
     page_icon="🧭",
     layout="wide",
 )
+
 
 st.title("AI Competitive Diagnostic")
 st.caption(
@@ -683,9 +705,10 @@ except Exception as exc:
 
 try:
     review_inventory = get_review_counts()
+    reviews = get_reviews(comparison_ids)
 except Exception as exc:
     st.error(
-        "Stored review counts could not be loaded."
+        "Stored review evidence could not be loaded."
     )
     st.exception(exc)
     st.stop()
@@ -2281,3 +2304,299 @@ with link_columns[2]:
         "pages/7_Review_Insights.py",
         label="Review Insights",
     )
+
+
+# =========================================================
+# 8. POC CLIENT REPORT / IMMUTABLE FREEZE
+# =========================================================
+
+poc_definition = find_poc_audit_definition(
+    baseline_run_id=str(selected_run_id),
+    target_google_place_id=str(target_id),
+)
+poc_context_compatible = poc_definition is not None
+
+if poc_context_compatible:
+    st.divider()
+    st.subheader("7. POC Client Report")
+    st.caption(
+        f"This production-path report is registered for the approved "
+        f"{poc_definition.client_name} POC context. Report preparation is read-only; freezing "
+        "requires a separate explicit approval boundary."
+    )
+
+    workflow_state = st.session_state.setdefault(
+        f"poc_audit_v1_{poc_definition.key}", {}
+    )
+    payload = None
+    canonical_hash = None
+    payload_valid = False
+    readiness_error = None
+
+    try:
+        payload = poc_definition.assembler()
+        canonical_hash = payload_sha256(payload)
+        if (
+            poc_definition.approved_payload_sha256
+            and canonical_hash != poc_definition.approved_payload_sha256
+        ):
+            raise ValueError(
+                "The reconstructed canonical payload no longer matches the "
+                "approved audit hash. Review the evidence change before reporting."
+            )
+        payload_changed = sync_payload_session(
+            workflow_state, payload=payload, canonical_hash=canonical_hash,
+            representation_version=PDF_RENDERER_VERSION,
+        )
+        if payload_changed:
+            for approval_key in APPROVAL_KEYS:
+                st.session_state[
+                    f"poc_approval_{poc_definition.key}_{approval_key}"
+                ] = False
+        payload_valid = True
+    except Exception as exc:
+        readiness_error = exc
+
+    try:
+        existing_snapshots = list_snapshots(ai_run_id=poc_definition.baseline_run_id)
+    except Exception as exc:
+        existing_snapshots = []
+        readiness_error = readiness_error or exc
+
+    existing_snapshot = None
+    if existing_snapshots:
+        try:
+            existing_snapshot = get_snapshot(str(existing_snapshots[0]["id"]))
+        except Exception as exc:
+            readiness_error = readiness_error or exc
+
+    if existing_snapshot is not None:
+        st.success("### Frozen POC Audit")
+        frozen_columns = st.columns(4)
+        frozen_columns[0].metric("Revision", existing_snapshot["snapshot_revision"])
+        frozen_columns[1].metric("Frozen by", existing_snapshot["frozen_by"])
+        frozen_columns[2].metric("Frozen at", str(existing_snapshot["frozen_at"]))
+        frozen_columns[3].metric("Snapshot ID", str(existing_snapshot["id"]))
+        st.code(
+            f"Payload SHA-256: {existing_snapshot['report_payload_sha256']}\n"
+            f"PDF SHA-256: {existing_snapshot['pdf_sha256']}\n"
+            f"Filename: {existing_snapshot['pdf_filename']}"
+        )
+        try:
+            frozen_pdf = stored_pdf_bytes(existing_snapshot)
+            st.download_button(
+                "Download exact frozen PDF",
+                data=frozen_pdf,
+                file_name=str(existing_snapshot["pdf_filename"]),
+                mime="application/pdf",
+                key=f"download_frozen_{poc_definition.key}_poc_pdf",
+            )
+        except ValueError as exc:
+            st.error(str(exc))
+
+    if readiness_error is not None:
+        st.error("POC report readiness validation failed. Preview and freeze are disabled.")
+        st.exception(readiness_error)
+
+    if payload_valid and payload is not None:
+        report = payload["report"]
+        counts = payload["primary_evidence_counts"]
+        baseline = payload["baseline_validation"]
+        market = payload["recommendation_market"]
+        review_sets = payload["review_evidence"]["review_sets"]
+        review_exceptions = [item for item in review_sets if item.get("exception")]
+
+        st.write("#### Freeze readiness")
+        identity_columns = st.columns(4)
+        identity_columns[0].metric("Client", payload["audit"]["target_business_name"])
+        identity_columns[1].metric("Audit date", payload["audit"]["audit_date"])
+        identity_columns[2].metric(
+            "AI responses",
+            f"{baseline['complete_raw_responses']} / {baseline['expected_responses']}",
+        )
+        identity_columns[3].metric(
+            "Target recommendations",
+            baseline["explicit_target_recommendations"],
+        )
+        st.caption(
+            f"Target Place ID: `{payload['audit']['target_google_place_id']}`  ·  "
+            f"Baseline run: `{payload['audit']['baseline_run_id']}`"
+        )
+        evidence_columns = st.columns(5)
+        evidence_columns[0].metric("Parsed slots", market["original_slot_count"])
+        evidence_columns[1].metric("Business slots", market["business_slot_count"])
+        evidence_columns[2].metric("Non-business slots", market["non_business_slot_count"])
+        evidence_columns[3].metric(
+            "Website evidence",
+            f"{counts['website_audits']} audits / {counts['website_pages']} pages",
+        )
+        evidence_columns[4].metric("Review records", counts["review_records"])
+        detail_columns = st.columns(4)
+        detail_columns[0].metric("Credible indirect matches", baseline["possible_indirect_target_recommendations"])
+        detail_columns[1].metric("Approved leaders", len(payload["diagnostic"]["cohort"]))
+        detail_columns[2].metric("Full actions", len(report["full_action_plan"]))
+        detail_columns[3].metric("Priority actions", len(report["priority_actions"]))
+        for review_exception in review_exceptions:
+            st.info(
+                f"{review_exception['business_name']} review exception: "
+                + str(review_exception["exception"]["comparison_treatment"])
+            )
+        st.code(f"Canonical payload SHA-256: {canonical_hash}")
+
+        st.write("#### Client-facing preview")
+        st.metric(
+            "AI visibility result",
+            f"{report['visibility']['recommendations']} of "
+            f"{report['visibility']['responses_complete']} responses",
+            help=report["visibility"]["verification_statement"],
+        )
+        preview_columns = st.columns(2)
+        with preview_columns[0]:
+            st.write("**Recommendation-market leaders**")
+            st.dataframe(
+                pd.DataFrame(report["diagnostic_cohort"])[
+                    ["business_name", "recommendations", "business_sor_pct", "provider_breadth"]
+                ].rename(columns={
+                    "business_name": "Business", "recommendations": "Recommendations",
+                    "business_sor_pct": "Business SOR %", "provider_breadth": "Provider breadth",
+                }),
+                hide_index=True, use_container_width=True,
+            )
+            st.write("**Strengths**")
+            for item in report["strengths"]:
+                st.markdown(f"- **{item['title']}** — {item['body']}")
+        with preview_columns[1]:
+            st.write("**Priority gap areas**")
+            for item in report["priority_gaps"]:
+                st.markdown(
+                    f"- **{item['title']}** — {item['observed']} "
+                    f"_Confidence: {item['confidence']}_"
+                )
+            st.write("**Recommended first actions**")
+            for item in report["priority_actions"]:
+                st.markdown(f"- **{item['title']}** — {item['intended_improvement']}")
+        with st.expander("Methodology and limitations summary"):
+            methodology = report["methodology"]
+            st.write(
+                f"**{methodology['benchmark']}** · "
+                f"{methodology['prompt_count']} prompts · "
+                f"{methodology['repetitions']} repetitions · "
+                f"{methodology['complete_responses']}/{methodology['expected_responses']} complete"
+            )
+            for limitation in methodology["limitations"]:
+                st.markdown(f"- {limitation}")
+            st.warning(methodology["non_causality"])
+
+        preview_current = (
+            workflow_state.get("pdf_bytes") is not None
+            and workflow_state.get("pdf_payload_hash") == canonical_hash
+            and workflow_state.get("pdf_renderer_version") == PDF_RENDERER_VERSION
+        )
+        if st.button(
+            "Build reviewable POC client PDF",
+            disabled=not payload_valid or existing_snapshot is not None,
+            type="primary",
+        ):
+            try:
+                reviewable = build_reviewable_poc_audit(poc_definition)
+                preview_details = bind_reviewable_report(workflow_state, reviewable)
+                payload = reviewable.payload
+                canonical_hash = reviewable.payload_sha256
+                st.session_state[
+                    f"poc_approval_{poc_definition.key}_client_report"
+                ] = False
+                preview_current = True
+                st.success(
+                    "Persisted evidence was reconstructed, validated and rendered "
+                    "into an in-memory PDF. No snapshot was created."
+                )
+            except Exception as exc:
+                st.error("PDF preview generation failed.")
+                st.exception(exc)
+
+        if preview_current:
+            st.write(
+                f"**PDF preview:** {workflow_state['pdf_page_count']} pages · "
+                f"{len(workflow_state['pdf_bytes']):,} bytes"
+            )
+            st.code(f"PDF SHA-256: {workflow_state['pdf_sha256']}")
+            st.download_button(
+                "Download PDF preview",
+                data=workflow_state["pdf_bytes"],
+                file_name=workflow_state["pdf_filename"],
+                mime="application/pdf",
+                key=f"download_{poc_definition.key}_poc_pdf_preview",
+            )
+
+        st.write("#### Operator approval")
+        prepared_by = st.text_input(
+            "Prepared / frozen by",
+            value=str(workflow_state.get("prepared_by") or "POC audit operator"),
+            disabled=existing_snapshot is not None,
+        )
+        workflow_state["prepared_by"] = prepared_by
+        approval_labels = {
+            "identity": (
+                f"I confirm that {poc_definition.client_name} and the canonical "
+                "Google Place ID are correct."
+            ),
+            "evidence": "I confirm that the AI baseline, recommendation market, diagnostic cohort, website evidence, review evidence and documented exception have been reviewed.",
+            "conclusions": "I confirm that the strengths, gaps and recommended actions are supported by the frozen evidence and do not claim proven AI ranking causality.",
+            "client_report": "I have reviewed the generated client PDF and approve this exact report for immutable freezing.",
+        }
+        approvals = workflow_state.setdefault(
+            "approvals", {key: False for key in APPROVAL_KEYS}
+        )
+        for approval_key in APPROVAL_KEYS:
+            widget_key = f"poc_approval_{poc_definition.key}_{approval_key}"
+            if widget_key not in st.session_state:
+                st.session_state[widget_key] = bool(approvals.get(approval_key))
+            approvals[approval_key] = st.checkbox(
+                approval_labels[approval_key], key=widget_key,
+                disabled=(existing_snapshot is not None or (
+                    approval_key == "client_report" and not preview_current
+                )),
+            )
+
+        st.warning(
+            "Freezing creates an immutable client audit. This snapshot cannot be "
+            "edited or deleted through the application. A correction requires a "
+            "new immutable revision. A future remeasurement requires a new AI baseline run."
+        )
+        confirmation = st.text_input(
+            "Type FREEZE to confirm",
+            value=str(workflow_state.get("confirmation") or ""),
+            disabled=existing_snapshot is not None,
+        )
+        workflow_state["confirmation"] = confirmation
+        gate = freeze_readiness(
+            payload_valid=payload_valid, canonical_hash=canonical_hash,
+            preview_bytes=workflow_state.get("pdf_bytes"),
+            preview_payload_hash=workflow_state.get("pdf_payload_hash"),
+            approvals=approvals, confirmation=confirmation,
+            frozen_by=prepared_by,
+            existing_snapshot=existing_snapshot,
+        )
+        if gate.reasons and existing_snapshot is None:
+            st.caption("Freeze locked: " + " · ".join(gate.reasons))
+
+        if st.button(
+            "Freeze POC audit", disabled=not gate.enabled,
+            type="primary", key=f"freeze_{poc_definition.key}_poc_audit",
+        ):
+            try:
+                latest = list_snapshots(ai_run_id=poc_definition.baseline_run_id)
+                stored = freeze_initial_snapshot(
+                    state=workflow_state, payload=payload,
+                    canonical_hash=canonical_hash, frozen_by=prepared_by,
+                    existing_snapshots=latest, create=create_snapshot,
+                    load=get_snapshot,
+                )
+                st.success(f"Immutable snapshot {stored['id']} created successfully.")
+                st.rerun()
+            except (SnapshotConflictError, SnapshotPersistenceError, ValueError) as exc:
+                st.error("The audit was not frozen. No duplicate snapshot was created.")
+                st.exception(exc)
+            except Exception as exc:
+                st.error("The database operation failed. The page remains unfrozen.")
+                st.exception(exc)

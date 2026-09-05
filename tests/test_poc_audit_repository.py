@@ -191,6 +191,19 @@ class FakeReadEngine:
 
 
 class PocAuditRepositoryTests(unittest.TestCase):
+    def test_list_query_types_optional_place_id_parameter(self):
+        from src.poc_audit_repository import _LIST
+
+        sql = str(_LIST)
+        self.assertIn(
+            "cast(:target_google_place_id as text) is null",
+            sql,
+        )
+        self.assertIn(
+            "target_google_place_id = cast(:target_google_place_id as text)",
+            sql,
+        )
+
     def test_revision_one_is_inserted_atomically(self):
         engine = FakeEngine()
         result = create_snapshot(

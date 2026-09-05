@@ -142,8 +142,8 @@ _LIST = text(
         or ai_run_id = cast(:ai_run_id as uuid)
     )
     and (
-        :target_google_place_id is null
-        or target_google_place_id = :target_google_place_id
+        cast(:target_google_place_id as text) is null
+        or target_google_place_id = cast(:target_google_place_id as text)
     )
     order by frozen_at desc, snapshot_revision desc
     """

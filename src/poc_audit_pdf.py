@@ -20,6 +20,9 @@ PAGE_WIDTH, PAGE_HEIGHT = A4
 MARGIN = 42
 CONTENT_WIDTH = PAGE_WIDTH - (2 * MARGIN)
 MIN_FONT_SIZE = 8
+LEGACY_REPORT_PAGE_COUNT = 13
+BETA_REPORT_PAGE_COUNT = 17
+PDF_RENDERER_VERSION = "poc_audit_pdf_v1_beta_accessible_2"
 
 NAVY = HexColor("#15233B")
 BLUE = HexColor("#2D5BFF")
@@ -115,8 +118,164 @@ def _validate_report_contract(payload: Mapping[str, Any]) -> Mapping[str, Any]:
         raise PdfRenderError("The evidence matrix requires six to eight dimensions")
 
     _validate_cross_evidence(payload, report)
+    _frozen_prompt_panel(payload)
+    if report.get("report_format") == "beta_accessible_v2":
+        introduction = report.get("introduction")
+        if not isinstance(introduction, Mapping):
+            raise PdfRenderError("The accessible beta report requires an introduction")
+        for key in ("owner_priority", "method_steps", "scope_note"):
+            _require(introduction, key, "report.introduction")
+        if len(introduction["method_steps"]) != 3:
+            raise PdfRenderError("The accessible beta introduction requires three method steps")
+        _validate_review_quotes(payload, report)
+        _validate_question_performance(payload, report)
 
     return report
+
+
+def _validate_review_quotes(
+    payload: Mapping[str, Any], report: Mapping[str, Any]
+) -> None:
+    quotes = report.get("review_quotes")
+    if not isinstance(quotes, list) or len(quotes) not in range(3, 7):
+        raise PdfRenderError("The accessible beta report requires three to six review quotes")
+    records_by_id: dict[str, tuple[str, Mapping[str, Any]]] = {}
+    for review_set in payload["review_evidence"]["review_sets"]:
+        place_id = str(review_set.get("google_place_id") or "")
+        for record in review_set.get("records", []):
+            records_by_id[str(record.get("review_id") or "")] = (place_id, record)
+    for item in quotes:
+        review_id = str(item.get("review_id") or "")
+        source = records_by_id.get(review_id)
+        if source is None:
+            raise PdfRenderError(f"Review quote source not found: {review_id}")
+        place_id, record = source
+        if str(item.get("google_place_id") or "") != place_id:
+            raise PdfRenderError(f"Review quote business does not match: {review_id}")
+        if _text(item.get("quote")) != _text(record.get("review_text")):
+            raise PdfRenderError(f"Review quote is not verbatim: {review_id}")
+        _require(item, "business_name", "report.review_quotes")
+        _require(item, "takeaway", "report.review_quotes")
+
+
+def _validate_question_performance(
+    payload: Mapping[str, Any], report: Mapping[str, Any]
+) -> None:
+    rows = report.get("question_performance")
+    prompts = _frozen_prompt_panel(payload)
+    if not isinstance(rows, list) or len(rows) != len(prompts):
+        raise PdfRenderError("Question-level performance must cover every frozen prompt")
+    expected_answers = int(payload["methodology"]["repetitions"]) * len(
+        payload["methodology"]["providers"]
+    )
+    prompt_by_order = {item["order"]: item for item in prompts}
+    target_total = 0
+    for row in rows:
+        order = int(row.get("order") or 0)
+        prompt = prompt_by_order.get(order)
+        if prompt is None or _text(row.get("prompt_text")) != prompt["prompt_text"]:
+            raise PdfRenderError("Question-level performance does not match frozen prompts")
+        if int(row.get("answer_count") or 0) != expected_answers:
+            raise PdfRenderError("Question-level answer count does not reconcile")
+        if len(row.get("provider_results") or []) != len(payload["methodology"]["providers"]):
+            raise PdfRenderError("Question-level provider results are incomplete")
+        target_total += int(row.get("target_appearances") or 0)
+    if target_total != int(report["visibility"]["recommendations"]):
+        raise PdfRenderError("Question-level target appearances do not reconcile")
+
+
+def _frozen_prompt_panel(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Return eight verbatim prompts after reconciling queries and responses."""
+    methodology = payload.get("methodology", {})
+    queries = methodology.get("queries", [])
+    repetitions = int(methodology.get("repetitions") or 0)
+    prompt_count = int(methodology.get("prompt_count") or 0)
+    if prompt_count != 8 or repetitions < 1:
+        raise PdfRenderError("The prompts appendix requires exactly eight frozen prompts")
+
+    grouped: dict[int, list[Mapping[str, Any]]] = {}
+    for query in queries:
+        try:
+            order = int(query.get("base_prompt_order"))
+        except (TypeError, ValueError):
+            raise PdfRenderError("A frozen query has no valid base prompt order") from None
+        grouped.setdefault(order, []).append(query)
+    if set(grouped) != set(range(1, 9)):
+        raise PdfRenderError("Frozen queries do not contain base prompts 1 through 8")
+
+    panel: list[dict[str, Any]] = []
+    for order in range(1, 9):
+        records = grouped[order]
+        texts = {_text(item.get("prompt_text")) for item in records}
+        categories = {_text(item.get("prompt_category")) for item in records}
+        sources = {_text(item.get("prompt_source")) for item in records}
+        repeat_indexes = {int(item.get("repeat_index") or 0) for item in records}
+        if len(records) != repetitions or repeat_indexes != set(range(1, repetitions + 1)):
+            raise PdfRenderError(f"Frozen prompt {order} does not contain every repetition")
+        if len(texts) != 1 or not next(iter(texts)):
+            raise PdfRenderError(f"Frozen prompt {order} text is missing or inconsistent")
+        if len(categories) != 1 or not next(iter(categories)):
+            raise PdfRenderError(f"Frozen prompt {order} category is missing or inconsistent")
+        if len(sources) != 1 or not next(iter(sources)):
+            raise PdfRenderError(f"Frozen prompt {order} source is missing or inconsistent")
+        panel.append({
+            "order": order, "prompt_text": next(iter(texts)),
+            "prompt_category": next(iter(categories)), "prompt_source": next(iter(sources)),
+        })
+
+    panel_lookup = {item["order"]: item for item in panel}
+    responses = payload.get("baseline_validation", {}).get("responses", [])
+    expected_providers = len(methodology.get("providers", []))
+    expected_responses = prompt_count * repetitions * expected_providers
+    if len(responses) != expected_responses:
+        raise PdfRenderError("Frozen response count does not reconcile with the prompt panel")
+    response_counts: dict[int, int] = {}
+    for response in responses:
+        order = int(response.get("base_prompt_order") or 0)
+        source = panel_lookup.get(order)
+        if source is None or _text(response.get("prompt_text")) != source["prompt_text"]:
+            raise PdfRenderError("Frozen response prompts do not reconcile with frozen queries")
+        if _text(response.get("prompt_category")) != source["prompt_category"]:
+            raise PdfRenderError("Frozen response categories do not reconcile with frozen queries")
+        response_counts[order] = response_counts.get(order, 0) + 1
+    expected_per_prompt = repetitions * expected_providers
+    if any(response_counts.get(order) != expected_per_prompt for order in range(1, 9)):
+        raise PdfRenderError("Frozen responses do not represent every prompt consistently")
+    return panel
+
+
+def _prompt_result_panel(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Add target outcomes to the verbatim prompt panel from frozen responses."""
+    panel = _frozen_prompt_panel(payload)
+    responses = payload["baseline_validation"]["responses"]
+    by_order: dict[int, list[Mapping[str, Any]]] = {item["order"]: [] for item in panel}
+    for response in responses:
+        by_order[int(response["base_prompt_order"])].append(response)
+
+    result: list[dict[str, Any]] = []
+    for prompt in panel:
+        prompt_responses = by_order[prompt["order"]]
+        valid_responses = [
+            item for item in prompt_responses
+            if item.get("status") == "completed"
+            and bool(item.get("response_complete"))
+        ]
+        recommendations = sum(
+            bool(item["parser_reconciliation"].get("persisted_target_recommended"))
+            for item in valid_responses
+        )
+        mentions = sum(
+            bool(item["parser_reconciliation"].get("persisted_target_mentioned"))
+            for item in valid_responses
+        )
+        result.append({
+            **prompt,
+            "responses": len(valid_responses),
+            "attempted_responses": len(prompt_responses),
+            "recommendations": recommendations,
+            "mentions": mentions,
+        })
+    return result
 
 
 def _validate_cross_evidence(
@@ -172,6 +331,39 @@ def _validate_cross_evidence(
         str(item.get("google_place_id") or item["business_name"]): item
         for item in frozen_market["canonical_businesses"]
     }
+    sorted_frozen_rows = sorted(
+        frozen_market["canonical_businesses"],
+        key=lambda item: (-int(item["recommendations"]), _text(item["business_name"])),
+    )
+    target_id = str(payload["audit"]["target_google_place_id"])
+    expected_target_rank = next(
+        (
+            index for index, item in enumerate(sorted_frozen_rows, start=1)
+            if str(item.get("google_place_id")) == target_id
+        ),
+        None,
+    )
+    if "target_rank" in market_report and market_report.get("target_rank") != expected_target_rank:
+        errors.append("recommendation-market target rank")
+    if "business_count" in market_report and market_report.get("business_count") != len(sorted_frozen_rows):
+        errors.append("recommendation-market business count")
+    target_source = frozen_rows.get(target_id)
+    if target_source and abs(
+        float(visibility["business_sor_pct"])
+        - float(target_source["share_of_recommendation"]) * 100
+    ) > 0.0001:
+        errors.append("visibility target SOR")
+    target_slots = [
+        item for item in slots
+        if item["slot_disposition"] == "business"
+        and str(item.get("google_place_id")) == target_id
+    ]
+    if target_slots and "average_position" in visibility:
+        average_position = sum(float(item["position"]) for item in target_slots) / len(target_slots)
+        if abs(float(visibility["average_position"]) - average_position) > 0.0001:
+            errors.append("visibility average target position")
+        if int(visibility.get("best_position") or 0) != min(int(item["position"]) for item in target_slots):
+            errors.append("visibility best target position")
     for item in market_report["businesses"]:
         key = str(item.get("google_place_id") or item["business_name"])
         source = frozen_rows.get(key)
@@ -202,8 +394,12 @@ def _validate_cross_evidence(
             errors.append(f"review exception {item['business_name']}")
 
     decisions = payload["diagnostic"].get("analyst_decisions", {})
-    if not decisions.get("version") or decisions.get("status") != "operator_approved":
-        errors.append("approved analyst decisions")
+    decision_status = decisions.get("status")
+    if not decisions.get("version") or decision_status not in {
+        "operator_approved",
+        "review_draft",
+    }:
+        errors.append("recognised analyst-decision status")
     full_ids = {item["action_id"] for item in report.get("full_action_plan", [])}
     priority_ids = {item["action_id"] for item in report["priority_actions"]}
     if not priority_ids or not priority_ids.issubset(full_ids):
@@ -346,18 +542,22 @@ def _page_title(canvas: Canvas, title: str, subtitle: str | None = None) -> floa
     return y - 24
 
 
-def _footer(canvas: Canvas, page: int, client_name: str, audit_date: str) -> None:
+def _footer(
+    canvas: Canvas, page: int, client_name: str, audit_date: str, page_count: int
+) -> None:
     canvas.setStrokeColor(LINE)
     canvas.line(MARGIN, 30, PAGE_WIDTH - MARGIN, 30)
     canvas.setFont(FONT, 8)
     canvas.setFillColor(MID)
     canvas.drawString(MARGIN, 17, f"{client_name} | POC AI visibility audit | {audit_date}")
-    canvas.drawRightString(PAGE_WIDTH - MARGIN, 17, f"{page} / 12")
+    canvas.drawRightString(PAGE_WIDTH - MARGIN, 17, f"{page} / {page_count}")
 
 
-def _new_page(canvas: Canvas, page: int, client_name: str, audit_date: str) -> None:
+def _new_page(
+    canvas: Canvas, page: int, client_name: str, audit_date: str, page_count: int
+) -> None:
     if page > 1:
-        _footer(canvas, page - 1, client_name, audit_date)
+        _footer(canvas, page - 1, client_name, audit_date, page_count)
     canvas.showPage()
 
 
@@ -381,15 +581,118 @@ def _evidence_labels(refs: Sequence[str]) -> str:
     for ref in refs:
         prefix = ref.split(":", 1)[0]
         label = {
-            "website": "frozen website audit",
-            "reviews": "frozen review evidence",
-            "diagnostic": "diagnostic comparison",
-            "market": "recommendation-market measurement",
-            "gap": "approved gap analysis",
-        }.get(prefix, "frozen audit evidence")
+            "website": "website evidence",
+            "reviews": "customer-review evidence",
+            "diagnostic": "business comparison",
+            "market": "AI recommendation results",
+            "gap": "priority-gap evidence",
+        }.get(prefix, "audit evidence")
         if label not in labels:
             labels.append(label)
     return ", ".join(labels)
+
+
+def _plain_client_text(value: Any) -> str:
+    """Replace analytical jargon with equivalent client-facing language."""
+    text = _text(value)
+    replacements = (
+        ("independent customer corroboration", "independent evidence from customers"),
+        ("customer corroboration", "supporting customer evidence"),
+        ("first-party evidence", "information on the business's own website"),
+        ("machine-readable representation", "digital description"),
+        ("diagnostic set", "set analysed for this audit"),
+        ("adaptive audit", "website review"),
+        ("crawlable", "accessible"),
+        ("corroboration", "supporting evidence"),
+        ("corpus", "body of customer reviews"),
+    )
+    for technical, plain in replacements:
+        text = text.replace(technical, plain).replace(technical.capitalize(), plain.capitalize())
+    return text
+
+
+def _plain_gap_title(value: Any) -> str:
+    title = _text(value)
+    return {
+        "Entity and structured-data clarity": "Make the business identity clearer online",
+        "Service and expertise depth": "Explain services and expertise in more depth",
+        "Review scale and recency": "Build a larger, more current review picture",
+        "Authority and corroboration": "Reinforce key strengths across public sources",
+    }.get(title, title)
+
+
+def _plain_strength_title(value: Any) -> str:
+    title = _text(value)
+    return {
+        "Relevant service evidence": "Important services are already covered",
+        "Credible site presence": "A useful website foundation",
+        "Positive customer sentiment": "Customers are positive about the business",
+        "Local and human proposition": "A local, personal business story",
+    }.get(title, title)
+
+
+def _plain_action_title(value: Any) -> str:
+    title = _plain_client_text(value)
+    if title.startswith("Implement accurate ") and title.endswith(" structured data"):
+        return "Add accurate structured business information to the website"
+    return {
+        "Develop stronger priority-service evidence hubs": "Build stronger pages for priority services",
+        "Build stronger and more current supporting customer evidence": (
+            "Build a stronger, more current customer review picture"
+        ),
+    }.get(title, title)
+
+
+def _action_reason(action: Mapping[str, Any], report: Mapping[str, Any]) -> str:
+    gap_by_ref = {
+        f"gap:{gap['gap_id']}": gap
+        for gap in report["priority_gaps"]
+        if gap.get("gap_id")
+    }
+    for ref in action["evidence_refs"]:
+        gap = gap_by_ref.get(ref)
+        if gap:
+            return _plain_client_text(gap["observed"])
+    return f"Supported by {_evidence_labels(action['evidence_refs'])}."
+
+
+def _plain_roadmap_title(value: Any) -> str:
+    title = _text(value)
+    return {
+        "Entity foundations": "Clear business identity",
+        "Content and propositions": "Services and expertise",
+        "Review programme": "Customer review programme",
+    }.get(title, title)
+
+
+def _plain_dimension_label(label: Any) -> str:
+    """Translate internal comparison labels without changing their values."""
+    value = _text(label)
+    return {
+        "AI visibility": "How often AI recommended them",
+        "Provider breadth": "AI assistants recommending them",
+        "Tested intent breadth": "Customer questions they appeared for",
+        "Intent breadth": "Customer questions they appeared for",
+        "Audited site footprint": "Website pages reviewed",
+        "Site footprint": "Website pages reviewed",
+        "Structured business data": "Clear business details for digital systems",
+        "Structured data": "Clear business details for digital systems",
+        "Priority services": "Priority service information",
+        "Service evidence": "Priority service information",
+        "Review evidence analysed": "Customer reviews analysed",
+        "Review evidence": "Customer reviews analysed",
+    }.get(value, value)
+
+
+def _interpretation_box(canvas: Canvas, y: float, heading: str, body: str) -> None:
+    _card(canvas, MARGIN, y, CONTENT_WIDTH, 60, fill=PALE)
+    canvas.setFont(FONT_BOLD, 8)
+    canvas.setFillColor(TEAL)
+    canvas.drawString(MARGIN + 16, y - 20, heading.upper())
+    _paragraph(
+        canvas, body, MARGIN + 16, y - 38, CONTENT_WIDTH - 32,
+        size=8.5, color=NAVY, leading=11.5, max_lines=2,
+    )
 
 
 def _draw_cover(canvas: Canvas, payload: Mapping[str, Any], report: Mapping[str, Any]) -> None:
@@ -399,6 +702,8 @@ def _draw_cover(canvas: Canvas, payload: Mapping[str, Any], report: Mapping[str,
     canvas.rect(0, 0, PAGE_WIDTH, PAGE_HEIGHT, fill=1, stroke=0)
     canvas.setFillColor(BLUE)
     canvas.rect(0, PAGE_HEIGHT - 20, PAGE_WIDTH, 20, fill=1, stroke=0)
+    if payload["diagnostic"]["analyst_decisions"].get("status") == "review_draft":
+        _label(canvas, "Review draft", PAGE_WIDTH - MARGIN - 96, PAGE_HEIGHT - 49, "action")
     canvas.setFont(FONT_BOLD, 11)
     canvas.setFillColor(TEAL)
     canvas.drawString(MARGIN, PAGE_HEIGHT - 98, "POC AUDIT V1")
@@ -438,16 +743,68 @@ def _draw_cover(canvas: Canvas, payload: Mapping[str, Any], report: Mapping[str,
     canvas.drawString(MARGIN, 38, f"Audit date: {_text(audit['audit_date'])}")
 
 
+def _draw_introduction(canvas: Canvas, report: Mapping[str, Any], client: str) -> None:
+    introduction = report["introduction"]
+    y = _page_title(
+        canvas,
+        "How we explored your visibility in AI recommendations",
+        "A straightforward comparison based on the services and customer questions that matter to your business.",
+    )
+    _label(canvas, "What we did", MARGIN, y, "measured")
+    _card(canvas, MARGIN, y - 22, CONTENT_WIDTH, 94, fill=PALE)
+    _paragraph(
+        canvas,
+        f"You told us what {client} should be known for. We used that starting point "
+        "to explore how the business appears when potential customers ask AI for local recommendations.",
+        MARGIN + 18, y - 48, CONTENT_WIDTH - 36,
+        font=FONT_BOLD, size=11, color=NAVY, leading=15, max_lines=4,
+    )
+    y -= 146
+    card_width = (CONTENT_WIDTH - 24) / 3
+    for index, step in enumerate(introduction["method_steps"], start=1):
+        x = MARGIN + (index - 1) * (card_width + 12)
+        _card(canvas, x, y, card_width, 226, fill=WHITE)
+        canvas.setFillColor(BLUE if index < 3 else TEAL)
+        canvas.circle(x + 24, y - 28, 15, fill=1, stroke=0)
+        canvas.setFont(FONT_BOLD, 12)
+        canvas.setFillColor(WHITE)
+        canvas.drawCentredString(x + 24, y - 33, str(index))
+        _paragraph(
+            canvas, step["title"], x + 14, y - 68, card_width - 28,
+            font=FONT_BOLD, size=11, color=NAVY, leading=14, max_lines=3,
+        )
+        _paragraph(
+            canvas, step["body"], x + 14, y - 122, card_width - 28,
+            size=8.8, color=INK, leading=12.5, max_lines=7,
+        )
+    y -= 268
+    _label(canvas, "Your priorities", MARGIN, y, "action")
+    _paragraph(
+        canvas, introduction["owner_priority"], MARGIN, y - 30, CONTENT_WIDTH,
+        font=FONT_BOLD, size=12, color=NAVY, leading=16, max_lines=4,
+    )
+    _paragraph(
+        canvas, introduction["scope_note"], MARGIN, y - 100, CONTENT_WIDTH,
+        size=8.8, color=MID, leading=12.5, max_lines=4,
+    )
+
+
 def _draw_executive(canvas: Canvas, report: Mapping[str, Any], client: str) -> None:
     summary = report["executive_summary"]
-    y = _page_title(canvas, "The finding in one minute")
+    visibility = report["visibility"]
+    observed = max(int(visibility["mentions"]), int(visibility["recommendations"]))
+    y = _page_title(
+        canvas,
+        f"{client} appeared in {observed} of {visibility['responses_complete']} AI responses",
+        "The headline finding, the evidence already in place and the practical next step.",
+    )
     _label(canvas, "Measured result", MARGIN, y, "measured")
     _card(canvas, MARGIN, y - 20, 172, 118, fill=NAVY, border=NAVY)
     canvas.setFillColor(WHITE)
-    canvas.setFont(FONT_BOLD, 40)
-    visibility = report["visibility"]
-    observed = max(int(visibility["mentions"]), int(visibility["recommendations"]))
-    canvas.drawString(MARGIN + 16, y - 70, f"{observed} of {visibility['responses_complete']}")
+    headline_metric = f"{observed} of {visibility['responses_complete']}"
+    metric_size = 34 if len(headline_metric) > 6 else 40
+    canvas.setFont(FONT_BOLD, metric_size)
+    canvas.drawString(MARGIN + 16, y - 70, headline_metric)
     _paragraph(canvas, f"responses mentioned or recommended {client}", MARGIN + 16, y - 92, 140, size=8.5, color=WHITE, max_lines=3)
     _card(canvas, MARGIN + 188, y - 20, CONTENT_WIDTH - 188, 118, fill=PALE)
     _paragraph(canvas, summary["headline"], MARGIN + 204, y - 46, CONTENT_WIDTH - 220, font=FONT_BOLD, size=14, color=NAVY, max_lines=3)
@@ -459,75 +816,190 @@ def _draw_executive(canvas: Canvas, report: Mapping[str, Any], client: str) -> N
     for index, strength in enumerate(strengths[:3]):
         x = MARGIN + index * (card_width + 12)
         _card(canvas, x, y - 20, card_width, 116)
-        _paragraph(canvas, strength["title"], x + 12, y - 42, card_width - 24, font=FONT_BOLD, size=10, color=NAVY, max_lines=2)
-        _paragraph(canvas, strength["body"], x + 12, y - 73, card_width - 24, size=8.2, color=MID, max_lines=4)
+        _paragraph(canvas, _plain_strength_title(strength["title"]), x + 12, y - 42, card_width - 24, font=FONT_BOLD, size=10, color=NAVY, max_lines=2)
+        _paragraph(canvas, _plain_client_text(strength["body"]), x + 12, y - 73, card_width - 24, size=8.2, color=MID, max_lines=4)
     y -= 160
     _label(canvas, "Recommended action", MARGIN, y, "action")
-    _paragraph(canvas, summary["action_statement"], MARGIN, y - 27, CONTENT_WIDTH, font=FONT_BOLD, size=12, color=NAVY, max_lines=3)
+    _paragraph(canvas, _plain_client_text(summary["action_statement"]), MARGIN, y - 27, CONTENT_WIDTH, font=FONT_BOLD, size=12, color=NAVY, max_lines=3)
     _paragraph(canvas, summary["non_causality"], MARGIN, y - 76, CONTENT_WIDTH, size=8.5, color=MID, max_lines=3)
 
 
-def _draw_visibility(canvas: Canvas, report: Mapping[str, Any], client: str) -> None:
+def _draw_question_visibility(
+    canvas: Canvas,
+    payload: Mapping[str, Any],
+    report: Mapping[str, Any],
+    client: str,
+) -> None:
     data = report["visibility"]
-    y = _page_title(canvas, f"{client}'s AI visibility baseline", "Measured across every provider, intent and repetition in the frozen benchmark.")
+    rows = report["question_performance"]
+    y = _page_title(
+        canvas,
+        f"How visible was {client} for each customer question?",
+        "Each question was asked nine times: three times each through ChatGPT, Claude and Gemini.",
+    )
     _label(canvas, "Measured result", MARGIN, y, "measured")
-    _card(canvas, MARGIN, y - 20, 190, 150, fill=NAVY, border=NAVY)
-    canvas.setFont(FONT_BOLD, 50)
-    canvas.setFillColor(WHITE)
-    canvas.drawString(MARGIN + 18, y - 84, f"{float(data['business_sor_pct']):.2f}%")
-    _paragraph(canvas, "Business Share of Recommendation", MARGIN + 18, y - 108, 154, size=9, color=WHITE, max_lines=2)
-    _paragraph(canvas, f"{data['mentions']} mentions | {data['recommendations']} recommendations", MARGIN + 18, y - 143, 154, size=8, color=HexColor("#CAD6E7"), max_lines=2)
-    x = MARGIN + 208
-    provider_width = (CONTENT_WIDTH - 208) / 3
-    for provider in data["providers"]:
-        _card(canvas, x, y - 20, provider_width - 8, 150, fill=PALE)
-        _paragraph(canvas, provider["name"], x + 10, y - 42, provider_width - 28, font=FONT_BOLD, size=9, color=NAVY, max_lines=2)
-        _paragraph(canvas, f"{provider['complete']}/{provider['expected']} complete", x + 10, y - 79, provider_width - 28, size=8, color=MID, max_lines=2)
-        canvas.setFont(FONT_BOLD, 18)
+    top = y - 24
+    widths = [27, 225, 88, CONTENT_WIDTH - 340]
+    headers = ["#", "Customer question", client, "Businesses appearing most often"]
+    x = MARGIN
+    for index, (header, width) in enumerate(zip(headers, widths)):
+        canvas.setFillColor(NAVY)
+        canvas.rect(x, top - 34, width, 34, fill=1, stroke=0)
+        _paragraph(
+            canvas, header, x + 6, top - 13, width - 12,
+            font=FONT_BOLD, size=8, color=WHITE, max_lines=2,
+        )
+        x += width
+    row_height = 63
+    for index, row in enumerate(rows):
+        row_y = top - 34 - index * row_height
+        canvas.setFillColor(WHITE if index % 2 == 0 else PALE)
+        canvas.rect(MARGIN, row_y - row_height, CONTENT_WIDTH, row_height, fill=1, stroke=0)
+        canvas.setFont(FONT_BOLD, 9)
         canvas.setFillColor(BLUE)
-        canvas.drawString(x + 10, y - 116, str(provider.get("recommendations", data["recommendations"])))
-        canvas.setFont(FONT, 8)
-        canvas.setFillColor(MID)
-        canvas.drawString(x + 10, y - 133, "recommendations")
-        x += provider_width
-    y -= 205
-    canvas.setFont(FONT_BOLD, 11)
-    canvas.setFillColor(NAVY)
-    canvas.drawString(MARGIN, y, "Eight tested consumer intents")
-    y -= 22
-    pill_width = (CONTENT_WIDTH - 12) / 2
-    for index, intent in enumerate(data["intents"]):
-        x = MARGIN + (index % 2) * (pill_width + 12)
-        row_y = y - (index // 2) * 38
-        _card(canvas, x, row_y, pill_width, 28, fill=WHITE)
-        _paragraph(canvas, intent, x + 9, row_y - 10, pill_width - 54, size=8, color=INK, max_lines=1)
+        canvas.drawCentredString(MARGIN + widths[0] / 2, row_y - 31, str(row["order"]))
+        question_x = MARGIN + widths[0]
+        _paragraph(
+            canvas, row["prompt_category"], question_x + 7, row_y - 14,
+            widths[1] - 14, font=FONT_BOLD, size=8, color=BLUE, max_lines=1,
+        )
+        _paragraph(
+            canvas, row["prompt_text"], question_x + 7, row_y - 31,
+            widths[1] - 14, font=FONT_BOLD, size=8.2, color=NAVY,
+            leading=10.5, max_lines=3,
+        )
+        target_x = question_x + widths[1]
+        appearances = int(row["target_appearances"])
+        canvas.setFont(FONT_BOLD, 11)
+        canvas.setFillColor(TEAL if appearances else RED)
+        canvas.drawCentredString(
+            target_x + widths[2] / 2, row_y - 27,
+            f"{appearances} of {row['answer_count']}",
+        )
         canvas.setFont(FONT_BOLD, 8)
-        canvas.setFillColor(MID)
-        intent_result = data.get("intent_results", {}).get(intent, {})
-        canvas.drawRightString(x + pill_width - 9, row_y - 17, _text(intent_result.get("display", "Measured")))
-    y -= 182
-    _card(canvas, MARGIN, y, CONTENT_WIDTH, 62, fill=PALE)
-    _paragraph(canvas, data["verification_statement"], MARGIN + 14, y - 22, CONTENT_WIDTH - 28, font=FONT_BOLD, size=9, color=NAVY, max_lines=3)
+        canvas.drawCentredString(
+            target_x + widths[2] / 2, row_y - 43,
+            "APPEARED" if appearances else "DID NOT APPEAR",
+        )
+        leader_x = target_x + widths[2]
+        leader_lines = [
+            f"{item['business_name']} - {item['appearances']} of {row['answer_count']}"
+            for item in row["leaders"][:2]
+        ]
+        _paragraph(
+            canvas, "\n".join(leader_lines) or "No resolved business recommendations",
+            leader_x + 7, row_y - 18, widths[3] - 14,
+            size=8, color=INK, leading=12, max_lines=4,
+        )
+    y = top - 34 - len(rows) * row_height - 18
+    _interpretation_box(
+        canvas,
+        y,
+        "What this means",
+        f"{client} did not appear for any of the eight customer needs tested. The right-hand "
+        "column shows which businesses were most strongly associated with each individual need.",
+    )
+
+
+def _draw_visibility(
+    canvas: Canvas,
+    payload: Mapping[str, Any],
+    report: Mapping[str, Any],
+    client: str,
+) -> None:
+    data = report["visibility"]
+    prompts = _prompt_result_panel(payload)
+    y = _page_title(
+        canvas,
+        f"What customers might ask AI - did {client} appear?",
+        "The exact questions are shown below. Each was tested repeatedly across all three AI assistants.",
+    )
+    _label(canvas, "Measured result", MARGIN, y, "measured")
+    y -= 26
+    card_width = (CONTENT_WIDTH - 14) / 2
+    card_height = 116
+    for index, prompt in enumerate(prompts):
+        x = MARGIN + (index % 2) * (card_width + 14)
+        card_y = y - (index // 2) * (card_height + 10)
+        proposition = prompt["prompt_source"] == "client_proposition"
+        accent = GOLD if proposition else BLUE
+        fill = HexColor("#FFF8E9") if proposition else WHITE
+        _card(canvas, x, card_y, card_width, card_height, fill=fill)
+        canvas.setFillColor(accent)
+        canvas.roundRect(x, card_y - card_height, 6, card_height, 4, fill=1, stroke=0)
+        canvas.setFont(FONT_BOLD, 8)
+        canvas.setFillColor(accent)
+        canvas.drawString(x + 16, card_y - 19, _text(prompt["prompt_category"]).upper())
+        _paragraph(
+            canvas, f'"{prompt["prompt_text"]}"', x + 16, card_y - 40,
+            card_width - 32, font=FONT_BOLD, size=9, color=NAVY,
+            leading=12, max_lines=4,
+        )
+        recommendations = int(prompt["recommendations"])
+        status = (
+            "NOT RECOMMENDED"
+            if recommendations == 0
+            else f"RECOMMENDED IN {recommendations} OF {prompt['responses']} RESPONSES"
+        )
+        canvas.setFont(FONT_BOLD, 8)
+        canvas.setFillColor(RED if recommendations == 0 else TEAL)
+        canvas.drawString(x + 16, card_y - 101, f"{client}: {status}")
+    y -= 4 * (card_height + 10) + 4
+    _interpretation_box(
+        canvas,
+        y,
+        "What this means",
+        f"Across these eight recommendation questions, {client} was recommended "
+        f"in {data['recommendations']} of {data['responses_complete']} responses. "
+        "This is a snapshot of how the assistants answered, not a claim about lost customers or revenue.",
+    )
 
 
 def _draw_market(canvas: Canvas, report: Mapping[str, Any], client: str) -> None:
     data = report["recommendation_market"]
-    y = _page_title(canvas, "Who AI recommends instead", "The full market is a measured result; the comparison cohort is selected separately.")
+    target_recommendations = int(report["visibility"]["recommendations"])
+    target_rank = int(data.get("target_rank") or 0)
+    if target_recommendations:
+        title = (
+            f"{client} ranks #{target_rank} in the measured recommendation market"
+        )
+        subtitle = (
+            "The chart shows where the target sits among the businesses named most often."
+        )
+    else:
+        title = "These are the businesses AI recommended instead"
+        subtitle = (
+            "The chart shows the named businesses that appeared most often across the complete benchmark."
+        )
+    y = _page_title(
+        canvas,
+        title,
+        subtitle,
+    )
     _label(canvas, "Measured result", MARGIN, y, "measured")
-    stats = [
-        (data["original_slots"], "parsed slots"),
-        (data["business_slots"], "valid business slots"),
-        (data["excluded_slots"], "non-business slots excluded"),
-    ]
-    stat_width = (CONTENT_WIDTH - 20) / 3
-    for index, (value, label) in enumerate(stats):
-        x = MARGIN + index * (stat_width + 10)
-        _card(canvas, x, y - 20, stat_width, 64, fill=PALE)
-        canvas.setFont(FONT_BOLD, 18)
-        canvas.setFillColor(NAVY)
-        canvas.drawString(x + 12, y - 51, str(value))
-        _paragraph(canvas, label, x + 52, y - 38, stat_width - 62, size=8, color=MID, max_lines=2)
-    y -= 112
+    _card(canvas, MARGIN, y - 20, CONTENT_WIDTH, 62, fill=PALE)
+    canvas.setFont(FONT_BOLD, 20)
+    canvas.setFillColor(NAVY)
+    canvas.drawString(MARGIN + 16, y - 52, str(data["business_slots"]))
+    _paragraph(
+        canvas, "recommendations of named businesses were analysed",
+        MARGIN + 66, y - 43, 270, font=FONT_BOLD, size=9, color=NAVY, max_lines=2,
+    )
+    if target_recommendations and report["visibility"].get("average_position"):
+        market_summary = (
+            f"{client}: #{target_rank} | {target_recommendations} recommendations | "
+            f"average position {float(report['visibility']['average_position']):.2f} | "
+            f"best #{int(report['visibility']['best_position'])}"
+        )
+    else:
+        market_summary = (
+            f"{data['excluded_slots']} general-advice or platform-name items were not counted as businesses."
+        )
+    _paragraph(
+        canvas, market_summary,
+        MARGIN + 350, y - 42, CONTENT_WIDTH - 366, size=8, color=MID, max_lines=3,
+    )
+    y -= 105
     businesses = data["businesses"][:8]
     max_sor = max(float(item["business_sor_pct"]) for item in businesses) or 1
     chart_x = MARGIN + 155
@@ -538,34 +1010,61 @@ def _draw_market(canvas: Canvas, report: Mapping[str, Any], client: str) -> None
         name = item["business_name"]
         _paragraph(canvas, name, MARGIN, row_y, 142, size=8.2, color=INK, max_lines=2)
         bar_width = chart_width * float(item["business_sor_pct"]) / max_sor
-        canvas.setFillColor(BLUE if index < 3 else TEAL)
+        is_target = name == client
+        canvas.setFillColor(BLUE if is_target else TEAL)
         canvas.roundRect(chart_x, row_y - 12, bar_width, 13, 3, fill=1, stroke=0)
         canvas.setFont(FONT_BOLD, 8)
         canvas.setFillColor(NAVY)
         canvas.drawString(chart_x + bar_width + 7, row_y - 10, f"{float(item['business_sor_pct']):.2f}% | {item['recommendations']}")
     target_y = y - len(businesses) * row_height - 7
-    canvas.setStrokeColor(RED)
-    canvas.setLineWidth(2)
-    canvas.line(chart_x, target_y, chart_x + chart_width, target_y)
-    canvas.setFont(FONT_BOLD, 9)
-    canvas.setFillColor(RED)
-    canvas.drawString(MARGIN, target_y - 3, client)
-    canvas.drawRightString(PAGE_WIDTH - MARGIN, target_y - 3, f"{float(report['visibility']['business_sor_pct']):.2f}% | {report['visibility']['recommendations']}")
-    _paragraph(canvas, data["market_note"], MARGIN, target_y - 40, CONTENT_WIDTH, size=8.5, color=MID, max_lines=3)
+    target_is_shown = any(item["business_name"] == client for item in businesses)
+    if not target_is_shown:
+        canvas.setStrokeColor(RED)
+        canvas.setLineWidth(2)
+        canvas.line(chart_x, target_y, chart_x + chart_width, target_y)
+        canvas.setFont(FONT_BOLD, 9)
+        canvas.setFillColor(RED)
+        canvas.drawString(MARGIN, target_y - 3, client)
+        canvas.drawRightString(PAGE_WIDTH - MARGIN, target_y - 3, f"{float(report['visibility']['business_sor_pct']):.2f}% | {report['visibility']['recommendations']}")
+    _interpretation_box(
+        canvas,
+        target_y - 28,
+        "What this means",
+        "These businesses appeared most often when the assistants named local options. "
+        "The percentages show share of named-business recommendations in this audit - not commercial market share.",
+    )
 
 
-def _draw_provider_comparison(canvas: Canvas, report: Mapping[str, Any]) -> None:
+def _draw_provider_comparison(
+    canvas: Canvas, report: Mapping[str, Any], client: str
+) -> None:
     rows = report["provider_comparison"]
-    y = _page_title(canvas, "Different assistants favour different businesses", "Provider concentration remains visible rather than being hidden inside the overall market figure.")
+    target_recommendations = int(report["visibility"]["recommendations"])
+    subtitle = (
+        f"{client} was not recommended by any assistant in this benchmark; "
+        "the other businesses had distinct patterns."
+        if target_recommendations == 0
+        else "The measured pattern varies by assistant and by business."
+    )
+    y = _page_title(
+        canvas,
+        "Different AI assistants produced different competitor lists",
+        subtitle,
+    )
     _label(canvas, "Measured result", MARGIN, y, "measured")
-    columns = ["Business", "OpenAI", "Claude", "Gemini", "Breadth", "Intents"]
+    columns = ["Business", "OpenAI", "Claude", "Gemini", "Assistants", "Questions"]
     widths = [168, 68, 68, 68, 68, 66]
     x = MARGIN
     header_y = y - 24
-    for label, width in zip(columns, widths):
+    for column_index, (label, width) in enumerate(zip(columns, widths)):
         canvas.setFillColor(NAVY)
         canvas.rect(x, header_y - 28, width, 28, fill=1, stroke=0)
-        _paragraph(canvas, label, x + 7, header_y - 11, width - 14, font=FONT_BOLD, size=8, color=WHITE, max_lines=1)
+        if column_index == 0:
+            _paragraph(canvas, label, x + 12, header_y - 11, width - 24, font=FONT_BOLD, size=8, color=WHITE, max_lines=1)
+        else:
+            canvas.setFont(FONT_BOLD, 8)
+            canvas.setFillColor(WHITE)
+            canvas.drawCentredString(x + width / 2, header_y - 18, label)
         x += width
     for row_index, row in enumerate(rows):
         row_y = header_y - 28 - row_index * 58
@@ -592,22 +1091,35 @@ def _draw_provider_comparison(canvas: Canvas, report: Mapping[str, Any]) -> None
                     "not materially visible",
                 }
                 canvas.setFillColor(BLUE if visible else LINE)
-                canvas.circle(x + width / 2, row_y - 27, 7, fill=1, stroke=0)
+                canvas.circle(x + width / 2, row_y - 23, 7, fill=1, stroke=0)
                 canvas.setFont(FONT_BOLD, 8)
                 canvas.setFillColor(INK)
-                canvas.drawCentredString(x + width / 2, row_y - 47, _text(value))
+                canvas.drawCentredString(x + width / 2, row_y - 45, _text(value))
+            elif col_index in (4, 5):
+                canvas.setFont(FONT_BOLD, 9)
+                canvas.setFillColor(INK)
+                canvas.drawCentredString(x + width / 2, row_y - 32, _text(value))
             else:
-                _paragraph(canvas, value, x + 7, row_y - 18, width - 14, font=FONT_BOLD if col_index == 0 else FONT, size=8, color=NAVY if col_index == 0 else INK, max_lines=3)
+                _paragraph(canvas, value, x + 12, row_y - 21, width - 24, font=FONT_BOLD, size=8, color=NAVY, max_lines=3)
             x += width
     note_y = header_y - 28 - len(rows) * 58 - 30
-    _label(canvas, "Observed evidence", MARGIN, note_y, "observed")
-    _paragraph(canvas, report["provider_observation"], MARGIN, note_y - 28, CONTENT_WIDTH, size=9, color=INK, max_lines=5)
-    _paragraph(canvas, report["provider_caveat"], MARGIN, note_y - 90, CONTENT_WIDTH, size=8.2, color=MID, max_lines=4)
+    _interpretation_box(
+        canvas,
+        note_y + 2,
+        "What this means",
+        "Each assistant produced its own mix. Looking across all three shows which businesses "
+        "had broad visibility and which appeared mainly on one platform, without guessing why.",
+    )
+    _paragraph(canvas, report["provider_caveat"], MARGIN, note_y - 76, CONTENT_WIDTH, size=8.2, color=MID, max_lines=4)
 
 
 def _draw_cohort(canvas: Canvas, report: Mapping[str, Any]) -> None:
     cohort = report["diagnostic_cohort"]
-    y = _page_title(canvas, "Three useful comparison businesses", "A concise diagnostic subset, not a replacement for the full recommendation market.")
+    y = _page_title(
+        canvas,
+        "Why we compared these three AI-recommended businesses",
+        "These businesses were selected because each adds a relevant, evidence-based comparison.",
+    )
     _label(canvas, "Observed evidence", MARGIN, y, "observed")
     card_height = 128
     for index, item in enumerate(cohort):
@@ -624,14 +1136,23 @@ def _draw_cohort(canvas: Canvas, report: Mapping[str, Any]) -> None:
         canvas.drawString(MARGIN + 270, card_y - 52, f"{item['recommendations']} recommendations")
         _paragraph(canvas, ", ".join(item["provider_names"]), MARGIN + 395, card_y - 28, 110, font=FONT_BOLD, size=8, color=NAVY, max_lines=3)
         _paragraph(canvas, item["selection_reason"], MARGIN + 24, card_y - 80, CONTENT_WIDTH - 48, size=8.5, color=INK, max_lines=3)
-    _paragraph(canvas, report["cohort_note"], MARGIN, 88, CONTENT_WIDTH, size=8.5, color=MID, max_lines=4)
+    _paragraph(
+        canvas,
+        "The full results remain unchanged. These three businesses were "
+        "chosen only for the deeper website and customer-review comparison.",
+        MARGIN, 88, CONTENT_WIDTH, size=8.5, color=MID, max_lines=4,
+    )
 
 
 def _draw_evidence_matrix(canvas: Canvas, report: Mapping[str, Any]) -> None:
     matrix = report["evidence_matrix"]
     businesses = matrix["businesses"]
     dimensions = matrix["dimensions"]
-    y = _page_title(canvas, "The evidence across the four businesses", "Only the most decision-useful comparisons are shown here; supporting detail remains in the frozen audit evidence.")
+    y = _page_title(
+        canvas,
+        "What appears different about the businesses AI recommends",
+        "A focused comparison of public information - not a claim that any one difference caused the AI result.",
+    )
     _label(canvas, "Observed evidence", MARGIN, y, "observed")
     label_width = 132
     value_width = (CONTENT_WIDTH - label_width) / len(businesses)
@@ -647,10 +1168,13 @@ def _draw_evidence_matrix(canvas: Canvas, report: Mapping[str, Any]) -> None:
         row_y = top - 48 - index * row_height
         canvas.setFillColor(WHITE if index % 2 == 0 else PALE)
         canvas.rect(MARGIN, row_y - row_height, CONTENT_WIDTH, row_height, fill=1, stroke=0)
-        _paragraph(canvas, dimension["label"], MARGIN + 7, row_y - 17, label_width - 14, font=FONT_BOLD, size=8, color=NAVY, max_lines=3)
+        _paragraph(canvas, _plain_dimension_label(dimension["label"]), MARGIN + 7, row_y - 17, label_width - 14, font=FONT_BOLD, size=8, color=NAVY, max_lines=3)
         x = MARGIN + label_width
         for business in businesses:
-            _paragraph(canvas, dimension["values"][business], x + 6, row_y - 15, value_width - 12, size=8, color=INK, max_lines=3)
+            display_value = _text(dimension["values"][business])
+            if _text(dimension["label"]) == "AI visibility":
+                display_value = display_value.replace(" SOR", " of named recommendations")
+            _paragraph(canvas, display_value, x + 6, row_y - 15, value_width - 12, size=8, color=INK, max_lines=3)
             x += value_width
     note_y = top - 48 - len(dimensions) * row_height - 25
     _paragraph(canvas, matrix["note"], MARGIN, note_y, CONTENT_WIDTH, size=8, color=MID, max_lines=4)
@@ -658,7 +1182,11 @@ def _draw_evidence_matrix(canvas: Canvas, report: Mapping[str, Any]) -> None:
 
 def _draw_strengths(canvas: Canvas, report: Mapping[str, Any], client: str) -> None:
     strengths = report["strengths"]
-    y = _page_title(canvas, "A credible foundation to build on", f"{client} already has useful evidence that can be made clearer and more consistently reinforced.")
+    y = _page_title(
+        canvas,
+        f"{client} already has useful strengths to build on",
+        "The opportunity is to make these strengths clearer and reinforce them consistently across public information.",
+    )
     _label(canvas, "Observed evidence", MARGIN, y, "observed")
     card_width = (CONTENT_WIDTH - 16) / 2
     card_height = 180
@@ -668,15 +1196,56 @@ def _draw_strengths(canvas: Canvas, report: Mapping[str, Any], client: str) -> N
         _card(canvas, x, card_y, card_width, card_height, fill=WHITE)
         canvas.setFillColor(TEAL)
         canvas.circle(x + 20, card_y - 23, 8, fill=1, stroke=0)
-        _paragraph(canvas, item["title"], x + 38, card_y - 18, card_width - 52, font=FONT_BOLD, size=11, color=NAVY, max_lines=2)
-        _paragraph(canvas, item["body"], x + 14, card_y - 62, card_width - 28, size=8.7, color=INK, max_lines=6)
+        _paragraph(canvas, _plain_strength_title(item["title"]), x + 38, card_y - 18, card_width - 52, font=FONT_BOLD, size=11, color=NAVY, max_lines=2)
+        _paragraph(canvas, _plain_client_text(item["body"]), x + 14, card_y - 62, card_width - 28, size=8.7, color=INK, max_lines=6)
         _paragraph(canvas, f"Evidence: {_evidence_labels(item['evidence_refs'])}", x + 14, card_y - 138, card_width - 28, size=8, color=MID, max_lines=3)
     _paragraph(canvas, report["strengths_note"], MARGIN, 92, CONTENT_WIDTH, font=FONT_BOLD, size=9, color=NAVY, max_lines=4)
 
 
+def _draw_review_quotes(canvas: Canvas, report: Mapping[str, Any], client: str) -> None:
+    quotes = report["review_quotes"]
+    y = _page_title(
+        canvas,
+        "What customers say in their own words",
+        "These are exact quotations from the review sets used in this report. They bring the wider patterns to life.",
+    )
+    _label(canvas, "Customer voice", MARGIN, y, "observed")
+    y -= 26
+    card_height = 94
+    for index, item in enumerate(quotes):
+        card_y = y - index * (card_height + 10)
+        is_client = item["business_name"] == client
+        _card(canvas, MARGIN, card_y, CONTENT_WIDTH, card_height, fill=WHITE)
+        canvas.setFillColor(TEAL if is_client else GOLD)
+        canvas.roundRect(MARGIN, card_y - card_height, 7, card_height, 4, fill=1, stroke=0)
+        label = f"{client} customer" if is_client else f"Comparison: {item['business_name']}"
+        canvas.setFont(FONT_BOLD, 8)
+        canvas.setFillColor(TEAL if is_client else GOLD)
+        canvas.drawString(MARGIN + 18, card_y - 19, label.upper())
+        _paragraph(
+            canvas, f'"{item["quote"]}"', MARGIN + 18, card_y - 39,
+            CONTENT_WIDTH - 185, font=FONT_BOLD, size=8.8, color=NAVY,
+            leading=11.5, max_lines=4,
+        )
+        _paragraph(
+            canvas, item["takeaway"], PAGE_WIDTH - MARGIN - 150, card_y - 31,
+            132, size=8, color=MID, leading=10.5, max_lines=5,
+        )
+    _paragraph(
+        canvas,
+        "The quotations are examples, not the whole review picture. Recommendations in this "
+        "report use the complete review sets and the wider website and AI evidence.",
+        MARGIN, 69, CONTENT_WIDTH, size=8, color=MID, max_lines=3,
+    )
+
+
 def _draw_gaps(canvas: Canvas, report: Mapping[str, Any]) -> None:
     gaps = report["priority_gaps"]
-    y = _page_title(canvas, "Where the discoverability evidence is weakest", "Prioritised observable differences, not claims about undocumented AI ranking mechanisms.")
+    y = _page_title(
+        canvas,
+        "The biggest opportunities are clear and practical",
+        "Four evidence-backed areas where the business can improve the information available to customers and digital systems.",
+    )
     _label(canvas, "Observed evidence", MARGIN, y, "observed")
     row_height = 122
     for index, gap in enumerate(gaps[:4]):
@@ -684,14 +1253,20 @@ def _draw_gaps(canvas: Canvas, report: Mapping[str, Any]) -> None:
         _card(canvas, MARGIN, row_y, CONTENT_WIDTH, row_height, fill=WHITE)
         canvas.setFont(FONT_BOLD, 16)
         canvas.setFillColor(GOLD)
-        canvas.drawString(MARGIN + 14, row_y - 30, str(index + 1))
-        _paragraph(canvas, gap["title"], MARGIN + 42, row_y - 20, 190, font=FONT_BOLD, size=10, color=NAVY, max_lines=2)
-        _paragraph(canvas, f"Target evidence: {gap['observed']}", MARGIN + 250, row_y - 20, CONTENT_WIDTH - 264, size=8, color=INK, max_lines=3)
-        _paragraph(canvas, f"Comparison: {gap['comparison']}", MARGIN + 42, row_y - 68, 210, size=8, color=MID, max_lines=3)
-        _paragraph(canvas, gap["relevance"], MARGIN + 268, row_y - 66, CONTENT_WIDTH - 282, size=8, color=MID, leading=10, max_lines=4)
+        canvas.drawString(MARGIN + 16, row_y - 30, str(index + 1))
+        left_x = MARGIN + 44
+        divider_x = MARGIN + 244
+        right_x = divider_x + 18
+        right_width = PAGE_WIDTH - MARGIN - 16 - right_x
+        _paragraph(canvas, _plain_gap_title(gap["title"]), left_x, row_y - 20, 184, font=FONT_BOLD, size=10, color=NAVY, max_lines=3)
+        canvas.setStrokeColor(LINE)
+        canvas.line(divider_x, row_y - 16, divider_x, row_y - row_height + 16)
+        _paragraph(canvas, f"What we saw: {gap['observed']}", right_x, row_y - 20, right_width, size=8, color=INK, max_lines=3)
+        _paragraph(canvas, f"What others show: {_plain_client_text(gap['comparison'])}", left_x, row_y - 68, 184, size=8, color=MID, max_lines=4)
+        _paragraph(canvas, f"Why it is worth addressing: {_plain_client_text(gap['relevance'])}", right_x, row_y - 66, right_width, size=8, color=MID, leading=10, max_lines=4)
         canvas.setFont(FONT_BOLD, 8)
         canvas.setFillColor(TEAL)
-        canvas.drawRightString(PAGE_WIDTH - MARGIN - 14, row_y - 105, f"Confidence: {gap['confidence']}")
+        canvas.drawRightString(PAGE_WIDTH - MARGIN - 16, row_y - 105, f"Confidence: {gap['confidence']}")
     _paragraph(canvas, report["gap_caveat"], MARGIN, 73, CONTENT_WIDTH, size=8, color=MID, max_lines=3)
 
 
@@ -708,19 +1283,23 @@ def _draw_actions(canvas: Canvas, report: Mapping[str, Any]) -> None:
         canvas.setFont(FONT_BOLD, 12)
         canvas.setFillColor(WHITE)
         canvas.drawCentredString(MARGIN + 25, card_y - 35, str(index + 1))
-        _paragraph(canvas, action["title"], MARGIN + 52, card_y - 20, CONTENT_WIDTH - 160, font=FONT_BOLD, size=11, color=NAVY, max_lines=2)
+        _paragraph(canvas, _plain_action_title(action["title"]), MARGIN + 52, card_y - 20, CONTENT_WIDTH - 160, font=FONT_BOLD, size=11, color=NAVY, max_lines=2)
         canvas.setFont(FONT_BOLD, 8)
         canvas.setFillColor(GOLD)
         canvas.drawRightString(PAGE_WIDTH - MARGIN - 14, card_y - 29, action["timing"])
-        _paragraph(canvas, f"Evidence: {_evidence_labels(action['evidence_refs'])}", MARGIN + 52, card_y - 64, 212, size=8, color=MID, max_lines=4)
-        _paragraph(canvas, f"Do: {action['steps']}", MARGIN + 278, card_y - 64, CONTENT_WIDTH - 292, size=8, color=INK, max_lines=5)
-        _paragraph(canvas, f"Intended improvement: {action['intended_improvement']}", MARGIN + 52, card_y - 133, CONTENT_WIDTH - 66, font=FONT_BOLD, size=8, color=TEAL, max_lines=3)
+        _paragraph(canvas, f"WHY THIS COMES FIRST\n{_action_reason(action, report)}", MARGIN + 52, card_y - 64, 212, size=8, color=MID, leading=11, max_lines=5)
+        _paragraph(canvas, f"WHAT THIS INVOLVES\n{action['steps']}", MARGIN + 278, card_y - 64, CONTENT_WIDTH - 292, size=8, color=INK, leading=11, max_lines=6)
+        _paragraph(canvas, f"THE PRACTICAL BENEFIT\n{_plain_client_text(action['intended_improvement'])}", MARGIN + 52, card_y - 128, CONTENT_WIDTH - 66, font=FONT_BOLD, size=8, color=TEAL, leading=10.5, max_lines=4)
     _paragraph(canvas, report["action_caveat"], MARGIN, 68, CONTENT_WIDTH, size=8, color=MID, max_lines=3)
 
 
 def _draw_roadmap(canvas: Canvas, report: Mapping[str, Any]) -> None:
     data = report["roadmap"]
-    y = _page_title(canvas, "From baseline to measurable improvement", "Implement the foundations, allow the public evidence to establish, then remeasure after meaningful change.")
+    y = _page_title(
+        canvas,
+        "What happens next",
+        "Implement the foundations, allow the public evidence to establish, then repeat the same benchmark after meaningful change.",
+    )
     _label(canvas, "Recommended action", MARGIN, y, "action")
     phases = data["phases"]
     phase_width = (CONTENT_WIDTH - 30) / 4
@@ -730,8 +1309,8 @@ def _draw_roadmap(canvas: Canvas, report: Mapping[str, Any]) -> None:
         canvas.setFillColor(BLUE if index < 3 else TEAL)
         canvas.rect(x, y - 55, phase_width, 27, fill=1, stroke=0)
         _paragraph(canvas, phase["timing"], x + 8, y - 42, phase_width - 16, font=FONT_BOLD, size=8, color=WHITE, max_lines=1)
-        _paragraph(canvas, phase["title"], x + 10, y - 78, phase_width - 20, font=FONT_BOLD, size=10, color=NAVY, max_lines=3)
-        _paragraph(canvas, phase["body"], x + 10, y - 132, phase_width - 20, size=8, color=INK, max_lines=7)
+        _paragraph(canvas, _plain_roadmap_title(phase["title"]), x + 10, y - 78, phase_width - 20, font=FONT_BOLD, size=10, color=NAVY, max_lines=3)
+        _paragraph(canvas, _plain_client_text(phase["body"]), x + 10, y - 132, phase_width - 20, size=8, color=INK, max_lines=7)
     y -= 305
     canvas.setFont(FONT_BOLD, 12)
     canvas.setFillColor(NAVY)
@@ -781,10 +1360,127 @@ def _draw_methodology(canvas: Canvas, report: Mapping[str, Any]) -> None:
     _paragraph(canvas, data["non_causality"], MARGIN, 78, CONTENT_WIDTH, font=FONT_BOLD, size=8.2, color=NAVY, max_lines=4)
 
 
+def _draw_prompts_tested(canvas: Canvas, payload: Mapping[str, Any]) -> None:
+    prompts = _frozen_prompt_panel(payload)
+    methodology = payload["methodology"]
+    providers = len(methodology["providers"])
+    repetitions = int(methodology["repetitions"])
+    responses = len(payload["baseline_validation"]["responses"])
+    y = _page_title(
+        canvas,
+        "Prompts tested",
+        "The exact frozen questions used to produce this recommendation benchmark.",
+    )
+    _label(canvas, "Measured result", MARGIN, y, "measured")
+    y -= 28
+    row_height = 62
+    label_width = 148
+    for prompt in prompts:
+        is_proposition = prompt["prompt_source"] == "client_proposition"
+        accent = GOLD if is_proposition else BLUE
+        fill = HexColor("#FFF8E9") if is_proposition else WHITE
+        _card(canvas, MARGIN, y, CONTENT_WIDTH, row_height, fill=fill)
+        canvas.setFillColor(accent)
+        canvas.roundRect(MARGIN, y - row_height, 7, row_height, 4, fill=1, stroke=0)
+        canvas.setFont(FONT_BOLD, 8)
+        canvas.setFillColor(accent)
+        canvas.drawString(MARGIN + 18, y - 20, f"{prompt['order']:02d}")
+        kind = "CLIENT PROPOSITION" if is_proposition else "GENERAL INTENT"
+        canvas.setFont(FONT_BOLD, 8)
+        canvas.drawString(MARGIN + 42, y - 20, kind)
+        _paragraph(
+            canvas, prompt["prompt_category"], MARGIN + 18, y - 39,
+            label_width - 28, font=FONT_BOLD, size=8, color=NAVY, max_lines=2,
+        )
+        _paragraph(
+            canvas, prompt["prompt_text"], MARGIN + label_width, y - 23,
+            CONTENT_WIDTH - label_width - 18, font=FONT_BOLD, size=10,
+            color=INK, leading=13, max_lines=3,
+        )
+        y -= row_height + 8
+    note = (
+        f"Each prompt was run {repetitions} times against each of the "
+        f"{providers} providers, producing {responses} frozen responses. "
+        "The wording above is reproduced verbatim from the baseline evidence."
+    )
+    _card(canvas, MARGIN, y + 2, CONTENT_WIDTH, 55, fill=PALE)
+    _paragraph(
+        canvas, note, MARGIN + 16, y - 17, CONTENT_WIDTH - 32,
+        size=8.5, color=NAVY, leading=12, max_lines=3,
+    )
+
+
+def _draw_question_details(
+    canvas: Canvas,
+    report: Mapping[str, Any],
+    client: str,
+    *,
+    part: int,
+) -> None:
+    rows = report["question_performance"][(part - 1) * 4:part * 4]
+    y = _page_title(
+        canvas,
+        f"Question-by-question detail ({part} of 2)",
+        "The leading business for each AI platform, based on three answers per platform. Best position is shown where available.",
+    )
+    _label(canvas, "Detailed results", MARGIN, y, "measured")
+    y -= 27
+    card_height = 128
+    for index, row in enumerate(rows):
+        card_y = y - index * (card_height + 11)
+        _card(canvas, MARGIN, card_y, CONTENT_WIDTH, card_height, fill=WHITE)
+        canvas.setFillColor(BLUE)
+        canvas.roundRect(MARGIN, card_y - card_height, 7, card_height, 4, fill=1, stroke=0)
+        canvas.setFont(FONT_BOLD, 8)
+        canvas.setFillColor(BLUE)
+        canvas.drawString(
+            MARGIN + 18, card_y - 18,
+            f"QUESTION {row['order']:02d}  |  {_text(row['prompt_category']).upper()}",
+        )
+        _paragraph(
+            canvas, row["prompt_text"], MARGIN + 18, card_y - 39,
+            CONTENT_WIDTH - 36, font=FONT_BOLD, size=9.5,
+            color=NAVY, leading=12.5, max_lines=2,
+        )
+        target_appearances = int(row["target_appearances"])
+        target_result = f"{client}: {target_appearances} of {row['answer_count']} answers"
+        if row.get("target_best_position"):
+            target_result += f" | best position #{int(row['target_best_position'])}"
+        canvas.setFont(FONT_BOLD, 8)
+        canvas.setFillColor(TEAL if target_appearances else RED)
+        canvas.drawString(MARGIN + 18, card_y - 69, target_result)
+        provider_width = (CONTENT_WIDTH - 36) / 3
+        for provider_index, provider_result in enumerate(row["provider_results"]):
+            x = MARGIN + 18 + provider_index * provider_width
+            leaders = provider_result["leaders"]
+            if leaders:
+                leader = leaders[0]
+                detail = (
+                    f"{leader['business_name']}\n"
+                    f"{leader['appearances']} of {provider_result['answer_count']} answers | "
+                    f"best #{int(leader['best_position'])}"
+                )
+            else:
+                detail = "No resolved business recommendation"
+            _paragraph(
+                canvas, f"{provider_result['provider']}\n{detail}",
+                x, card_y - 91, provider_width - 10,
+                size=8, color=INK, leading=10, max_lines=4,
+            )
+    _paragraph(
+        canvas,
+        "Appearances show how many answers included the business. Best position is the "
+        "highest place it reached in any of those answers.",
+        MARGIN, 72, CONTENT_WIDTH, size=8, color=MID, max_lines=3,
+    )
+
+
 def render_poc_audit_pdf(payload: Mapping[str, Any]) -> bytes:
-    """Render a deterministic 12-page PDF from one frozen payload only."""
+    """Render a deterministic PDF from one frozen payload only."""
 
     report = _validate_report_contract(payload)
+    accessible_beta = report.get("report_format") == "beta_accessible_v2"
+    page_count = BETA_REPORT_PAGE_COUNT if accessible_beta else LEGACY_REPORT_PAGE_COUNT
     _register_fonts()
     audit = payload["audit"]
     client_name = _text(audit["target_business_name"])
@@ -801,28 +1497,64 @@ def render_poc_audit_pdf(payload: Mapping[str, Any]) -> bytes:
     canvas.setSubject("Model-memory AI visibility and comparative evidence audit")
 
     _draw_cover(canvas, payload, report)
-    _new_page(canvas, 2, client_name, audit_date)
+    page = 2
+    _new_page(canvas, page, client_name, audit_date, page_count)
+    if accessible_beta:
+        _draw_introduction(canvas, report, client_name)
+        page += 1
+        _new_page(canvas, page, client_name, audit_date, page_count)
     _draw_executive(canvas, report, client_name)
-    _new_page(canvas, 3, client_name, audit_date)
-    _draw_visibility(canvas, report, client_name)
-    _new_page(canvas, 4, client_name, audit_date)
+    page += 1
+    _new_page(canvas, page, client_name, audit_date, page_count)
+    if accessible_beta:
+        _draw_question_visibility(canvas, payload, report, client_name)
+    else:
+        _draw_visibility(canvas, payload, report, client_name)
+    page += 1
+    _new_page(canvas, page, client_name, audit_date, page_count)
     _draw_market(canvas, report, client_name)
-    _new_page(canvas, 5, client_name, audit_date)
-    _draw_provider_comparison(canvas, report)
-    _new_page(canvas, 6, client_name, audit_date)
+    page += 1
+    _new_page(canvas, page, client_name, audit_date, page_count)
+    _draw_provider_comparison(canvas, report, client_name)
+    page += 1
+    _new_page(canvas, page, client_name, audit_date, page_count)
     _draw_cohort(canvas, report)
-    _new_page(canvas, 7, client_name, audit_date)
+    page += 1
+    _new_page(canvas, page, client_name, audit_date, page_count)
     _draw_evidence_matrix(canvas, report)
-    _new_page(canvas, 8, client_name, audit_date)
+    page += 1
+    _new_page(canvas, page, client_name, audit_date, page_count)
     _draw_strengths(canvas, report, client_name)
-    _new_page(canvas, 9, client_name, audit_date)
+    page += 1
+    _new_page(canvas, page, client_name, audit_date, page_count)
+    if accessible_beta:
+        _draw_review_quotes(canvas, report, client_name)
+        page += 1
+        _new_page(canvas, page, client_name, audit_date, page_count)
     _draw_gaps(canvas, report)
-    _new_page(canvas, 10, client_name, audit_date)
+    page += 1
+    _new_page(canvas, page, client_name, audit_date, page_count)
     _draw_actions(canvas, report)
-    _new_page(canvas, 11, client_name, audit_date)
+    page += 1
+    _new_page(canvas, page, client_name, audit_date, page_count)
     _draw_roadmap(canvas, report)
-    _new_page(canvas, 12, client_name, audit_date)
+    page += 1
+    _new_page(canvas, page, client_name, audit_date, page_count)
     _draw_methodology(canvas, report)
-    _footer(canvas, 12, client_name, audit_date)
+    page += 1
+    _new_page(canvas, page, client_name, audit_date, page_count)
+    _draw_prompts_tested(canvas, payload)
+    if accessible_beta:
+        page += 1
+        _new_page(canvas, page, client_name, audit_date, page_count)
+        _draw_question_details(canvas, report, client_name, part=1)
+        page += 1
+        _new_page(canvas, page, client_name, audit_date, page_count)
+        _draw_question_details(canvas, report, client_name, part=2)
+    _footer(canvas, page, client_name, audit_date, page_count)
+    if page != page_count:
+        raise PdfRenderError(
+            f"Rendered page plan ended at {page}; expected {page_count} pages"
+        )
     canvas.save()
     return output.getvalue()

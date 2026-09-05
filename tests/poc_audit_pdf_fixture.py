@@ -6,15 +6,31 @@ from src.poc_audit_payload import build_baseline_validation, build_poc_audit_pay
 def synthetic_poc_audit_payload() -> dict:
     """Return generic structural data, never client report truth."""
     providers = [("OpenAI", "model-a"), ("Claude", "model-b"), ("Gemini", "model-c")]
-    responses = [freeze_ai_response({"id": f"response-{i}", "query_id": "query-1", "provider": provider,
-        "model": model, "base_prompt_order": 1, "prompt_category": "General recommendation",
-        "prompt_text": "Recommend a local example business.", "repeat_index": 1,
-        "raw_response": f"Synthetic complete response from {provider}.", "status": "completed",
+    prompt_panel = [
+        ("General recommendation", "core_market", "Recommend an example local service business."),
+        ("Quality", "core_market", "Which example businesses are known for quality?"),
+        ("Friendly service", "core_market", "Recommend a friendly example business."),
+        ("Expertise", "core_market", "Which example businesses are known for expertise?"),
+        ("Consultation", "core_market", "Where can I get a useful example consultation?"),
+        ("Results", "core_market", "Which example businesses deliver consistent results?"),
+        ("Client proposition", "client_proposition", "Recommend an example business for service alpha."),
+        ("Client proposition", "client_proposition", "Recommend an example business for service beta."),
+    ]
+    queries = [
+        {"id": f"query-{order}", "base_prompt_order": order, "repeat_index": 1,
+         "prompt_category": category, "prompt_source": source, "prompt_text": prompt}
+        for order, (category, source, prompt) in enumerate(prompt_panel, 1)
+    ]
+    responses = [freeze_ai_response({"id": f"response-{order}-{provider}", "query_id": f"query-{order}",
+        "provider": provider, "model": model, "base_prompt_order": order, "prompt_category": category,
+        "prompt_text": prompt, "repeat_index": 1,
+        "raw_response": f"Synthetic complete response from {provider} for prompt {order}.", "status": "completed",
         "response_complete": True, "finish_reason": "stop", "created_at": "2026-01-01T00:00:00+00:00"},
         parser_reconciliation={"target_correct": True, "persisted_target_mentioned": False,
                                "persisted_target_recommended": False})
-        for i, (provider, model) in enumerate(providers, 1)]
-    baseline = build_baseline_validation(responses, expected_responses=3, status="verified_zero",
+        for order, (category, source, prompt) in enumerate(prompt_panel, 1)
+        for provider, model in providers]
+    baseline = build_baseline_validation(responses, expected_responses=24, status="verified_zero",
                                          verification_method_version="synthetic_test_v1")
     leaders = [("place-a", "Alpha Salon"), ("place-b", "Beta Salon"), ("place-c", "Gamma Salon")]
     slots = [{"slot_disposition": "business", "google_place_id": pid, "business_name": name,
@@ -59,9 +75,9 @@ def synthetic_poc_audit_payload() -> dict:
             "summary": "All synthetic responses were inspected.", "strengths": strengths[:3],
             "action_statement": "Improve the represented public evidence.",
             "non_causality": "Observed differences are not proven ranking factors."},
-        "visibility": {"responses_complete": 3, "responses_expected": 3, "mentions": 0, "recommendations": 0,
-            "business_sor_pct": 0.0, "providers": [{"name": p, "complete": 1, "expected": 1,
-            "recommendations": 0} for p, _ in providers], "intents": ["General recommendation"],
+        "visibility": {"responses_complete": 24, "responses_expected": 24, "mentions": 0, "recommendations": 0,
+            "business_sor_pct": 0.0, "providers": [{"name": p, "complete": 8, "expected": 8,
+            "recommendations": 0} for p, _ in providers], "intents": [item[0] for item in prompt_panel],
             "verification_statement": "All synthetic raw text was inspected."},
         "recommendation_market": {"original_slots": 3, "business_slots": 3, "excluded_slots": 0,
             "businesses": [{**item, "business_sor_pct": 100 / 3} for item in market],
@@ -82,9 +98,9 @@ def synthetic_poc_audit_payload() -> dict:
         "roadmap": {"phases": [{"timing": f"Phase {i}", "title": f"Step {i}", "body": "Synthetic delivery step."}
             for i in range(1, 5)], "options": [{"title": f"Option {i}", "body": "Synthetic delivery option."}
             for i in range(1, 4)], "remeasurement_note": "Remeasure after meaningful implementation."},
-        "methodology": {"providers": [p for p, _ in providers], "models": dict(providers), "prompt_count": 1,
-            "repetitions": 1, "expected_responses": 3, "complete_responses": 3,
-            "benchmark": "Synthetic model-memory benchmark", "validation": ["3/3 complete"],
+        "methodology": {"providers": [p for p, _ in providers], "models": dict(providers), "prompt_count": 8,
+            "repetitions": 1, "expected_responses": 24, "complete_responses": 24,
+            "benchmark": "Synthetic model-memory benchmark", "validation": ["24/24 complete"],
             "evidence_inventory": ["Synthetic evidence only"], "limitations": ["This fixture is not client evidence."],
             "non_causality": "No observed difference is a proven AI ranking factor."}}
     decisions = {"version": "synthetic_v1", "status": "operator_approved", "strengths": strengths,
@@ -93,8 +109,8 @@ def synthetic_poc_audit_payload() -> dict:
         audit={"baseline_run_id": "synthetic-run", "target_google_place_id": "target-place",
                "target_business_name": "Example Salon", "audit_date": "2026-01-01"},
         revision={"snapshot_revision": 1, "supersedes_snapshot_id": None, "revision_reason": "Synthetic fixture"},
-        methodology={"providers": [p for p, _ in providers], "models": dict(providers), "prompt_count": 1,
-                     "repetitions": 1, "queries": [{"id": "query-1"}]}, baseline_validation=baseline,
+        methodology={"providers": [p for p, _ in providers], "models": dict(providers), "prompt_count": 8,
+                     "repetitions": 1, "queries": queries}, baseline_validation=baseline,
         source_traceability={"ai_run_id": "synthetic-run"}, recommendation_market={"original_slot_count": 3,
             "business_slot_count": 3, "non_business_slot_count": 0, "slot_evidence": slots,
             "canonical_businesses": market}, website_evidence={"audits": audits},
