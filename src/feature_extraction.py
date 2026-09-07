@@ -370,6 +370,21 @@ def determine_business_format(
             return "Coworking space"
         return "Office workspace"
 
+    if primary_group == "cleaning_services":
+        if "commercial cleaning service" in labels:
+            return "Commercial cleaner"
+        if "cleaners" in labels or "cleaning service" in labels:
+            return "Cleaning company"
+        if "carpet cleaning service" in labels:
+            return "Carpet cleaner"
+        if "upholstery cleaning service" in labels:
+            return "Upholstery cleaner"
+        if "house cleaning service" in labels:
+            return "Domestic cleaner"
+        if "laundry service" in labels:
+            return "Laundry service"
+        return "Cleaning company"
+
     return str(
         record.get("type")
         or record.get("category")

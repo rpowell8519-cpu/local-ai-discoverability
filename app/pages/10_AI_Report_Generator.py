@@ -18,14 +18,16 @@ from src.poc_audit_production import (  # noqa: E402
     list_report_generator_definitions,
 )
 from src.report_generator_readiness import (  # noqa: E402
+    AI_VISIBILITY_FORCE_PROMPTS_KEY,
+    AI_VISIBILITY_HANDOFF_KEY,
+    BRIEFS_STATE_KEY,
     normalise_owner_brief,
     owner_brief_missing_fields,
 )
 
 
-BUILD_VERSION = "Accessible AI Report Generator v1.1"
+BUILD_VERSION = "Accessible AI Report Generator v1.2"
 REPORT_STATE_KEY = "accessible_ai_report_generator_result"
-BRIEFS_STATE_KEY = "accessible_ai_report_owner_briefs"
 
 
 @st.cache_data(ttl=120)
@@ -230,7 +232,7 @@ readiness = [
         f"{int(evidence['website_audit'].get('pages_crawled') or 0)} pages" if website_ready else "Needed",
     ),
     ("Review evidence", reviews_ready, f"{evidence['review_count']:,} reviews" if reviews_ready else "Needed"),
-    ("Report configuration", configuration_ready, "Ready" if configuration_ready else "Needed"),
+    ("Final report review", configuration_ready, "Complete" if configuration_ready else "Internal step"),
 ]
 columns = st.columns(len(readiness))
 for column, (label, ready, detail) in zip(columns, readiness):
@@ -245,14 +247,14 @@ if not website_ready:
     missing_evidence.append("complete a website audit")
 if not reviews_ready:
     missing_evidence.append("import customer reviews")
-if not configuration_ready:
-    missing_evidence.append("prepare and review the evidence-backed report configuration")
-
 if missing_evidence:
     st.warning("Before the PDF can be generated, please " + ", then ".join(missing_evidence) + ".")
     links = st.columns(3)
     with links[0]:
-        st.page_link("pages/8_AI_Visibility.py", label="Open AI Visibility")
+        if st.button("Continue to AI Visibility", use_container_width=True):
+            st.session_state[AI_VISIBILITY_HANDOFF_KEY] = selected_place_id
+            st.session_state[AI_VISIBILITY_FORCE_PROMPTS_KEY] = selected_place_id
+            st.switch_page("pages/8_AI_Visibility.py")
     with links[1]:
         st.page_link("pages/5_Website_Audits.py", label="Open Website Audits")
     with links[2]:
@@ -267,9 +269,10 @@ if saved_brief and saved_brief.get("owner_competitors"):
 st.subheader("3. Generate report")
 if definition is None:
     st.info(
-        "This business does not yet have a reviewed report configuration. Once the "
-        "requirements above are complete, its configuration can use the leading "
-        "businesses found in the AI responses as the comparison group."
+        "There is no separate report configuration for you to complete. Once the "
+        "evidence above is ready, the final internal review will use the leading "
+        "businesses found in the AI responses as the comparison group. Owner-named "
+        "competitors are not required."
     )
 else:
     with st.container(border=True):

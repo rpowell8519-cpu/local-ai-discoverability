@@ -127,6 +127,40 @@ BASE_PROMPTS = {
             "Recommend a café in {location} with good coffee and food.",
         ),
     ],
+    "cleaning_services": [
+        (
+            "Commercial cleaning",
+            "Which cleaning companies in {location} are best for commercial premises?",
+        ),
+        (
+            "Office cleaning",
+            "Recommend a reliable office cleaning company in {location}.",
+        ),
+        (
+            "End-of-tenancy cleaning",
+            "Who offers a good end-of-tenancy cleaning service in {location}?",
+        ),
+        (
+            "Carpet cleaning",
+            "Recommend a professional carpet cleaning company in {location}.",
+        ),
+        (
+            "Upholstery cleaning",
+            "Which companies in {location} are good for upholstery cleaning?",
+        ),
+        (
+            "Laundry services",
+            "Recommend a reliable laundry service for businesses in {location}.",
+        ),
+        (
+            "Property management",
+            "Which cleaning companies in {location} can support landlords and property managers?",
+        ),
+        (
+            "Regular contracts",
+            "Who provides reliable regular contract cleaning for businesses in {location}?",
+        ),
+    ],
     "generic": [
         (
             "General recommendation",

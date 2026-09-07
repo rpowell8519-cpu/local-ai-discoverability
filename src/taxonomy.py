@@ -46,6 +46,7 @@ GROUP_LABELS = {
     "restaurants": "Restaurants",
     "nightlife_entertainment": "Nightlife & entertainment",
     "workspaces": "Workspaces",
+    "cleaning_services": "Cleaning services",
     "other": "Other local business",
 }
 
@@ -269,6 +270,35 @@ GROUP_RULES = {
             "virtual office rental",
         },
     },
+    "cleaning_services": {
+        "category_values": {
+            "cleaners",
+            "cleaning service",
+            "commercial cleaning service",
+            "house cleaning service",
+        },
+        "type_values": {
+            "cleaners",
+            "cleaning service",
+            "commercial cleaning service",
+            "house cleaning service",
+            "carpet cleaning service",
+            "upholstery cleaning service",
+            "laundry service",
+        },
+        "subtype_values": {
+            "cleaners",
+            "cleaning service",
+            "commercial cleaning service",
+            "office cleaning service",
+            "house cleaning service",
+            "carpet cleaning service",
+            "upholstery cleaning service",
+            "laundry service",
+            "window cleaning service",
+            "janitorial service",
+        },
+    },
 }
 
 
@@ -305,10 +335,35 @@ GROUP_RELATIONSHIPS = {
         "workspaces": 1.00,
         "coffee_cafes": 0.20,
     },
+    "cleaning_services": {
+        "cleaning_services": 1.00,
+    },
 }
 
 
 TRAIT_RULES = {
+    "cleaning_services": {
+        "Commercial cleaning": {
+            "about_true": [],
+            "text_terms": ["commercial cleaning", "office cleaning", "workplace cleaning"],
+        },
+        "End-of-tenancy cleaning": {
+            "about_true": [],
+            "text_terms": ["end of tenancy", "end-of-tenancy", "move out cleaning"],
+        },
+        "Carpet cleaning": {
+            "about_true": [],
+            "text_terms": ["carpet cleaning"],
+        },
+        "Upholstery cleaning": {
+            "about_true": [],
+            "text_terms": ["upholstery cleaning"],
+        },
+        "Laundry services": {
+            "about_true": [],
+            "text_terms": ["laundry service", "linen service"],
+        },
+    },
     "bars_pubs": {
         "Beer": {
             "about_true": [

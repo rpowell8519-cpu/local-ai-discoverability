@@ -47,9 +47,15 @@ from src.review_repository import (
     get_reviews,
 )
 from src.taxonomy import GROUP_LABELS
+from src.report_generator_readiness import (
+    AI_VISIBILITY_FORCE_PROMPTS_KEY,
+    AI_VISIBILITY_HANDOFF_KEY,
+    BRIEFS_STATE_KEY,
+    owner_prompt_records,
+)
 
 
-BUILD_VERSION = "AI Results Intelligence v1.3.1 / Export Clarity v1.0"
+BUILD_VERSION = "AI Results Intelligence v1.3.2 / Cleaning Services v1.0"
 
 DEFAULT_MODELS = {
     "OpenAI": "gpt-5.6-terra",
@@ -362,14 +368,17 @@ available_groups = sorted(
     ),
 )
 
-default_group_index = (
-    available_groups.index(
-        "bars_pubs"
-    )
-    if "bars_pubs"
-    in available_groups
-    else 0
+handoff_target_id = str(st.session_state.get(AI_VISIBILITY_HANDOFF_KEY) or "")
+handoff_matches = businesses[
+    businesses["google_place_id"].astype(str) == handoff_target_id
+]
+handoff_group = (
+    str(handoff_matches.iloc[0]["primary_group"])
+    if not handoff_matches.empty
+    else ""
 )
+default_group = handoff_group if handoff_group in available_groups else "bars_pubs"
+default_group_index = available_groups.index(default_group) if default_group in available_groups else 0
 
 
 st.sidebar.header("Visibility target")
@@ -430,6 +439,9 @@ default_target_index = 0
 for index, place_id in enumerate(
     target_ids
 ):
+    if str(place_id) == handoff_target_id:
+        default_target_index = index
+        break
     if str(
         target_name_lookup.get(
             place_id,
@@ -495,7 +507,11 @@ except Exception as exc:
 
 
 st.sidebar.divider()
-st.sidebar.header("Known competitor set")
+st.sidebar.header("Optional known-business matching")
+st.sidebar.caption(
+    "This helps recognise business names in responses. It does not decide which "
+    "businesses are measured or included in the report."
+)
 
 cohort_scope = st.sidebar.selectbox(
     "Use for mention detection",
@@ -672,10 +688,9 @@ prompt_state_key = (
 if (
     prompt_state_key
     not in st.session_state
+    or str(st.session_state.get(AI_VISIBILITY_FORCE_PROMPTS_KEY) or "") == str(target_id)
 ):
-    st.session_state[
-        prompt_state_key
-    ] = generate_prompts(
+    generated_prompts = generate_prompts(
         primary_group=(
             selected_group
         ),
@@ -687,6 +702,16 @@ if (
         ),
         max_prompts=20,
     )
+    owner_brief = st.session_state.get(BRIEFS_STATE_KEY, {}).get(str(target_id), {})
+    owner_prompts = owner_prompt_records(owner_brief)
+    if owner_prompts:
+        owner_frame = pd.DataFrame(owner_prompts)
+        generated_prompts = pd.concat([owner_frame, generated_prompts], ignore_index=True)
+        generated_prompts = generated_prompts.drop_duplicates("prompt", keep="first").head(20)
+    st.session_state[prompt_state_key] = generated_prompts
+    if str(st.session_state.get(AI_VISIBILITY_FORCE_PROMPTS_KEY) or "") == str(target_id):
+        st.session_state.pop(AI_VISIBILITY_FORCE_PROMPTS_KEY, None)
+        st.session_state.pop(AI_VISIBILITY_HANDOFF_KEY, None)
 
 
 st.subheader("1. Review the test questions")

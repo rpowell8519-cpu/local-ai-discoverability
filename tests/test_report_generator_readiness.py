@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import unittest
 
-from src.report_generator_readiness import normalise_owner_brief, owner_brief_missing_fields
+from src.report_generator_readiness import (
+    normalise_owner_brief,
+    owner_brief_missing_fields,
+    owner_prompt_records,
+)
 
 
 class ReportGeneratorReadinessTests(unittest.TestCase):
@@ -34,6 +38,20 @@ class ReportGeneratorReadinessTests(unittest.TestCase):
                 "what the business should be known for",
                 "at least one realistic customer search",
             ],
+        )
+
+    def test_owner_questions_become_visibility_prompts(self):
+        brief = normalise_owner_brief(
+            known_for="Commercial cleaning for Brighton businesses",
+            desired_searches="Best office cleaners in Brighton?\nWho cleans carpets?",
+            owner_competitors="Optional Competitor",
+        )
+
+        prompts = owner_prompt_records(brief)
+        self.assertEqual([item["source"] for item in prompts], ["owner_brief", "owner_brief"])
+        self.assertEqual(
+            [item["prompt"] for item in prompts],
+            ["Best office cleaners in Brighton?", "Who cleans carpets?"],
         )
 
 

@@ -4,6 +4,11 @@ import re
 from typing import Any
 
 
+BRIEFS_STATE_KEY = "accessible_ai_report_owner_briefs"
+AI_VISIBILITY_HANDOFF_KEY = "ai_visibility_report_handoff_target"
+AI_VISIBILITY_FORCE_PROMPTS_KEY = "ai_visibility_force_owner_prompts"
+
+
 def _lines(value: str) -> list[str]:
     return [
         item.strip(" \t-•")
@@ -32,3 +37,19 @@ def owner_brief_missing_fields(brief: dict[str, Any] | None) -> list[str]:
     if not list(brief.get("desired_searches") or []):
         missing.append("at least one realistic customer search")
     return missing
+
+
+def owner_prompt_records(brief: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Turn submitted customer questions into editable AI Visibility rows."""
+
+    if owner_brief_missing_fields(brief):
+        return []
+    return [
+        {
+            "include": True,
+            "category": "Owner priority",
+            "source": "owner_brief",
+            "prompt": prompt,
+        }
+        for prompt in list((brief or {}).get("desired_searches") or [])
+    ]
