@@ -47,12 +47,25 @@ from src.review_repository import (
     get_reviews,
 )
 from src.taxonomy import GROUP_LABELS
-from src.report_generator_readiness import (
-    AI_VISIBILITY_FORCE_PROMPTS_KEY,
-    AI_VISIBILITY_HANDOFF_KEY,
-    BRIEFS_STATE_KEY,
-    owner_prompt_records,
-)
+
+
+AI_VISIBILITY_HANDOFF_KEY = "ai_visibility_report_handoff_target"
+AI_VISIBILITY_FORCE_PROMPTS_KEY = "ai_visibility_force_owner_prompts"
+BRIEFS_STATE_KEY = "accessible_ai_report_owner_briefs"
+
+
+def owner_prompt_records(brief):
+    searches = list((brief or {}).get("desired_searches") or [])
+    return [
+        {
+            "include": True,
+            "category": "Owner priority",
+            "source": "owner_brief",
+            "prompt": str(prompt),
+        }
+        for prompt in searches
+        if str(prompt).strip()
+    ]
 
 
 BUILD_VERSION = "AI Results Intelligence v1.3.2 / Cleaning Services v1.0"

@@ -18,9 +18,6 @@ from src.poc_audit_production import (  # noqa: E402
     list_report_generator_definitions,
 )
 from src.report_generator_readiness import (  # noqa: E402
-    AI_VISIBILITY_FORCE_PROMPTS_KEY,
-    AI_VISIBILITY_HANDOFF_KEY,
-    BRIEFS_STATE_KEY,
     normalise_owner_brief,
     owner_brief_missing_fields,
 )
@@ -28,6 +25,9 @@ from src.report_generator_readiness import (  # noqa: E402
 
 BUILD_VERSION = "Accessible AI Report Generator v1.2"
 REPORT_STATE_KEY = "accessible_ai_report_generator_result"
+AI_VISIBILITY_HANDOFF_KEY = "ai_visibility_report_handoff_target"
+AI_VISIBILITY_FORCE_PROMPTS_KEY = "ai_visibility_force_owner_prompts"
+BRIEFS_STATE_KEY = "accessible_ai_report_owner_briefs"
 
 
 @st.cache_data(ttl=120)
