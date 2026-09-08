@@ -80,12 +80,17 @@ class PocAuditProductionTests(unittest.TestCase):
     def test_report_generator_lists_only_accessible_owner_services_reports(self):
         definitions = list_report_generator_definitions()
 
-        self.assertEqual([item.key for item in definitions], ["ciscos_karma_owner_services"])
         self.assertEqual(
-            definitions[0].baseline_run_id,
+            [item.key for item in definitions],
+            ["udr_owner_services", "ciscos_karma_owner_services"],
+        )
+        self.assertEqual(
+            definitions[1].baseline_run_id,
             "80cf853d-4e7c-4f7c-a446-bf7f40d6dddf",
         )
-        self.assertEqual(definitions[0].report_template, "accessible_owner_services_v1")
+        self.assertTrue(
+            all(item.report_template == "accessible_owner_services_v1" for item in definitions)
+        )
 
 
 if __name__ == "__main__":

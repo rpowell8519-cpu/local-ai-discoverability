@@ -53,3 +53,96 @@ def owner_prompt_records(brief: dict[str, Any] | None) -> list[dict[str, Any]]:
         }
         for prompt in list((brief or {}).get("desired_searches") or [])
     ]
+
+
+def report_journey(
+    *,
+    owner_ready: bool,
+    ai_ready: bool,
+    website_ready: bool,
+    reviews_ready: bool,
+    configuration_ready: bool,
+) -> dict[str, Any]:
+    """Describe a report journey without treating optional evidence as a blocker."""
+
+    items = [
+        {
+            "label": "Owner priorities",
+            "importance": "Required",
+            "ready": owner_ready,
+            "detail": "Submitted" if owner_ready else "Two short answers needed",
+        },
+        {
+            "label": "AI benchmark",
+            "importance": "Required",
+            "ready": ai_ready,
+            "detail": "Completed" if ai_ready else "Needs to be run from the agreed questions",
+        },
+        {
+            "label": "Website evidence",
+            "importance": "Recommended",
+            "ready": website_ready,
+            "detail": "Available" if website_ready else "Add if a website exists",
+        },
+        {
+            "label": "Customer reviews",
+            "importance": "Recommended",
+            "ready": reviews_ready,
+            "detail": "Available" if reviews_ready else "Can be reported as unavailable",
+        },
+        {
+            "label": "Owner competitor names",
+            "importance": "Optional",
+            "ready": True,
+            "detail": "Not required - AI results determine the comparison set",
+        },
+        {
+            "label": "Report review",
+            "importance": "Internal",
+            "ready": configuration_ready,
+            "detail": "Complete" if configuration_ready else "Prepared after the benchmark",
+        },
+    ]
+
+    if configuration_ready:
+        next_step = {
+            "key": "generate",
+            "title": "Generate the report",
+            "body": "The reviewed report is ready to generate from saved evidence.",
+        }
+    elif not owner_ready:
+        next_step = {
+            "key": "owner",
+            "title": "Complete the two owner-priority answers",
+            "body": "These answers determine the customer questions used in the benchmark.",
+        }
+    elif not ai_ready:
+        next_step = {
+            "key": "benchmark",
+            "title": "Run the AI benchmark",
+            "body": "Your submitted questions will be taken to AI Visibility for review before the paid run starts.",
+        }
+    else:
+        next_step = {
+            "key": "review",
+            "title": "Evidence is ready for report preparation",
+            "body": (
+                "The final review will select comparison businesses from the AI answers and clearly "
+                "mark any unavailable website or review evidence. Owner competitor names are not required."
+            ),
+        }
+
+    return {
+        "items": items,
+        "required_ready": owner_ready and ai_ready,
+        "can_generate": configuration_ready,
+        "missing_recommended": [
+            label
+            for label, ready in (
+                ("website evidence", website_ready),
+                ("customer reviews", reviews_ready),
+            )
+            if not ready
+        ],
+        "next_step": next_step,
+    }

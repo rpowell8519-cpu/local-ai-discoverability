@@ -51,6 +51,11 @@ def _definitions() -> tuple[PocAuditDefinition, ...]:
         TARGET_PLACE_ID as CISCO_OWNER_SERVICES_TARGET_ID,
         assemble_ciscos_karma_owner_services_payload,
     )
+    from src.poc_audit_udr_owner_services import (
+        RUN_ID as UDR_OWNER_SERVICES_RUN_ID,
+        TARGET_PLACE_ID as UDR_OWNER_SERVICES_TARGET_ID,
+        assemble_udr_owner_services_payload,
+    )
     from src.poc_audit_wild_flor import (
         RUN_ID as WILD_FLOR_RUN_ID,
         TARGET_PLACE_ID as WILD_FLOR_TARGET_ID,
@@ -58,6 +63,15 @@ def _definitions() -> tuple[PocAuditDefinition, ...]:
     )
 
     return (
+        PocAuditDefinition(
+            key="udr_owner_services",
+            baseline_run_id=UDR_OWNER_SERVICES_RUN_ID,
+            target_google_place_id=UDR_OWNER_SERVICES_TARGET_ID,
+            client_name="UDR Properties",
+            pdf_filename="udr-properties-ai-visibility-report.pdf",
+            assembler=assemble_udr_owner_services_payload,
+            report_template="accessible_owner_services_v1",
+        ),
         PocAuditDefinition(
             key="ciscos_karma_owner_services",
             baseline_run_id=CISCO_OWNER_SERVICES_RUN_ID,

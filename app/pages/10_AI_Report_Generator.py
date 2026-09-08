@@ -20,10 +20,11 @@ from src.poc_audit_production import (  # noqa: E402
 from src.report_generator_readiness import (  # noqa: E402
     normalise_owner_brief,
     owner_brief_missing_fields,
+    report_journey,
 )
 
 
-BUILD_VERSION = "Accessible AI Report Generator v1.2"
+BUILD_VERSION = "Accessible AI Report Generator v1.3"
 REPORT_STATE_KEY = "accessible_ai_report_generator_result"
 AI_VISIBILITY_HANDOFF_KEY = "ai_visibility_report_handoff_target"
 AI_VISIBILITY_FORCE_PROMPTS_KEY = "ai_visibility_force_owner_prompts"
@@ -116,10 +117,22 @@ st.caption(
     "see whether the saved evidence is ready for the accessible client report."
 )
 st.caption(f"Build: {BUILD_VERSION}")
-st.info(
-    "This page reads saved evidence only. It does not run an AI benchmark, collect "
-    "website or review data, or freeze a report snapshot."
-)
+with st.expander("How the report process works", expanded=True):
+    process_columns = st.columns(4)
+    process_steps = (
+        ("1. Set the priorities", "Tell us what the business should be known for and what customers might ask."),
+        ("2. Run the benchmark", "Review those questions, then test them across ChatGPT, Claude and Gemini."),
+        ("3. Add useful evidence", "Website and review evidence enrich the comparison when they are available."),
+        ("4. Review and generate", "We use businesses found in the AI answers, check the conclusions and create the PDF."),
+    )
+    for column, (title, body) in zip(process_columns, process_steps):
+        with column.container(border=True):
+            st.markdown(f"**{title}**")
+            st.caption(body)
+    st.caption(
+        "Required: owner priorities and a completed AI benchmark. Recommended: website and review evidence. "
+        "Optional: competitor names from the owner."
+    )
 
 try:
     businesses = load_businesses()
@@ -216,49 +229,71 @@ st.caption(
     "from the measured AI recommendations, whether or not the owner mentioned them."
 )
 
-st.subheader("2. Report readiness")
+st.subheader("2. What is ready, and what happens next?")
 owner_ready = definition is not None or not owner_brief_missing_fields(saved_brief)
 ai_ready = bool(evidence["completed_runs"])
 website_ready = evidence["website_audit"] is not None
 reviews_ready = evidence["review_count"] > 0
 configuration_ready = definition is not None
 
-readiness = [
-    ("Owner context", owner_ready, "Submitted" if owner_ready else "Needed"),
-    ("AI benchmark", ai_ready, f"{len(evidence['completed_runs'])} completed" if ai_ready else "Needed"),
-    (
-        "Website evidence",
-        website_ready,
-        f"{int(evidence['website_audit'].get('pages_crawled') or 0)} pages" if website_ready else "Needed",
-    ),
-    ("Review evidence", reviews_ready, f"{evidence['review_count']:,} reviews" if reviews_ready else "Needed"),
-    ("Final report review", configuration_ready, "Complete" if configuration_ready else "Internal step"),
-]
-columns = st.columns(len(readiness))
-for column, (label, ready, detail) in zip(columns, readiness):
-    column.metric(label, "Ready" if ready else "Missing", detail)
+journey = report_journey(
+    owner_ready=owner_ready,
+    ai_ready=ai_ready,
+    website_ready=website_ready,
+    reviews_ready=reviews_ready,
+    configuration_ready=configuration_ready,
+)
+next_step = journey["next_step"]
+if next_step["key"] == "generate":
+    st.success(f"**Next: {next_step['title']}**\n\n{next_step['body']}")
+elif next_step["key"] == "review":
+    st.info(f"**Next: {next_step['title']}**\n\n{next_step['body']}")
+else:
+    st.warning(f"**Next: {next_step['title']}**\n\n{next_step['body']}")
 
-missing_evidence = []
-if not owner_ready:
-    missing_evidence.append("submit the two owner-context answers above")
-if not ai_ready:
-    missing_evidence.append("complete an AI Visibility benchmark for this business")
-if not website_ready:
-    missing_evidence.append("complete a website audit")
-if not reviews_ready:
-    missing_evidence.append("import customer reviews")
-if missing_evidence:
-    st.warning("Before the PDF can be generated, please " + ", then ".join(missing_evidence) + ".")
-    links = st.columns(3)
+readiness_rows = []
+for item in journey["items"]:
+    detail = item["detail"]
+    if item["label"] == "AI benchmark" and ai_ready:
+        detail = f"{len(evidence['completed_runs'])} completed run(s) available"
+    elif item["label"] == "Website evidence" and website_ready:
+        detail = f"{int(evidence['website_audit'].get('pages_crawled') or 0)} pages reviewed"
+    elif item["label"] == "Customer reviews" and reviews_ready:
+        detail = f"{evidence['review_count']:,} reviews available"
+    readiness_rows.append(
+        {
+            "Item": item["label"],
+            "Importance": item["importance"],
+            "Status": "Ready" if item["ready"] else (
+                "Not available" if item["importance"] == "Recommended" else "Action needed"
+            ),
+            "What this means": detail,
+        }
+    )
+st.dataframe(pd.DataFrame(readiness_rows), hide_index=True, use_container_width=True)
+
+if journey["missing_recommended"]:
+    st.info(
+        "The report can still proceed without " + " or ".join(journey["missing_recommended"]) + ". "
+        "The PDF will state that the evidence was unavailable instead of treating it as a poor result."
+    )
+
+if next_step["key"] == "benchmark":
+    if st.button("Continue to AI Visibility with these questions", type="primary", use_container_width=True):
+        st.session_state[AI_VISIBILITY_HANDOFF_KEY] = selected_place_id
+        st.session_state[AI_VISIBILITY_FORCE_PROMPTS_KEY] = selected_place_id
+        st.switch_page("pages/8_AI_Visibility.py")
+
+with st.expander("Optional evidence actions"):
+    st.write(
+        "Use these only when the evidence exists. Missing reviews or a business without a website "
+        "should not stop the report; the limitation will be stated clearly."
+    )
+    links = st.columns(2)
     with links[0]:
-        if st.button("Continue to AI Visibility", use_container_width=True):
-            st.session_state[AI_VISIBILITY_HANDOFF_KEY] = selected_place_id
-            st.session_state[AI_VISIBILITY_FORCE_PROMPTS_KEY] = selected_place_id
-            st.switch_page("pages/8_AI_Visibility.py")
+        st.page_link("pages/5_Website_Audits.py", label="Add or refresh website evidence", use_container_width=True)
     with links[1]:
-        st.page_link("pages/5_Website_Audits.py", label="Open Website Audits")
-    with links[2]:
-        st.page_link("pages/7_Review_Insights.py", label="Open Review Insights")
+        st.page_link("pages/7_Review_Insights.py", label="Add or refresh review evidence", use_container_width=True)
 
 if saved_brief and saved_brief.get("owner_competitors"):
     with st.expander("Optional owner competitor context"):
@@ -269,10 +304,9 @@ if saved_brief and saved_brief.get("owner_competitors"):
 st.subheader("3. Generate report")
 if definition is None:
     st.info(
-        "There is no separate report configuration for you to complete. Once the "
-        "evidence above is ready, the final internal review will use the leading "
-        "businesses found in the AI responses as the comparison group. Owner-named "
-        "competitors are not required."
+        "There is no hidden form for you to complete here. After the required items are ready, "
+        "the report reviewer checks the question set, selects relevant businesses from the AI "
+        "answers and records any missing evidence as a limitation."
     )
 else:
     with st.container(border=True):

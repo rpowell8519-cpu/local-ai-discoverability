@@ -6,6 +6,7 @@ from src.report_generator_readiness import (
     normalise_owner_brief,
     owner_brief_missing_fields,
     owner_prompt_records,
+    report_journey,
 )
 
 
@@ -53,6 +54,53 @@ class ReportGeneratorReadinessTests(unittest.TestCase):
             [item["prompt"] for item in prompts],
             ["Best office cleaners in Brighton?", "Who cleans carpets?"],
         )
+
+    def test_missing_owner_context_is_the_first_action(self):
+        journey = report_journey(
+            owner_ready=False,
+            ai_ready=False,
+            website_ready=False,
+            reviews_ready=False,
+            configuration_ready=False,
+        )
+        self.assertEqual(journey["next_step"]["key"], "owner")
+        self.assertFalse(journey["required_ready"])
+
+    def test_benchmark_is_next_after_owner_context(self):
+        journey = report_journey(
+            owner_ready=True,
+            ai_ready=False,
+            website_ready=True,
+            reviews_ready=True,
+            configuration_ready=False,
+        )
+        self.assertEqual(journey["next_step"]["key"], "benchmark")
+
+    def test_missing_reviews_and_website_do_not_block_preparation(self):
+        journey = report_journey(
+            owner_ready=True,
+            ai_ready=True,
+            website_ready=False,
+            reviews_ready=False,
+            configuration_ready=False,
+        )
+        self.assertTrue(journey["required_ready"])
+        self.assertEqual(journey["next_step"]["key"], "review")
+        self.assertEqual(
+            journey["missing_recommended"],
+            ["website evidence", "customer reviews"],
+        )
+
+    def test_completed_review_can_generate(self):
+        journey = report_journey(
+            owner_ready=True,
+            ai_ready=True,
+            website_ready=True,
+            reviews_ready=True,
+            configuration_ready=True,
+        )
+        self.assertTrue(journey["can_generate"])
+        self.assertEqual(journey["next_step"]["key"], "generate")
 
 
 if __name__ == "__main__":
