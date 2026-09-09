@@ -17,6 +17,11 @@ from src.poc_audit_production import (  # noqa: E402
     build_reviewable_poc_audit,
     list_report_generator_definitions,
 )
+from src.report_audit_workflow import (  # noqa: E402
+    AuditWorkflowInput,
+    EvidenceState,
+    workflow_summary,
+)
 from src.report_generator_readiness import (  # noqa: E402
     normalise_owner_brief,
     owner_brief_missing_fields,
@@ -24,7 +29,7 @@ from src.report_generator_readiness import (  # noqa: E402
 )
 
 
-BUILD_VERSION = "Accessible AI Report Generator v1.3"
+BUILD_VERSION = "Accessible AI Report Generator v1.4"
 REPORT_STATE_KEY = "accessible_ai_report_generator_result"
 AI_VISIBILITY_HANDOFF_KEY = "ai_visibility_report_handoff_target"
 AI_VISIBILITY_FORCE_PROMPTS_KEY = "ai_visibility_force_owner_prompts"
@@ -243,13 +248,34 @@ journey = report_journey(
     reviews_ready=reviews_ready,
     configuration_ready=configuration_ready,
 )
+selected_run_id = definition.baseline_run_id if definition else (
+    str(evidence["completed_runs"][0]["id"]) if evidence["completed_runs"] else None
+)
+workflow = workflow_summary(
+    AuditWorkflowInput(
+        target_google_place_id=selected_place_id,
+        owner_brief_complete=owner_ready,
+        benchmark_run_id=selected_run_id,
+        benchmark_complete=ai_ready,
+        website_evidence=(
+            EvidenceState.AVAILABLE if website_ready else EvidenceState.NOT_CHECKED
+        ),
+        review_evidence=(
+            EvidenceState.AVAILABLE if reviews_ready else EvidenceState.NOT_CHECKED
+        ),
+        reviewer_decisions_complete=configuration_ready,
+    )
+)
 next_step = journey["next_step"]
-if next_step["key"] == "generate":
-    st.success(f"**Next: {next_step['title']}**\n\n{next_step['body']}")
-elif next_step["key"] == "review":
-    st.info(f"**Next: {next_step['title']}**\n\n{next_step['body']}")
+if workflow["stage"] == "ready_to_generate":
+    st.success(f"**Next: {workflow['title']}**\n\n{workflow['body']}")
+elif workflow["stage"] == "needs_review":
+    st.info(f"**Next: {workflow['title']}**\n\n{workflow['body']}")
 else:
-    st.warning(f"**Next: {next_step['title']}**\n\n{next_step['body']}")
+    st.warning(f"**Next: {workflow['title']}**\n\n{workflow['body']}")
+
+if selected_run_id:
+    st.caption(f"Benchmark selected for this report: `{selected_run_id}`")
 
 readiness_rows = []
 for item in journey["items"]:
@@ -272,10 +298,10 @@ for item in journey["items"]:
     )
 st.dataframe(pd.DataFrame(readiness_rows), hide_index=True, use_container_width=True)
 
-if journey["missing_recommended"]:
+if workflow["unchecked_evidence"]:
     st.info(
-        "The report can still proceed without " + " or ".join(journey["missing_recommended"]) + ". "
-        "The PDF will state that the evidence was unavailable instead of treating it as a poor result."
+        "Still to check, but not a blocker: " + " and ".join(workflow["unchecked_evidence"]) + ". "
+        "If the evidence genuinely does not exist, the report will say so rather than treating it as a poor result."
     )
 
 if next_step["key"] == "benchmark":
