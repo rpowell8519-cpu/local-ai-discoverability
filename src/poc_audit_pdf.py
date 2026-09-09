@@ -734,10 +734,10 @@ def _draw_cover(canvas: Canvas, payload: Mapping[str, Any], report: Mapping[str,
     canvas.setFont(FONT_BOLD, 28)
     canvas.setFillColor(WHITE)
     complete = report["visibility"]["responses_complete"]
-    canvas.drawString(MARGIN + 18, 105, f"{complete} model responses")
+    canvas.drawString(MARGIN + 18, 105, f"{complete} API responses")
     canvas.setFont(FONT, 10)
     canvas.setFillColor(HexColor("#D7E1F0"))
-    canvas.drawString(MARGIN + 18, 82, "OpenAI | Claude | Gemini | Independently verified")
+    canvas.drawString(MARGIN + 18, 82, "Model-memory benchmark | Browsing disabled | Saved responses checked")
     canvas.setFont(FONT, 9)
     canvas.setFillColor(HexColor("#AFC0D6"))
     canvas.drawString(MARGIN, 38, f"Audit date: {_text(audit['audit_date'])}")
@@ -835,7 +835,7 @@ def _draw_question_visibility(
     y = _page_title(
         canvas,
         f"How visible was {client} for each customer question?",
-        "Each question was asked nine times: three times each through ChatGPT, Claude and Gemini.",
+        "Each question was asked nine times: three times each through the OpenAI, Anthropic and Google APIs.",
     )
     _label(canvas, "Measured result", MARGIN, y, "measured")
     top = y - 24
@@ -883,11 +883,12 @@ def _draw_question_visibility(
         )
         leader_x = target_x + widths[2]
         leader_lines = [
-            f"{item['business_name']} - {item['appearances']} of {row['answer_count']}"
+            f"{item['business_name']}{' [identity unverified]' if item.get('identity_status') == 'unresolved' else ''} "
+            f"- {item['appearances']} of {row['answer_count']}"
             for item in row["leaders"][:2]
         ]
         _paragraph(
-            canvas, "\n".join(leader_lines) or "No resolved business recommendations",
+            canvas, "\n".join(leader_lines) or "No named business recommendations",
             leader_x + 7, row_y - 18, widths[3] - 14,
             size=8, color=INK, leading=12, max_lines=4,
         )
@@ -1334,13 +1335,18 @@ def _draw_methodology(canvas: Canvas, report: Mapping[str, Any]) -> None:
     canvas.drawString(MARGIN, y - 34, "Benchmark design")
     benchmark_lines = [
         f"Providers: {', '.join(data['providers'])}",
+        *[
+            f"{provider} model: {model}"
+            for provider, model in data.get("models", {}).items()
+        ],
         f"Prompts: {data['prompt_count']}",
         f"Repetitions: {data['repetitions']} per prompt/provider",
         f"Expected responses: {data['expected_responses']}",
         f"Complete responses: {data['complete_responses']}",
         f"Benchmark: {data['benchmark']}",
+        "Live web search: disabled",
     ]
-    _paragraph(canvas, "\n".join(benchmark_lines), MARGIN, y - 58, left_width, size=8.5, color=INK, leading=16, max_lines=8)
+    _paragraph(canvas, "\n".join(benchmark_lines), MARGIN, y - 58, left_width, size=8, color=INK, leading=13, max_lines=12)
     canvas.setFont(FONT_BOLD, 11)
     canvas.setFillColor(NAVY)
     canvas.drawString(MARGIN + 270, y - 34, "Validation")
@@ -1456,12 +1462,13 @@ def _draw_question_details(
             if leaders:
                 leader = leaders[0]
                 detail = (
-                    f"{leader['business_name']}\n"
+                    f"{leader['business_name']}"
+                    f"{' [identity unverified]' if leader.get('identity_status') == 'unresolved' else ''}\n"
                     f"{leader['appearances']} of {provider_result['answer_count']} answers | "
                     f"best #{int(leader['best_position'])}"
                 )
             else:
-                detail = "No resolved business recommendation"
+                detail = "No named business recommendation"
             _paragraph(
                 canvas, f"{provider_result['provider']}\n{detail}",
                 x, card_y - 91, provider_width - 10,

@@ -265,24 +265,32 @@ def _question_performance(
     providers: list[str],
     prompt_count: int,
 ) -> list[dict[str, Any]]:
-    """Summarise canonically resolved recommendations for each customer question."""
+    """Summarise named recommendations, preserving unresolved identities visibly."""
     complete_responses = [
         item for item in baseline["responses"]
         if item["response_complete"] and item["status"] == "completed"
     ]
-    resolved_slots = [
+    business_slots = [
         item for item in slots
-        if item["slot_disposition"] == "business" and item.get("google_place_id")
+        if item["slot_disposition"] == "business"
     ]
 
     def summarise(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
         grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for record in records:
-            grouped[str(record["google_place_id"])].append(record)
+            group_key = (
+                "place:" + str(record["google_place_id"])
+                if record.get("google_place_id")
+                else "raw:" + normalise_name(record.get("raw_business_name"))
+            )
+            grouped[group_key].append(record)
         rows = [
             {
-                "google_place_id": place_id,
+                "google_place_id": items[0].get("google_place_id"),
                 "business_name": items[0]["business_name"],
+                "identity_status": (
+                    "verified" if items[0].get("google_place_id") else "unresolved"
+                ),
                 "appearances": len(items),
                 "best_position": min(int(item["position"]) for item in items),
                 "average_position": sum(float(item["position"]) for item in items) / len(items),
@@ -291,7 +299,7 @@ def _question_performance(
                     for item in items
                 }),
             }
-            for place_id, items in grouped.items()
+            for _, items in grouped.items()
         ]
         return sorted(
             rows,
@@ -308,7 +316,7 @@ def _question_performance(
             item for item in complete_responses if int(item["base_prompt_order"]) == order
         ]
         question_slots = [
-            item for item in resolved_slots if int(item["base_prompt_order"]) == order
+            item for item in business_slots if int(item["base_prompt_order"]) == order
         ]
         target_slots = [
             item for item in question_slots

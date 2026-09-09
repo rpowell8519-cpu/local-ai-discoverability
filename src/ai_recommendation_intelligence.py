@@ -31,6 +31,14 @@ LOCATION_SUFFIXES = {
 }
 
 
+NON_BUSINESS_RECOMMENDATION_PATTERNS = (
+    r"^(?:search|check|ask|confirm|compare|contact|contacting|look|use|try)\b",
+    r"^(?:trustpilot|trusta?trader|chec\w*trader|yelp|yell|google reviews?|facebook|instagram|nextdoor|taskrabbit|rated people|bark|which trusted traders|nals|arla)(?:\b|\s+or\b)",
+    r"^(?:local|trade|business)\s+(?:business\s+|trade\s+)?director(?:y|ies)\b",
+    r"^(?:which|what|where|when|why|how|who)\b.*\?$",
+)
+
+
 def normalise_name(
     value: Any,
 ) -> str:
@@ -109,6 +117,18 @@ def extract_business_name(
     )
 
 
+def is_likely_business_recommendation(value: str) -> bool:
+    """Reject obvious advice/platform entries without guessing business identity."""
+
+    normalised = normalise_name(value)
+    if not normalised:
+        return False
+    return not any(
+        re.search(pattern, normalised, flags=re.IGNORECASE)
+        for pattern in NON_BUSINESS_RECOMMENDATION_PATTERNS
+    )
+
+
 def extract_numbered_recommendations(
     response_text: str,
 ) -> list[dict[str, Any]]:
@@ -121,7 +141,7 @@ def extract_numbered_recommendations(
         return recommendations
 
     numbered_line = re.compile(
-        r"^\s*(\d{1,2})[\.\)]\s*(.+?)\s*$"
+        r"^\s*(?:#{1,6}\s*)?(?:[-*+]\s*)?(\d{1,2})[\.\)]\s*(.+?)\s*$"
     )
 
     for line in str(
@@ -145,7 +165,7 @@ def extract_numbered_recommendations(
             )
         )
 
-        if not business_name:
+        if not business_name or not is_likely_business_recommendation(business_name):
             continue
 
         recommendations.append(
@@ -817,6 +837,8 @@ def build_recommendation_records(
             )
         )
 
+        seen_in_answer: set[str] = set()
+
         for recommendation in (
             recommendations
         ):
@@ -845,6 +867,15 @@ def build_recommendation_records(
                 )
                 else None
             )
+
+            answer_business_key = (
+                f"place:{resolved_id}"
+                if resolved_id
+                else "raw:" + normalise_name(recommendation["raw_business_name"])
+            )
+            if answer_business_key in seen_in_answer:
+                continue
+            seen_in_answer.add(answer_business_key)
 
             if (
                 resolved_id

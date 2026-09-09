@@ -106,7 +106,7 @@ ANALYST_DECISIONS: dict[str, Any] = {
             {
                 "title": "We tested visibility across three AI platforms",
                 "body": (
-                    "We asked ChatGPT, Claude and Gemini each question three times, "
+                    "We used the OpenAI, Anthropic and Google APIs three times per question, "
                     "then checked every completed answer and the businesses it named."
                 ),
             },
@@ -347,7 +347,7 @@ ANALYST_DECISIONS: dict[str, Any] = {
         "Visibility among owner-nominated competitors varied materially by provider."
     ),
     "matrix_dimensions": [
-        {"label": "AI recommendation result", "evidence_refs": ["market:target", "market:cuttlefish", "market:trevor", "market:simon"], "values": {"Cisco's Karma": "0.00% | not ranked", "Cuttlefish": "10.73% | joint leader", "Trevor Sorbie": "10.73% | joint leader", "Simon Webster": "8.05%"}},
+        {"label": "AI recommendation result", "evidence_refs": ["market:target", "market:cuttlefish", "market:trevor", "market:simon"], "values": {"Cisco's Karma": "0.0% | not ranked", "Cuttlefish": "10.9% | joint leader", "Trevor Sorbie": "10.9% | joint leader", "Simon Webster": "8.1%"}},
         {"label": "AI assistants recommending them", "evidence_refs": ["market:target", "market:cuttlefish", "market:trevor", "market:simon"], "values": {"Cisco's Karma": "0 / 3", "Cuttlefish": "2 / 3", "Trevor Sorbie": "2 / 3", "Simon Webster": "1 / 3"}},
         {"label": "Service questions they appeared for", "evidence_refs": ["market:target", "market:cuttlefish", "market:trevor", "market:simon"], "values": {"Cisco's Karma": "0 / 8", "Cuttlefish": "7 / 8", "Trevor Sorbie": "8 / 8", "Simon Webster": "8 / 8"}},
         {"label": "Website pages reviewed", "evidence_refs": ["website:target:audit", "website:cuttlefish:audit", "website:trevor:audit", "website:simon:audit"], "values": {"Cisco's Karma": "10 pages", "Cuttlefish": "10 pages", "Trevor Sorbie": "20 pages", "Simon Webster": "12 pages"}},
@@ -411,7 +411,7 @@ CONFIG: dict[str, Any] = {
     "primary_group": "hair_services",
     "review_profile": "hair_services",
     "expected_responses": 72,
-    "expected_eligible_slots": 289,
+    "expected_eligible_slots": 271,
     "baseline_validation_status": "verified_zero",
     "verification_method_version": "owner_services_raw_response_reconciliation_v1",
     "target_explicit_terms": ("cisco's karma", "cisco’s karma", "ciscos karma", "cisco karma"),
@@ -429,7 +429,7 @@ CONFIG: dict[str, Any] = {
     "matrix_businesses": ("Cisco's Karma", "Cuttlefish", "Trevor Sorbie", "Simon Webster"),
     "matrix_business_place_ids": {"Cisco's Karma": TARGET_PLACE_ID, "Cuttlefish": COHORT[0]["google_place_id"], "Trevor Sorbie": COHORT[1]["google_place_id"], "Simon Webster": COHORT[2]["google_place_id"]},
     "market_note": (
-        "Business Share of Recommendation uses 261 named-business recommendations from 72 valid responses. It is benchmark-specific, not commercial market share."
+        "Business Share of Recommendation uses 258 named-business recommendations from 72 valid responses. It is benchmark-specific, not commercial market share."
     ),
     "provider_caveat": (
         "The report describes what each assistant recommended. It does not claim to "
@@ -442,7 +442,7 @@ CONFIG: dict[str, Any] = {
     "action_caveat": "The actions strengthen public evidence; no AI visibility improvement is guaranteed.",
     "methodology_validation": (
         "72/72 valid responses: 24 per AI assistant",
-        "289 items: 261 business recommendations; 28 non-business exclusions",
+        "271 recommendation items reviewed: 258 named businesses and 13 non-business exclusions",
         "No target recommendation or credible indirect reference",
         "Cuttlefish and Electric aliases reconciled",
         "All owner-nominated competitors checked",

@@ -109,7 +109,7 @@ ANALYST_DECISIONS: dict[str, Any] = {
             {
                 "title": "We tested visibility across three AI platforms",
                 "body": (
-                    "We asked ChatGPT, Claude and Gemini each question three times, then "
+                    "We used the OpenAI, Anthropic and Google APIs three times per question, then "
                     "checked all 72 answers and the businesses they named."
                 ),
             },
@@ -420,7 +420,7 @@ CONFIG: dict[str, Any] = {
     "primary_group": "cleaning_services",
     "review_profile": "cleaning_services",
     "expected_responses": 72,
-    "expected_eligible_slots": 342,
+    "expected_eligible_slots": 286,
     "baseline_validation_status": "verified_zero",
     "verification_method_version": "owner_services_raw_response_reconciliation_v1",
     "target_explicit_terms": ("udr properties", "udr cleaning", "udr properties limited"),
@@ -460,7 +460,7 @@ CONFIG: dict[str, Any] = {
     "methodology_validation": (
         "72/72 valid responses: 24 per AI assistant",
         "Eight owner-priority cleaning questions, each asked three times per assistant",
-        "342 recommendation items reviewed before non-business exclusions",
+        "286 recommendation items remained after obvious advice and platform names were removed",
         "No UDR recommendation or credible indirect reference",
         "Comparison businesses selected from the measured AI responses",
     ),

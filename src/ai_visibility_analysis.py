@@ -6,6 +6,8 @@ from typing import Any
 
 import pandas as pd
 
+from src.ai_recommendation_intelligence import extract_business_name, normalise_name
+
 
 def normalise_text(value: Any) -> str:
     text = unicodedata.normalize(
@@ -177,12 +179,10 @@ def find_recommendation_position(
         item_number = int(
             match.group(1)
         )
-        item_text = match.group(2)
+        ranked_name = extract_business_name(match.group(2))
+        ranked_normalised = normalise_name(ranked_name)
 
-        if _contains_alias(
-            item_text,
-            aliases,
-        ):
+        if ranked_normalised in aliases:
             return item_number
 
     return None

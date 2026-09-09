@@ -381,6 +381,15 @@ class PocAuditRepositoryTests(unittest.TestCase):
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, migration)
 
+    def test_snapshot_security_migration_removes_client_api_access(self):
+        migration = Path(
+            "sql/002_secure_poc_audit_snapshots.sql"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("from anon, authenticated", migration)
+        self.assertIn("enable row level security", migration)
+        self.assertNotIn("create policy", migration.lower())
+
     def test_get_snapshot_exposes_frozen_record(self):
         row = {"id": SNAPSHOT_1, "pdf_bytes": PDF}
         engine = FakeReadEngine([row])
