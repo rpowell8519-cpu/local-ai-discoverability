@@ -19,6 +19,7 @@ from src.ai_visibility_analysis import (
     reanalyse_results,
     visibility_summary,
 )
+from src.report_audit_repository import attach_benchmark_revision
 from src.ai_recommendation_intelligence import (
     build_business_share_table,
     build_intent_stability_table,
@@ -724,7 +725,6 @@ if (
     st.session_state[prompt_state_key] = generated_prompts
     if str(st.session_state.get(AI_VISIBILITY_FORCE_PROMPTS_KEY) or "") == str(target_id):
         st.session_state.pop(AI_VISIBILITY_FORCE_PROMPTS_KEY, None)
-        st.session_state.pop(AI_VISIBILITY_HANDOFF_KEY, None)
 
 
 st.subheader("1. Review the test questions")
@@ -1040,6 +1040,20 @@ if run_button:
             call_plan
         ),
     )
+
+    if str(st.session_state.get(AI_VISIBILITY_HANDOFF_KEY) or "") == str(target_id):
+        try:
+            attach_benchmark_revision(
+                target_google_place_id=str(target_id),
+                benchmark_run_id=str(run_id),
+            )
+        except Exception as exc:
+            st.warning(
+                "The benchmark was saved, but it could not be attached to the report setup: "
+                f"{exc}"
+            )
+        else:
+            st.session_state.pop(AI_VISIBILITY_HANDOFF_KEY, None)
 
     st.cache_data.clear()
     st.success(

@@ -22,6 +22,10 @@ from src.report_audit_workflow import (  # noqa: E402
     EvidenceState,
     workflow_summary,
 )
+from src.report_audit_repository import (  # noqa: E402
+    get_latest_report_audit,
+    save_owner_brief_revision,
+)
 from src.report_generator_readiness import (  # noqa: E402
     normalise_owner_brief,
     owner_brief_missing_fields,
@@ -29,7 +33,7 @@ from src.report_generator_readiness import (  # noqa: E402
 )
 
 
-BUILD_VERSION = "Accessible AI Report Generator v1.4"
+BUILD_VERSION = "Accessible AI Report Generator v1.5"
 REPORT_STATE_KEY = "accessible_ai_report_generator_result"
 AI_VISIBILITY_HANDOFF_KEY = "ai_visibility_report_handoff_target"
 AI_VISIBILITY_FORCE_PROMPTS_KEY = "ai_visibility_force_owner_prompts"
@@ -174,7 +178,19 @@ except Exception as exc:
     st.stop()
 
 briefs = st.session_state.setdefault(BRIEFS_STATE_KEY, {})
-saved_brief = briefs.get(selected_place_id, {})
+try:
+    durable_audit = get_latest_report_audit(selected_place_id)
+except Exception as exc:
+    st.error("The saved report setup could not be loaded.")
+    st.exception(exc)
+    st.stop()
+saved_brief = durable_audit or briefs.get(selected_place_id, {})
+if durable_audit:
+    briefs[selected_place_id] = {
+        "known_for": durable_audit["known_for"],
+        "desired_searches": list(durable_audit["desired_searches"]),
+        "owner_competitors": list(durable_audit["owner_competitors"]),
+    }
 
 st.subheader("1. Owner context")
 st.write(
@@ -225,18 +241,41 @@ else:
         if missing:
             st.error("Please complete: " + "; ".join(missing) + ".")
         else:
-            briefs[selected_place_id] = brief
-            saved_brief = brief
-            st.success("Owner context saved for this browser session.")
+            try:
+                saved_revision = save_owner_brief_revision(
+                    target_google_place_id=selected_place_id,
+                    target_business_name=str(business["business_name"]),
+                    known_for=known_for,
+                    desired_searches=desired_searches,
+                    owner_competitors=owner_competitors,
+                )
+            except Exception as exc:
+                st.error("The owner context could not be saved.")
+                st.exception(exc)
+            else:
+                briefs[selected_place_id] = brief
+                saved_brief = saved_revision
+                st.success(
+                    f"Owner context saved as report setup revision {saved_revision['revision']}."
+                )
 
 st.caption(
     "Competitor names are optional. The report's comparison businesses are selected "
     "from the measured AI recommendations, whether or not the owner mentioned them."
 )
+if durable_audit:
+    st.caption(
+        f"Saved report setup revision {durable_audit['revision']} is available to other users of the app."
+    )
 
 st.subheader("2. What is ready, and what happens next?")
 owner_ready = definition is not None or not owner_brief_missing_fields(saved_brief)
-ai_ready = bool(evidence["completed_runs"])
+completed_run_ids = {str(run["id"]) for run in evidence["completed_runs"]}
+saved_benchmark_run_id = str((durable_audit or {}).get("benchmark_run_id") or "")
+ai_ready = (
+    definition is not None
+    or bool(saved_benchmark_run_id and saved_benchmark_run_id in completed_run_ids)
+)
 website_ready = evidence["website_audit"] is not None
 reviews_ready = evidence["review_count"] > 0
 configuration_ready = definition is not None
@@ -248,9 +287,7 @@ journey = report_journey(
     reviews_ready=reviews_ready,
     configuration_ready=configuration_ready,
 )
-selected_run_id = definition.baseline_run_id if definition else (
-    str(evidence["completed_runs"][0]["id"]) if evidence["completed_runs"] else None
-)
+selected_run_id = definition.baseline_run_id if definition else (saved_benchmark_run_id or None)
 workflow = workflow_summary(
     AuditWorkflowInput(
         target_google_place_id=selected_place_id,
