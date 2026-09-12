@@ -24,6 +24,7 @@ from src.website_audit_repository import (
     get_latest_audits,
     save_audit_page,
 )
+from src.report_generator_readiness import ACTIVE_REPORT_PROJECT_KEY
 
 
 BUILD_VERSION = "Website Footprint Audit v1.1.3 / Latest Raw URL v1.0"
@@ -70,6 +71,10 @@ st.caption(
     "and its validated competitor cohort."
 )
 st.caption(f"Build: {BUILD_VERSION}")
+if st.session_state.get(ACTIVE_REPORT_PROJECT_KEY):
+    st.info("A report project is active. Complete the website step, then return to continue it.")
+    if st.button("← Return to AI Report Generator", type="primary"):
+        st.switch_page("pages/10_AI_Report_Generator.py")
 
 
 @st.cache_data(ttl=300)

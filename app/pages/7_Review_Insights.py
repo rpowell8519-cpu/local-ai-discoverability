@@ -39,6 +39,7 @@ from src.outscraper_reviews import (
     submit_google_reviews,
 )
 from src.taxonomy import GROUP_LABELS
+from src.report_generator_readiness import ACTIVE_REPORT_PROJECT_KEY
 
 
 BUILD_VERSION = "Review Intelligence v1.2.1 / Outscraper Cost Guard v1.0"
@@ -57,6 +58,10 @@ st.caption(
     "its validated competitor cohort."
 )
 st.caption(f"Build: {BUILD_VERSION}")
+if st.session_state.get(ACTIVE_REPORT_PROJECT_KEY):
+    st.info("A report project is active. Complete the review step, then return to continue it.")
+    if st.button("← Return to AI Report Generator", type="primary"):
+        st.switch_page("pages/10_AI_Report_Generator.py")
 
 
 active_diagnostic = (

@@ -24,6 +24,7 @@ from src.business_import import (
     read_business_upload,
 )
 from src.taxonomy import GROUP_LABELS
+from src.report_generator_readiness import ACTIVE_REPORT_PROJECT_KEY
 
 
 st.set_page_config(
@@ -40,6 +41,9 @@ st.caption(
 st.caption(
     "Build: Data Admin v1.1.1 / Business Import v1.1"
 )
+if st.session_state.get(ACTIVE_REPORT_PROJECT_KEY):
+    if st.button("← Return to AI Report Generator", type="primary"):
+        st.switch_page("pages/10_AI_Report_Generator.py")
 
 
 def fetch_raw_businesses() -> list[dict]:

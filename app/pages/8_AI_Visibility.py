@@ -19,7 +19,7 @@ from src.ai_visibility_analysis import (
     reanalyse_results,
     visibility_summary,
 )
-from src.report_audit_repository import attach_benchmark_revision
+from src.report_audit_repository import attach_benchmark_revision, get_latest_report_audit
 from src.ai_recommendation_intelligence import (
     build_business_share_table,
     build_intent_stability_table,
@@ -48,6 +48,10 @@ from src.review_repository import (
     get_reviews,
 )
 from src.taxonomy import GROUP_LABELS
+from src.report_generator_readiness import (
+    ACTIVE_REPORT_PROJECT_KEY,
+    AI_VISIBILITY_COMPLETED_KEY,
+)
 
 
 AI_VISIBILITY_HANDOFF_KEY = "ai_visibility_report_handoff_target"
@@ -69,7 +73,7 @@ def owner_prompt_records(brief):
     ]
 
 
-BUILD_VERSION = "AI Results Intelligence v1.3.2 / Cleaning Services v1.0"
+BUILD_VERSION = "AI Results Intelligence v1.3.3 / Report Journey v1.0"
 
 DEFAULT_MODELS = {
     "OpenAI": "gpt-5.6-terra",
@@ -90,6 +94,10 @@ st.caption(
     "business for realistic local customer questions."
 )
 st.caption(f"Build: {BUILD_VERSION}")
+if st.session_state.get(ACTIVE_REPORT_PROJECT_KEY):
+    st.info("A report project is active. AI Visibility results will be attached to that project.")
+    if st.button("← Return to AI Report Generator", type="primary"):
+        st.switch_page("pages/10_AI_Report_Generator.py")
 
 st.info(
     "V1.3 is a **model-memory benchmark** with entity-aware "
@@ -495,6 +503,29 @@ target_name = str(
     or target_id
 )
 
+active_report_matches = str(st.session_state.get(ACTIVE_REPORT_PROJECT_KEY) or "") == str(target_id)
+attached_run_id = ""
+if active_report_matches:
+    try:
+        active_report_revision = get_latest_report_audit(str(target_id))
+    except Exception:
+        active_report_revision = None
+    attached_run_id = str((active_report_revision or {}).get("benchmark_run_id") or "")
+    if attached_run_id:
+        st.success(
+            "AI Visibility is complete for this report project. The saved run is attached, "
+            "so you do not need to run it again. Return to AI Report Generator to continue."
+        )
+        st.caption(f"Attached AI Visibility run: `{attached_run_id}`")
+    else:
+        completed_context = dict(st.session_state.get(AI_VISIBILITY_COMPLETED_KEY) or {})
+        if str(completed_context.get("target_google_place_id") or "") == str(target_id):
+            st.warning(
+                "AI Visibility finished, but the completed run is not yet attached to this report project. "
+                "Return to AI Report Generator to check the project before running anything again."
+            )
+            st.caption(f"Completed AI Visibility run: `{completed_context.get('run_id')}`")
+
 default_location = str(
     target_row.get(
         "location_hint"
@@ -732,7 +763,7 @@ st.subheader("1. Review the test questions")
 st.write(
     "The target and competitor names are not inserted "
     "into these customer questions. You can edit, add "
-    "or remove prompts before running the benchmark."
+    "or remove any question before running AI Visibility."
 )
 
 control_columns = st.columns(
@@ -786,6 +817,35 @@ with control_columns[1]:
         ] = prompt_frame
         st.rerun()
 
+with control_columns[2]:
+    with st.form("add_manual_ai_visibility_question", clear_on_submit=True):
+        manual_question = st.text_input(
+            "Add a question manually",
+            placeholder="Type one realistic customer question",
+        )
+        add_manual_question = st.form_submit_button("Add question")
+
+if add_manual_question and manual_question.strip():
+    prompt_frame = st.session_state[prompt_state_key].copy()
+    prompt_frame = pd.concat(
+        [
+            prompt_frame,
+            pd.DataFrame(
+                [
+                    {
+                        "include": True,
+                        "category": "Manual question",
+                        "source": "manual",
+                        "prompt": manual_question.strip(),
+                    }
+                ]
+            ),
+        ],
+        ignore_index=True,
+    )
+    st.session_state[prompt_state_key] = prompt_frame
+    st.rerun()
+
 
 edited_prompts = st.data_editor(
     st.session_state[
@@ -817,6 +877,10 @@ edited_prompts = st.data_editor(
         "prompt_data_editor_"
         + str(target_id)
     ),
+)
+st.caption(
+    "Every cell in the table is editable. Tick or untick Run, rewrite a question directly, "
+    "or add and delete rows as needed."
 )
 
 st.session_state[
@@ -929,6 +993,7 @@ run_button = st.button(
             selected_providers
         )
         == 0
+        or bool(attached_run_id)
     ),
 )
 
@@ -1055,10 +1120,15 @@ if run_button:
         else:
             st.session_state.pop(AI_VISIBILITY_HANDOFF_KEY, None)
 
+    st.session_state[AI_VISIBILITY_COMPLETED_KEY] = {
+        "target_google_place_id": str(target_id),
+        "run_id": str(run_id),
+    }
+
     st.cache_data.clear()
     st.success(
-        "Benchmark finished. Results have been "
-        "saved after every individual API call."
+        "AI Visibility is complete. Results have been saved and attached to the active "
+        "report project where applicable. Return to AI Report Generator for the next step."
     )
     st.rerun()
 

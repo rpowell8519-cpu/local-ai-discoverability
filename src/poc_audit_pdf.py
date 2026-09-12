@@ -382,7 +382,12 @@ def _validate_cross_evidence(
             errors.append(f"cohort recommendations {key}")
 
     audits = payload["website_evidence"].get("audits", [])
-    if len(audits) != 4 or not all(item.get("pages") for item in audits):
+    flexible_evidence = report.get("report_format") == "beta_accessible_v2"
+    if (
+        (not flexible_evidence and len(audits) != 4)
+        or len(audits) > 4
+        or not all(item.get("pages") for item in audits)
+    ):
         errors.append("website audit/page evidence")
     review_sets = payload["review_evidence"].get("review_sets", [])
     if len(review_sets) != 4:

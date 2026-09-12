@@ -7,6 +7,8 @@ from typing import Any
 BRIEFS_STATE_KEY = "accessible_ai_report_owner_briefs"
 AI_VISIBILITY_HANDOFF_KEY = "ai_visibility_report_handoff_target"
 AI_VISIBILITY_FORCE_PROMPTS_KEY = "ai_visibility_force_owner_prompts"
+ACTIVE_REPORT_PROJECT_KEY = "active_report_project_place_id"
+AI_VISIBILITY_COMPLETED_KEY = "ai_visibility_report_completed_run"
 
 
 def _lines(value: str) -> list[str]:
@@ -73,7 +75,7 @@ def report_journey(
             "detail": "Submitted" if owner_ready else "Two short answers needed",
         },
         {
-            "label": "AI benchmark",
+            "label": "AI Visibility",
             "importance": "Required",
             "ready": ai_ready,
             "detail": "Completed" if ai_ready else "Needs to be run from the agreed questions",
@@ -100,7 +102,7 @@ def report_journey(
             "label": "Report review",
             "importance": "Internal",
             "ready": configuration_ready,
-            "detail": "Complete" if configuration_ready else "Prepared after the benchmark",
+            "detail": "Complete" if configuration_ready else "Prepared after AI Visibility",
         },
     ]
 
@@ -114,12 +116,12 @@ def report_journey(
         next_step = {
             "key": "owner",
             "title": "Complete the two owner-priority answers",
-            "body": "These answers determine the customer questions used in the benchmark.",
+            "body": "These answers determine the customer questions used in AI Visibility.",
         }
     elif not ai_ready:
         next_step = {
             "key": "benchmark",
-            "title": "Run the AI benchmark",
+            "title": "Run AI Visibility",
             "body": "Your submitted questions will be taken to AI Visibility for review before the paid run starts.",
         }
     else:

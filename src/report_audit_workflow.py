@@ -69,12 +69,12 @@ def workflow_summary(state: AuditWorkflowInput) -> dict[str, Any]:
             "Tell us what the business should be known for and add realistic customer questions.",
         ),
         AuditStage.NEEDS_BENCHMARK: (
-            "Review and run the AI benchmark",
-            "Check the owner questions before starting the paid benchmark across the selected AI platforms.",
+            "Review and run AI Visibility",
+            "Check the owner questions before starting the paid AI Visibility test across the selected platforms.",
         ),
         AuditStage.NEEDS_REVIEW: (
             "Prepare the report",
-            "The benchmark is complete. A reviewer now checks identities, selects the AI-visible comparison set and records evidence limitations.",
+            "AI Visibility is complete. A reviewer now checks identities, confirms the automatically selected comparison set and records evidence limitations.",
         ),
         AuditStage.READY_TO_GENERATE: (
             "Generate the report",

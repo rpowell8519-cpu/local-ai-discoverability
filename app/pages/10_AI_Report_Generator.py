@@ -31,13 +31,14 @@ from src.report_audit_repository import (  # noqa: E402
     save_reviewer_decisions_revision,
 )
 from src.report_generator_readiness import (  # noqa: E402
+    ACTIVE_REPORT_PROJECT_KEY,
     normalise_owner_brief,
     owner_brief_missing_fields,
     report_journey,
 )
 
 
-BUILD_VERSION = "Accessible AI Report Generator v2.0"
+BUILD_VERSION = "Accessible AI Report Generator v2.1"
 REPORT_STATE_KEY = "accessible_ai_report_generator_result"
 AI_VISIBILITY_HANDOFF_KEY = "ai_visibility_report_handoff_target"
 AI_VISIBILITY_FORCE_PROMPTS_KEY = "ai_visibility_force_owner_prompts"
@@ -171,29 +172,6 @@ st.caption(
     "see whether the saved evidence is ready for the accessible client report."
 )
 st.caption(f"Build: {BUILD_VERSION}")
-with st.expander("Business not listed?"):
-    st.write(
-        "Add the business to the database first so it can be tied to a verified Google Place ID. "
-        "The existing import accepts an Outscraper CSV/XLSX export and preserves the full source record."
-    )
-    if st.button("Open business data import", use_container_width=True):
-        st.switch_page("pages/4_Data_Admin.py")
-with st.expander("How the report process works", expanded=True):
-    process_columns = st.columns(4)
-    process_steps = (
-        ("1. Set the priorities", "Tell us what the business should be known for and what customers might ask."),
-        ("2. Run the benchmark", "Review those questions, then test them across ChatGPT, Claude and Gemini."),
-        ("3. Add useful evidence", "Website and review evidence enrich the comparison when they are available."),
-        ("4. Review and generate", "We use businesses found in the AI answers, check the conclusions and create the PDF."),
-    )
-    for column, (title, body) in zip(process_columns, process_steps):
-        with column.container(border=True):
-            st.markdown(f"**{title}**")
-            st.caption(body)
-    st.caption(
-        "Required: owner priorities and a completed AI benchmark. Recommended: website and review evidence. "
-        "Optional: competitor names from the owner."
-    )
 
 try:
     businesses = load_businesses()
@@ -208,13 +186,51 @@ if businesses.empty:
 
 business_records = businesses.to_dict("records")
 businesses_by_id = {str(row["google_place_id"]): row for row in business_records}
+requested_place_id = str(
+    st.query_params.get("report_business")
+    or st.session_state.get(ACTIVE_REPORT_PROJECT_KEY)
+    or ""
+)
+business_options = list(businesses_by_id)
+default_business_index = (
+    business_options.index(requested_place_id)
+    if requested_place_id in businesses_by_id
+    else 0
+)
 selected_place_id = st.selectbox(
     "Business",
-    options=list(businesses_by_id),
+    options=business_options,
+    index=default_business_index,
     format_func=lambda place_id: business_label(businesses_by_id[place_id]),
     help="Type a business name to search the full database.",
 )
 business = businesses_by_id[selected_place_id]
+st.session_state[ACTIVE_REPORT_PROJECT_KEY] = selected_place_id
+st.query_params["report_business"] = selected_place_id
+
+with st.expander("Business not listed?"):
+    st.write(
+        "Add the business to the database first so it can be tied to a verified Google Place ID. "
+        "The existing import accepts an Outscraper CSV/XLSX export and preserves the full source record."
+    )
+    if st.button("Open business data import", use_container_width=True):
+        st.switch_page("pages/4_Data_Admin.py")
+with st.expander("How the report process works", expanded=True):
+    process_columns = st.columns(4)
+    process_steps = (
+        ("1. Set the priorities", "Tell us what the business should be known for and what customers might ask."),
+        ("2. Run AI Visibility", "Review those questions, then test them across ChatGPT, Claude and Gemini."),
+        ("3. Add useful evidence", "Website and review evidence enrich the comparison when they are available."),
+        ("4. Review and generate", "We use businesses found in the AI answers, check the conclusions and create the PDF."),
+    )
+    for column, (title, body) in zip(process_columns, process_steps):
+        with column.container(border=True):
+            st.markdown(f"**{title}**")
+            st.caption(body)
+    st.caption(
+        "Required: owner priorities and completed AI Visibility. Recommended: website and review evidence. "
+        "Optional: competitor names from the owner."
+    )
 
 definitions = list_report_generator_definitions()
 configured_definitions = [
@@ -273,15 +289,6 @@ else:
             ),
             help="One realistic customer question per line.",
         )
-        owner_competitors = st.text_area(
-            "Businesses the owner sees as competitors (optional)",
-            value="\n".join(saved_brief.get("owner_competitors") or []),
-            placeholder="One business per line, if useful.",
-            help=(
-                "These names provide context only. The report will compare the businesses "
-                "that actually appeared in the AI responses."
-            ),
-        )
         with st.expander("Additional owner details", expanded=False):
             priority_services = st.text_area(
                 "Priority services or products",
@@ -306,6 +313,15 @@ else:
             additional_context = st.text_area(
                 "Anything else the report reviewer should know?",
                 value=str(owner_context.get("additional_context") or ""),
+            )
+            owner_competitors = st.text_area(
+                "Businesses the owner sees as competitors (optional)",
+                value="\n".join(saved_brief.get("owner_competitors") or []),
+                placeholder="One business per line, if useful.",
+                help=(
+                    "Context only. The report automatically uses businesses that appeared "
+                    "most often in AI Visibility."
+                ),
             )
         detected_website = str(business.get("source_website_url") or "").strip()
         manual_website_url = st.text_input(
@@ -407,12 +423,12 @@ else:
     st.warning(f"**Next: {workflow['title']}**\n\n{workflow['body']}")
 
 if selected_run_id:
-    st.caption(f"Benchmark selected for this report: `{selected_run_id}`")
+    st.caption(f"AI Visibility run selected for this report: `{selected_run_id}`")
 
 readiness_rows = []
 for item in journey["items"]:
     detail = item["detail"]
-    if item["label"] == "AI benchmark" and ai_ready:
+    if item["label"] == "AI Visibility" and ai_ready:
         detail = f"{len(evidence['completed_runs'])} completed run(s) available"
     elif item["label"] == "Website evidence" and website_ready:
         detail = f"{int(evidence['website_audit'].get('pages_crawled') or 0)} pages reviewed"
@@ -505,10 +521,11 @@ with st.expander("Optional evidence actions"):
                 st.rerun()
 
 if ai_ready and definition is None:
-    st.subheader("3. Review the AI comparison set")
+    st.subheader("3. Review the AI-selected comparison set")
     st.write(
-        "Choose three verified businesses that appeared in the saved AI answers. "
-        "The owner did not need to name them in advance."
+        "The platform automatically selects the three most-mentioned verified businesses "
+        "from AI Visibility. The owner does not need to supply competitors. A reviewer can "
+        "override the selection only when there is a clear relevance or identity reason."
     )
     try:
         candidates = load_report_candidates(
@@ -541,6 +558,20 @@ if ai_ready and definition is None:
     default_cohort = [
         item for item in existing_decisions.get("cohort_place_ids", []) if item in candidate_by_id
     ] or list(candidate_by_id)[:3]
+    if default_cohort:
+        st.dataframe(
+            pd.DataFrame(
+                [
+                    {
+                        "AI-selected business": candidate_by_id[place_id]["business_name"],
+                        "Recommendations": int(candidate_by_id[place_id].get("recommendations") or 0),
+                    }
+                    for place_id in default_cohort
+                ]
+            ),
+            hide_index=True,
+            use_container_width=True,
+        )
     cohort_ids_for_quotes = tuple(dict.fromkeys([selected_place_id, *default_cohort]))
     try:
         review_choices = load_review_choices(cohort_ids_for_quotes)
@@ -548,16 +579,18 @@ if ai_ready and definition is None:
         review_choices = []
     review_by_id = {str(item["review_id"]): item for item in review_choices}
     with st.form(f"report_review_{selected_place_id}"):
-        selected_cohort = st.multiselect(
-            "Three comparison businesses",
-            options=list(candidate_by_id),
-            default=default_cohort,
-            max_selections=3,
-            format_func=lambda place_id: (
-                f"{candidate_by_id[place_id]['business_name']} — "
-                f"{int(candidate_by_id[place_id].get('recommendations') or 0)} recommendation(s)"
-            ),
-        )
+        with st.expander("Optional: override the AI-selected businesses"):
+            selected_cohort = st.multiselect(
+                "Comparison businesses",
+                options=list(candidate_by_id),
+                default=default_cohort,
+                max_selections=3,
+                format_func=lambda place_id: (
+                    f"{candidate_by_id[place_id]['business_name']} — "
+                    f"{int(candidate_by_id[place_id].get('recommendations') or 0)} recommendation(s)"
+                ),
+                help="Keep the automatic selection unless a business is irrelevant or incorrectly matched.",
+            )
         headline = st.text_area(
             "Plain-English headline",
             value=str(existing_decisions.get("headline") or ""),
@@ -639,7 +672,7 @@ else:
         report_client_name = definition.client_name if definition else str(durable_audit["target_business_name"])
         report_run_id = definition.baseline_run_id if definition else saved_benchmark_run_id
         st.markdown(f"**Selected business:** {report_client_name}")
-        st.caption(f"Saved benchmark: {report_run_id}")
+        st.caption(f"Saved AI Visibility run: {report_run_id}")
         generate = st.button(
             "Generate report from saved evidence",
             type="primary",
@@ -657,7 +690,7 @@ else:
         except Exception as exc:
             st.error(
                 "The report could not be generated from the configured evidence. "
-                "No benchmark was run and no data was changed."
+                "AI Visibility was not rerun and no data was changed."
             )
             st.exception(exc)
         else:
