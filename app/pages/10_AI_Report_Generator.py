@@ -550,6 +550,10 @@ if next_step["key"] == "benchmark":
     missing_providers = [name for name in DEFAULT_MODELS if name not in available_providers]
     if missing_providers:
         st.error("Connect all three required AI platforms before running: " + ", ".join(missing_providers) + ".")
+    if len(selected_questions) > 8:
+        st.error(
+            "Select no more than eight questions for one report. Additional questions can be saved for a separate run."
+        )
     st.warning(
         "This starts paid API calls. Check the questions and planned call count before continuing. "
         "No live web browsing is used."
@@ -565,6 +569,7 @@ if next_step["key"] == "benchmark":
         disabled=(
             not confirm_ai_spend
             or len(selected_questions) == 0
+            or len(selected_questions) > 8
             or len(available_providers) != 3
         ),
     )

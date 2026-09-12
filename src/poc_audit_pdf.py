@@ -185,13 +185,16 @@ def _validate_question_performance(
 
 
 def _frozen_prompt_panel(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
-    """Return eight verbatim prompts after reconciling queries and responses."""
+    """Return the verbatim prompt set after reconciling queries and responses."""
     methodology = payload.get("methodology", {})
     queries = methodology.get("queries", [])
     repetitions = int(methodology.get("repetitions") or 0)
     prompt_count = int(methodology.get("prompt_count") or 0)
-    if prompt_count != 8 or repetitions < 1:
-        raise PdfRenderError("The prompts appendix requires exactly eight frozen prompts")
+    accessible_beta = payload.get("report", {}).get("report_format") == "beta_accessible_v2"
+    valid_prompt_count = 1 <= prompt_count <= 8 if accessible_beta else prompt_count == 8
+    if not valid_prompt_count or repetitions < 1:
+        requirement = "one to eight" if accessible_beta else "exactly eight"
+        raise PdfRenderError(f"The prompts appendix requires {requirement} frozen prompts")
 
     grouped: dict[int, list[Mapping[str, Any]]] = {}
     for query in queries:
@@ -200,11 +203,14 @@ def _frozen_prompt_panel(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
         except (TypeError, ValueError):
             raise PdfRenderError("A frozen query has no valid base prompt order") from None
         grouped.setdefault(order, []).append(query)
-    if set(grouped) != set(range(1, 9)):
-        raise PdfRenderError("Frozen queries do not contain base prompts 1 through 8")
+    prompt_orders = range(1, prompt_count + 1)
+    if set(grouped) != set(prompt_orders):
+        raise PdfRenderError(
+            f"Frozen queries do not contain base prompts 1 through {prompt_count}"
+        )
 
     panel: list[dict[str, Any]] = []
-    for order in range(1, 9):
+    for order in prompt_orders:
         records = grouped[order]
         texts = {_text(item.get("prompt_text")) for item in records}
         categories = {_text(item.get("prompt_category")) for item in records}
@@ -239,7 +245,7 @@ def _frozen_prompt_panel(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
             raise PdfRenderError("Frozen response categories do not reconcile with frozen queries")
         response_counts[order] = response_counts.get(order, 0) + 1
     expected_per_prompt = repetitions * expected_providers
-    if any(response_counts.get(order) != expected_per_prompt for order in range(1, 9)):
+    if any(response_counts.get(order) != expected_per_prompt for order in prompt_orders):
         raise PdfRenderError("Frozen responses do not represent every prompt consistently")
     return panel
 
@@ -837,10 +843,15 @@ def _draw_question_visibility(
 ) -> None:
     data = report["visibility"]
     rows = report["question_performance"]
+    methodology = payload["methodology"]
+    repetitions = int(methodology["repetitions"])
+    provider_count = len(methodology["providers"])
+    prompt_count = len(rows)
     y = _page_title(
         canvas,
         f"How visible was {client} for each customer question?",
-        "Each question was asked nine times: three times each through the OpenAI, Anthropic and Google APIs.",
+        f"Each question was asked {repetitions * provider_count} times: "
+        f"{repetitions} time{'s' if repetitions != 1 else ''} through each of the {provider_count} AI platforms.",
     )
     _label(canvas, "Measured result", MARGIN, y, "measured")
     top = y - 24
@@ -855,7 +866,7 @@ def _draw_question_visibility(
             font=FONT_BOLD, size=8, color=WHITE, max_lines=2,
         )
         x += width
-    row_height = 63
+    row_height = min(86, max(63, 504 / max(prompt_count, 1)))
     for index, row in enumerate(rows):
         row_y = top - 34 - index * row_height
         canvas.setFillColor(WHITE if index % 2 == 0 else PALE)
@@ -902,8 +913,9 @@ def _draw_question_visibility(
         canvas,
         y,
         "What this means",
-        f"{client} did not appear for any of the eight customer needs tested. The right-hand "
-        "column shows which businesses were most strongly associated with each individual need.",
+        f"The table covers all {prompt_count} owner-approved customer question"
+        f"{'s' if prompt_count != 1 else ''}. The right-hand column shows which businesses "
+        "were most strongly associated with each individual need.",
     )
 
 

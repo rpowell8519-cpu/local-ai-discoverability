@@ -234,6 +234,50 @@ class PocAuditPdfTests(unittest.TestCase):
             " ".join((page.extract_text() or "").split())
             for page in PdfReader(__import__("io").BytesIO(no_quote_pdf)).pages
         )
+
+        four_prompt_payload = copy.deepcopy(payload)
+        four_prompt_payload["methodology"]["prompt_count"] = 4
+        four_prompt_payload["methodology"]["queries"] = [
+            item for item in four_prompt_payload["methodology"]["queries"]
+            if int(item["base_prompt_order"]) <= 4
+        ]
+        four_prompt_responses = [
+            item for item in four_prompt_payload["baseline_validation"]["responses"]
+            if int(item["base_prompt_order"]) <= 4
+        ]
+        four_prompt_payload["baseline_validation"].update({
+            "expected_responses": 12,
+            "inspected_responses": 12,
+            "complete_raw_responses": 12,
+            "response_audit_sha256": sha256_json(four_prompt_responses),
+            "responses": four_prompt_responses,
+        })
+        four_prompt_payload["primary_evidence_counts"]["ai_raw_responses"] = 12
+        four_prompt_payload["report"]["visibility"].update({
+            "responses_complete": 12,
+            "responses_expected": 12,
+            "providers": [
+                {**item, "complete": 4, "expected": 4}
+                for item in four_prompt_payload["report"]["visibility"]["providers"]
+            ],
+            "intents": four_prompt_payload["report"]["visibility"]["intents"][:4],
+        })
+        four_prompt_payload["report"]["methodology"].update({
+            "prompt_count": 4,
+            "expected_responses": 12,
+            "complete_responses": 12,
+        })
+        four_prompt_payload["report"]["question_performance"] = (
+            four_prompt_payload["report"]["question_performance"][:4]
+        )
+        four_prompt_pdf = render_poc_audit_pdf(four_prompt_payload)
+        four_prompt_reader = PdfReader(__import__("io").BytesIO(four_prompt_pdf))
+        self.assertEqual(len(four_prompt_reader.pages), 17)
+        four_prompt_text = " ".join(
+            " ".join((page.extract_text() or "").split())
+            for page in four_prompt_reader.pages
+        )
+        self.assertIn("The table covers all 4 owner-approved customer questions", four_prompt_text)
         self.assertIn("No usable customer-review quotations were available", no_quote_text)
 
         payload["report"]["review_quotes"][0]["quote"] = "Edited quotation."
