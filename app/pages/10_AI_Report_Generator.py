@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,31 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.append(str(PROJECT_ROOT))
 
 from src.database import get_engine  # noqa: E402
+from src.ai_visibility_repository import (  # noqa: E402
+    create_visibility_queries,
+    create_visibility_run,
+)
+from src.ai_visibility_runner import execute_calls, finalise_run_from_results  # noqa: E402
+from src.website_audit import audit_website  # noqa: E402
+from src.website_audit_repository import (  # noqa: E402
+    create_audit_run,
+    finish_audit_run,
+    save_audit_page,
+)
+from src.review_ingestion import (  # noqa: E402
+    import_reviews,
+    normalise_review_frame,
+    read_outscraper_reviews,
+)
+from src.outscraper_reviews import (  # noqa: E402
+    DEFAULT_APP_COST_CEILING_GBP,
+    OutscraperError,
+    api_import_source_name,
+    flatten_google_reviews_response,
+    get_request_result,
+    review_pull_within_cost_ceiling,
+    submit_google_reviews,
+)
 from src.poc_audit_production import (  # noqa: E402
     build_reviewable_poc_audit,
     list_report_generator_definitions,
@@ -25,6 +51,7 @@ from src.report_audit_workflow import (  # noqa: E402
     workflow_summary,
 )
 from src.report_audit_repository import (  # noqa: E402
+    attach_benchmark_revision,
     get_latest_report_audit,
     save_evidence_states_revision,
     save_owner_brief_revision,
@@ -38,11 +65,24 @@ from src.report_generator_readiness import (  # noqa: E402
 )
 
 
-BUILD_VERSION = "Accessible AI Report Generator v2.1"
+BUILD_VERSION = "Accessible AI Report Generator v2.2"
 REPORT_STATE_KEY = "accessible_ai_report_generator_result"
 AI_VISIBILITY_HANDOFF_KEY = "ai_visibility_report_handoff_target"
 AI_VISIBILITY_FORCE_PROMPTS_KEY = "ai_visibility_force_owner_prompts"
 BRIEFS_STATE_KEY = "accessible_ai_report_owner_briefs"
+DEFAULT_MODELS = {
+    "OpenAI": "gpt-5.6-terra",
+    "Claude": "claude-sonnet-5",
+    "Gemini": "gemini-3.6-flash",
+}
+
+
+def secret_value(key: str, default: str = "") -> str:
+    try:
+        value = st.secrets.get(key, default)
+    except Exception:
+        value = default
+    return str(value or default)
 
 
 @st.cache_data(ttl=120)
@@ -367,6 +407,8 @@ else:
                 st.success(
                     f"Owner context saved as report setup revision {saved_revision['revision']}."
                 )
+                st.cache_data.clear()
+                st.rerun()
 
 st.caption(
     "Competitor names are optional. The report's comparison businesses are selected "
@@ -453,12 +495,173 @@ if workflow["unchecked_evidence"]:
     )
 
 if next_step["key"] == "benchmark":
-    if st.button("Continue to AI Visibility with these questions", type="primary", use_container_width=True):
-        st.session_state[AI_VISIBILITY_HANDOFF_KEY] = selected_place_id
-        st.session_state[AI_VISIBILITY_FORCE_PROMPTS_KEY] = selected_place_id
-        st.switch_page("pages/8_AI_Visibility.py")
+    st.subheader("3. Run AI Visibility")
+    st.write(
+        "Review and edit the questions here. The test uses the same AI Visibility engine as the specialist page."
+    )
+    prompt_state_key = f"report_ai_questions_{selected_place_id}_{(durable_audit or {}).get('revision', 0)}"
+    if prompt_state_key not in st.session_state:
+        st.session_state[prompt_state_key] = pd.DataFrame(
+            [
+                {
+                    "include": True,
+                    "intent": "Owner priority",
+                    "question": str(question),
+                }
+                for question in list(saved_brief.get("desired_searches") or [])
+            ]
+        )
+    question_table = st.data_editor(
+        st.session_state[prompt_state_key],
+        hide_index=True,
+        use_container_width=True,
+        num_rows="dynamic",
+        column_config={
+            "include": st.column_config.CheckboxColumn("Run"),
+            "intent": st.column_config.TextColumn("Intent"),
+            "question": st.column_config.TextColumn("Customer question", width="large"),
+        },
+        key=f"report_ai_question_editor_{selected_place_id}",
+    )
+    st.session_state[prompt_state_key] = question_table.copy()
+    selected_questions = question_table[
+        question_table["include"].fillna(False)
+        & question_table["question"].fillna("").astype(str).str.strip().ne("")
+    ].copy()
+    ai_controls = st.columns(3)
+    with ai_controls[0]:
+        repetitions = st.selectbox(
+            "Repetitions per question",
+            options=[1, 2, 3],
+            index=2,
+            help="Three repetitions give a more reliable view of variable AI answers.",
+        )
+    api_keys = {
+        "OpenAI": secret_value("OPENAI_API_KEY"),
+        "Claude": secret_value("ANTHROPIC_API_KEY"),
+        "Gemini": secret_value("GEMINI_API_KEY"),
+    }
+    available_providers = [name for name, key in api_keys.items() if key]
+    with ai_controls[1]:
+        st.metric("AI platforms connected", f"{len(available_providers)} / 3")
+    call_count = len(selected_questions) * int(repetitions) * len(available_providers)
+    with ai_controls[2]:
+        st.metric("Planned API calls", call_count)
+    missing_providers = [name for name in DEFAULT_MODELS if name not in available_providers]
+    if missing_providers:
+        st.error("Connect all three required AI platforms before running: " + ", ".join(missing_providers) + ".")
+    st.warning(
+        "This starts paid API calls. Check the questions and planned call count before continuing. "
+        "No live web browsing is used."
+    )
+    confirm_ai_spend = st.checkbox(
+        "I have reviewed the questions and approve this AI Visibility run",
+        key=f"confirm_report_ai_{selected_place_id}",
+    )
+    run_ai_visibility = st.button(
+        "Run AI Visibility",
+        type="primary",
+        use_container_width=True,
+        disabled=(
+            not confirm_ai_spend
+            or len(selected_questions) == 0
+            or len(available_providers) != 3
+        ),
+    )
+    if run_ai_visibility:
+        prompt_records = [
+            {
+                "category": str(row.get("intent") or "Owner priority"),
+                "source": "owner_brief",
+                "prompt": str(row["question"]).strip(),
+            }
+            for row in selected_questions.to_dict("records")
+        ]
+        models = {
+            "OpenAI": secret_value("OPENAI_MODEL", DEFAULT_MODELS["OpenAI"]),
+            "Claude": secret_value("ANTHROPIC_MODEL", DEFAULT_MODELS["Claude"]),
+            "Gemini": secret_value("GEMINI_MODEL", DEFAULT_MODELS["Gemini"]),
+        }
+        progress = st.progress(0)
+        status_box = st.empty()
 
-with st.expander("Optional evidence actions"):
+        def progress_callback(done: int, total: int) -> None:
+            progress.progress(min(done / max(total, 1), 1.0))
+
+        def status_callback(question: str) -> None:
+            status_box.write(f"Testing: **{question}**")
+
+        try:
+            run_id = create_visibility_run(
+                target_google_place_id=selected_place_id,
+                target_business_name=str(business["business_name"]),
+                primary_group=str(business.get("primary_group") or "generic"),
+                location_context=(
+                    ", ".join(dict(saved_brief.get("owner_context") or {}).get("service_areas") or [])
+                    or "Brighton and Hove"
+                ),
+                providers=available_providers,
+                models=models,
+                prompt_count=len(prompt_records),
+                repeat_count=int(repetitions),
+            )
+            query_records = create_visibility_queries(
+                run_id=run_id,
+                prompts=prompt_records,
+                repetitions=int(repetitions),
+            )
+            call_plan = [
+                {**query_record, "provider": provider}
+                for query_record in query_records
+                for provider in available_providers
+            ]
+            execute_calls(
+                run_id=run_id,
+                call_plan=call_plan,
+                models=models,
+                api_keys=api_keys,
+                target_google_place_id=selected_place_id,
+                target_business_name=str(business["business_name"]),
+                known_businesses=[
+                    {
+                        "google_place_id": str(item["google_place_id"]),
+                        "business_name": str(item["business_name"]),
+                    }
+                    for item in business_records
+                ],
+                progress_callback=progress_callback,
+                status_callback=status_callback,
+            )
+            run_status = finalise_run_from_results(
+                run_id=run_id,
+                expected_call_count=len(call_plan),
+            )
+            if run_status != "completed":
+                raise RuntimeError(
+                    "The AI Visibility run was not complete. Open the advanced tools to inspect or retry failed calls."
+                )
+            attach_benchmark_revision(
+                target_google_place_id=selected_place_id,
+                benchmark_run_id=run_id,
+            )
+        except Exception as exc:
+            st.error("AI Visibility did not complete successfully. Saved individual results remain available for recovery.")
+            st.exception(exc)
+        else:
+            status_box.empty()
+            st.success("AI Visibility is complete and attached to this report project.")
+            st.cache_data.clear()
+            st.rerun()
+
+    with st.expander("Advanced AI Visibility tools"):
+        st.write("Use the specialist page for raw-response inspection, retries and identity enrichment.")
+        if st.button("Open advanced AI Visibility", use_container_width=True):
+            st.session_state[AI_VISIBILITY_HANDOFF_KEY] = selected_place_id
+            st.session_state[AI_VISIBILITY_FORCE_PROMPTS_KEY] = selected_place_id
+            st.switch_page("pages/8_AI_Visibility.py")
+
+st.subheader("4. Add website and review evidence")
+with st.container(border=True):
     st.write(
         "Use these only when the evidence exists. Missing reviews or a business without a website "
         "should not stop the report; the limitation will be stated clearly."
@@ -467,23 +670,176 @@ with st.expander("Optional evidence actions"):
         dict((durable_audit or {}).get("reviewer_decisions") or {}).get("cohort_place_ids") or []
     )
     evidence_business_ids = list(dict.fromkeys([selected_place_id, *saved_cohort_ids]))
-    links = st.columns(2)
-    with links[0]:
-        if st.button("Add or refresh website evidence", use_container_width=True):
-            st.session_state["active_diagnostic_cohort"] = {
-                "target_google_place_id": selected_place_id,
-                "target_business_name": str(business["business_name"]),
-                "business_ids": evidence_business_ids,
-            }
-            st.switch_page("pages/5_Website_Audits.py")
-    with links[1]:
-        if st.button("Add or refresh review evidence", use_container_width=True):
-            st.session_state["active_diagnostic_cohort"] = {
-                "target_google_place_id": selected_place_id,
-                "target_business_name": str(business["business_name"]),
-                "business_ids": evidence_business_ids,
-            }
-            st.switch_page("pages/7_Review_Insights.py")
+    st.markdown("**Website evidence**")
+    website_url = str(
+        (durable_audit or {}).get("manual_website_url")
+        or business.get("source_website_url")
+        or ""
+    ).strip()
+    if website_ready:
+        st.success(
+            f"Website review complete: {int(evidence['website_audit'].get('pages_crawled') or 0)} page(s) saved."
+        )
+    elif website_url:
+        st.caption(f"Website to review: {website_url}")
+        run_website_audit = st.button(
+            "Review this website now",
+            use_container_width=True,
+            help="This visits public pages on the saved website and stores the evidence for the report.",
+        )
+        if run_website_audit:
+            audit_run_id = create_audit_run(
+                audit_batch_id=str(uuid.uuid4()),
+                google_place_id=selected_place_id,
+                business_name=str(business["business_name"]),
+                requested_url=website_url,
+            )
+            try:
+                with st.spinner("Reviewing the website and saving the evidence…"):
+                    audit_result, audit_pages = audit_website(
+                        website_url=website_url,
+                        business_group=str(business.get("primary_group") or "generic"),
+                        max_pages=20,
+                        timeout_seconds=12,
+                        adaptive_stop=True,
+                    )
+                    for audit_page in audit_pages:
+                        save_audit_page(audit_run_id=audit_run_id, page=audit_page)
+                    finish_audit_run(audit_run_id=audit_run_id, result=audit_result)
+            except Exception as exc:
+                finish_audit_run(
+                    audit_run_id=audit_run_id,
+                    result={"audit_status": "failed", "error_message": str(exc)},
+                )
+                st.error("The website could not be reviewed. You can retry or record that it is unavailable.")
+                st.exception(exc)
+            else:
+                st.success("Website evidence has been saved to this report project.")
+                st.cache_data.clear()
+                st.rerun()
+    else:
+        st.info("No website is saved. Enter one in Owner context above, or record that no website evidence is available.")
+
+    st.divider()
+    st.markdown("**Customer review evidence**")
+    if reviews_ready:
+        st.success(f"{evidence['review_count']:,} customer review(s) are already available for this business.")
+    uploaded_reviews = st.file_uploader(
+        "Upload an Outscraper review file",
+        type=["csv", "xlsx"],
+        key=f"report_review_upload_{selected_place_id}",
+        help="The file may contain several businesses; only reviews matching this business's Google Place ID are imported here.",
+    )
+    if uploaded_reviews is not None:
+        try:
+            raw_reviews = read_outscraper_reviews(uploaded_reviews)
+            matching_reviews = raw_reviews[
+                raw_reviews["place_id"].fillna("").astype(str).eq(selected_place_id)
+            ].copy()
+            valid_reviews, invalid_reviews = normalise_review_frame(matching_reviews)
+        except Exception as exc:
+            st.error("This review file could not be read.")
+            st.exception(exc)
+        else:
+            st.caption(
+                f"Found {len(valid_reviews):,} valid matching review(s)"
+                + (f" and {len(invalid_reviews):,} incomplete matching row(s)." if len(invalid_reviews) else ".")
+            )
+            if st.button(
+                "Import matching reviews",
+                disabled=valid_reviews.empty,
+                use_container_width=True,
+            ):
+                try:
+                    imported = import_reviews(
+                        matching_reviews,
+                        source_file_name=str(uploaded_reviews.name),
+                    )
+                except Exception as exc:
+                    st.error("The matching reviews could not be imported.")
+                    st.exception(exc)
+                else:
+                    st.success(f"Imported {int(imported['processed_rows']):,} review(s).")
+                    st.cache_data.clear()
+                    st.rerun()
+
+    outscraper_api_key = secret_value("OUTSCRAPER_API_KEY")
+    with st.expander("Or fetch reviews directly from Outscraper"):
+        if not outscraper_api_key:
+            st.info("Outscraper is not connected. Use the file upload above, or ask an administrator to add the API key.")
+        else:
+            reviews_limit = st.selectbox(
+                "Maximum reviews to request",
+                options=[50, 100, 200],
+                index=1,
+                key=f"report_review_limit_{selected_place_id}",
+            )
+            within_ceiling, projected_cost = review_pull_within_cost_ceiling(
+                requested_reviews=int(reviews_limit),
+                ceiling_gbp=DEFAULT_APP_COST_CEILING_GBP,
+            )
+            st.caption(
+                f"Conservative estimated maximum cost: £{projected_cost:.2f}. "
+                f"The app ceiling is £{DEFAULT_APP_COST_CEILING_GBP:.2f}."
+            )
+            request_key = f"report_outscraper_request_{selected_place_id}"
+            if st.button(
+                "Request reviews from Outscraper",
+                disabled=not within_ceiling,
+                use_container_width=True,
+            ):
+                try:
+                    request = submit_google_reviews(
+                        api_key=outscraper_api_key,
+                        place_ids=[selected_place_id],
+                        reviews_limit=int(reviews_limit),
+                    )
+                except OutscraperError as exc:
+                    st.error(f"Outscraper could not start the request: {exc}")
+                else:
+                    st.session_state[request_key] = str(request.get("id") or "")
+                    st.success("Review collection started. Use the check button below when it has finished.")
+            request_id = str(st.session_state.get(request_key) or "")
+            if request_id and st.button("Check and import collected reviews", use_container_width=True):
+                try:
+                    response = get_request_result(api_key=outscraper_api_key, request_id=request_id)
+                    api_reviews = flatten_google_reviews_response(response.get("data"))
+                    matching_api_reviews = api_reviews[
+                        api_reviews["place_id"].fillna("").astype(str).eq(selected_place_id)
+                    ].copy() if not api_reviews.empty else api_reviews
+                    if matching_api_reviews.empty:
+                        st.info(f"The request is currently {response.get('status') or 'processing'}; no reviews are ready yet.")
+                    else:
+                        imported = import_reviews(
+                            matching_api_reviews,
+                            source_file_name=api_import_source_name(request_id),
+                        )
+                        st.session_state.pop(request_key, None)
+                        st.success(f"Imported {int(imported['processed_rows']):,} review(s) from Outscraper.")
+                        st.cache_data.clear()
+                        st.rerun()
+                except (OutscraperError, ValueError) as exc:
+                    st.error(f"The review request could not be checked: {exc}")
+
+    with st.expander("Advanced evidence tools"):
+        st.write("Use the specialist pages for multi-business audit batches, review benchmarking and detailed diagnostics.")
+        advanced_links = st.columns(2)
+        with advanced_links[0]:
+            if st.button("Open advanced website tools", use_container_width=True):
+                st.session_state["active_diagnostic_cohort"] = {
+                    "target_google_place_id": selected_place_id,
+                    "target_business_name": str(business["business_name"]),
+                    "business_ids": evidence_business_ids,
+                }
+                st.switch_page("pages/5_Website_Audits.py")
+        with advanced_links[1]:
+            if st.button("Open advanced review tools", use_container_width=True):
+                st.session_state["active_diagnostic_cohort"] = {
+                    "target_google_place_id": selected_place_id,
+                    "target_business_name": str(business["business_name"]),
+                    "business_ids": evidence_business_ids,
+                }
+                st.switch_page("pages/7_Review_Insights.py")
     if durable_audit and (not website_ready or not reviews_ready):
         st.divider()
         st.write("If evidence genuinely does not exist, record that here so the report can explain the limitation.")
@@ -521,7 +877,7 @@ with st.expander("Optional evidence actions"):
                 st.rerun()
 
 if ai_ready and definition is None:
-    st.subheader("3. Review the AI-selected comparison set")
+    st.subheader("5. Review the AI-selected comparison set")
     st.write(
         "The platform automatically selects the three most-mentioned verified businesses "
         "from AI Visibility. The owner does not need to supply competitors. A reviewer can "
@@ -660,7 +1016,7 @@ if saved_brief and saved_brief.get("owner_competitors"):
             st.write(f"- {competitor}")
         st.caption("These names do not determine which businesses appear in the report.")
 
-st.subheader("4. Generate report")
+st.subheader("6. Generate report")
 if definition is None and not configuration_ready:
     st.info(
         "There is no hidden form for you to complete here. After the required items are ready, "
