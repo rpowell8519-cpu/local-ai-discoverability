@@ -3,6 +3,7 @@ from __future__ import annotations
 from src.report_audit_repository import (
     attach_benchmark_revision,
     get_latest_report_audit,
+    save_evidence_states_revision,
     save_owner_brief_revision,
 )
 
@@ -74,6 +75,41 @@ def test_first_owner_brief_creates_revision_one():
     assert engine.connection.insert["benchmark_run_id"] is None
 
 
+def test_owner_can_supply_a_missing_website_address():
+    engine = Engine()
+
+    result = save_owner_brief_revision(
+        target_google_place_id="place-1",
+        target_business_name="Example Business",
+        known_for="Excellent commercial cleaning in Brighton",
+        desired_searches="Who offers commercial cleaning in Brighton?",
+        manual_website_url="https://example.test/services",
+        priority_services="Office cleaning\nCarpet cleaning",
+        engine=engine,
+    )
+
+    assert result["manual_website_url"] == "https://example.test/services"
+    assert '"Office cleaning"' in result["owner_context"]
+
+
+def test_invalid_manual_website_address_is_rejected():
+    engine = Engine()
+
+    try:
+        save_owner_brief_revision(
+            target_google_place_id="place-1",
+            target_business_name="Example Business",
+            known_for="Excellent commercial cleaning in Brighton",
+            desired_searches="Who offers commercial cleaning in Brighton?",
+            manual_website_url="example.test",
+            engine=engine,
+        )
+    except ValueError as exc:
+        assert "http:// or https://" in str(exc)
+    else:
+        raise AssertionError("Invalid website URL was accepted")
+
+
 def test_owner_brief_update_invalidates_benchmark_and_review_state():
     engine = Engine(
         {
@@ -123,3 +159,31 @@ def test_completed_benchmark_is_attached_as_a_new_revision():
 
     assert result["revision"] == 2
     assert result["benchmark_run_id"] == "run-1"
+
+
+def test_unavailable_evidence_is_saved_without_removing_benchmark():
+    engine = Engine(
+        {
+            "id": "audit-1",
+            "revision": 2,
+            "target_business_name": "Example Business",
+            "known_for": "Excellent commercial cleaning",
+            "desired_searches": ["Who offers commercial cleaning?"],
+            "owner_competitors": [],
+            "owner_context": {},
+            "manual_website_url": None,
+            "benchmark_run_id": "run-1",
+        }
+    )
+
+    result = save_evidence_states_revision(
+        target_google_place_id="place-1",
+        website_evidence_state="unavailable",
+        review_evidence_state="unavailable",
+        engine=engine,
+    )
+
+    assert result["benchmark_run_id"] == "run-1"
+    assert result["website_evidence_state"] == "unavailable"
+    assert result["review_evidence_state"] == "unavailable"
+    assert result["reviewer_decisions_complete"] is False

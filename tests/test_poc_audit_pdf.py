@@ -227,6 +227,15 @@ class PocAuditPdfTests(unittest.TestCase):
             page_text = " ".join((page.extract_text() or "").split())
             self.assertEqual(page_text.count(f"{page_number} / 17"), 1)
 
+        no_quotes = copy.deepcopy(payload)
+        no_quotes["report"]["review_quotes"] = []
+        no_quote_pdf = render_poc_audit_pdf(no_quotes)
+        no_quote_text = " ".join(
+            " ".join((page.extract_text() or "").split())
+            for page in PdfReader(__import__("io").BytesIO(no_quote_pdf)).pages
+        )
+        self.assertIn("No usable customer-review quotations were available", no_quote_text)
+
         payload["report"]["review_quotes"][0]["quote"] = "Edited quotation."
         with self.assertRaisesRegex(PdfRenderError, "not verbatim"):
             render_poc_audit_pdf(payload)

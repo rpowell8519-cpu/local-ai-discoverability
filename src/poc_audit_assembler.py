@@ -209,7 +209,7 @@ def _freeze_reviews(connection, definitions: list[Mapping[str, Any]]) -> list[di
             """,
             {
                 "place_id": definition["google_place_id"],
-                "batch_id": definition["import_batch_id"],
+                "batch_id": batch_id,
                 "record_limit": limit,
             },
         )
@@ -238,6 +238,8 @@ def _review_diagnostic(
         for record in item["records"]
     ]
     frame = pd.DataFrame(records)
+    if frame.empty:
+        return {}
     frame["owner_answer"] = frame["owner_response_present"].map(
         lambda present: "present" if bool(present) else ""
     )
@@ -443,6 +445,15 @@ def _build_report(
         providers=providers,
         prompt_count=int(run["prompt_count"]),
     )
+    matrix_dimensions = [dict(item) for item in decisions["matrix_dimensions"]]
+    for dimension in matrix_dimensions:
+        if str(dimension.get("label") or "").casefold().startswith("recommendations in"):
+            dimension["values"] = {
+                business_name: str(
+                    int(_market_row(market, str(place_id))["recommendations"])
+                )
+                for business_name, place_id in config["matrix_business_place_ids"].items()
+            }
     return {
         "report_format": str(config.get("report_format") or "poc_audit_v1"),
         "introduction": dict(decisions.get("introduction") or {}),
@@ -491,7 +502,7 @@ def _build_report(
         "evidence_matrix": {
             "businesses": list(config["matrix_businesses"]),
             "business_place_ids": dict(config["matrix_business_place_ids"]),
-            "dimensions": list(decisions["matrix_dimensions"]),
+            "dimensions": matrix_dimensions,
             "note": decisions["matrix_note"],
         },
         "strengths": decisions["strengths"],
@@ -514,7 +525,7 @@ def _build_report(
             "validation": list(config["methodology_validation"]),
             "evidence_inventory": [
                 f"{len(slots)} eligible parsed slots; {len(business_slots)} named-business recommendations; {len(non_business_slots)} non-business slots excluded",
-                f"Four completed website audits; {sum(len(item['pages']) for item in websites)} pages frozen",
+                f"{len(websites)} completed website audit(s); {sum(len(item['pages']) for item in websites)} pages frozen",
                 f"Exact review sets: {', '.join(f'{item['business_name']} {reviews_by_id[item['google_place_id']]}' for item in review_sets)}",
             ],
             "limitations": list(config["methodology_limitations"]),
@@ -558,7 +569,7 @@ def assemble_poc_audit_payload(
     slots, market = _recommendation_evidence(
         pd.DataFrame(results), businesses, aliases, config=config
     )
-    if len(slots) != int(config["expected_eligible_slots"]):
+    if config.get("expected_eligible_slots") is not None and len(slots) != int(config["expected_eligible_slots"]):
         raise ValueError(f"Expected {config['expected_eligible_slots']} eligible slots; found {len(slots)}")
     review_diagnostic = _review_diagnostic(
         review_sets,

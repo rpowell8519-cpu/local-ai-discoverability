@@ -91,7 +91,8 @@ def load_businesses() -> pd.DataFrame:
                 nullif(
                     rol.raw_data->>'site',
                     ''
-                )
+                ),
+                rar.manual_website_url
             ) as website_url
         from business_features bf
         left join lateral (
@@ -105,6 +106,13 @@ def load_businesses() -> pd.DataFrame:
                 id desc
             limit 1
         ) rol on true
+        left join lateral (
+            select manual_website_url
+            from report_audit_revisions
+            where target_google_place_id = bf.google_place_id
+            order by revision desc
+            limit 1
+        ) rar on true
         order by bf.business_name
         """
     )
@@ -140,7 +148,8 @@ def load_saved_cohort(
                 nullif(
                     rol.raw_data->>'site',
                     ''
-                )
+                ),
+                rar.manual_website_url
             ) as website_url
         from competitor_relationship_reviews crr
         join business_features bf
@@ -157,6 +166,13 @@ def load_saved_cohort(
                 id desc
             limit 1
         ) rol on true
+        left join lateral (
+            select manual_website_url
+            from report_audit_revisions
+            where target_google_place_id = bf.google_place_id
+            order by revision desc
+            limit 1
+        ) rar on true
         where
             crr.target_google_place_id =
                 :target_google_place_id

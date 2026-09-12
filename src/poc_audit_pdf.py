@@ -137,8 +137,8 @@ def _validate_review_quotes(
     payload: Mapping[str, Any], report: Mapping[str, Any]
 ) -> None:
     quotes = report.get("review_quotes")
-    if not isinstance(quotes, list) or len(quotes) not in range(3, 7):
-        raise PdfRenderError("The accessible beta report requires three to six review quotes")
+    if not isinstance(quotes, list) or len(quotes) > 6:
+        raise PdfRenderError("The accessible beta report supports up to six review quotes")
     records_by_id: dict[str, tuple[str, Mapping[str, Any]]] = {}
     for review_set in payload["review_evidence"]["review_sets"]:
         place_id = str(review_set.get("google_place_id") or "")
@@ -1212,6 +1212,30 @@ def _draw_review_quotes(canvas: Canvas, report: Mapping[str, Any], client: str) 
     )
     _label(canvas, "Customer voice", MARGIN, y, "observed")
     y -= 26
+    if not quotes:
+        _card(canvas, MARGIN, y, CONTENT_WIDTH, 150, fill=PALE)
+        _paragraph(
+            canvas,
+            "No usable customer-review quotations were available when this report was prepared.",
+            MARGIN + 22,
+            y - 42,
+            CONTENT_WIDTH - 44,
+            font=FONT_BOLD,
+            size=12,
+            color=NAVY,
+            max_lines=3,
+        )
+        _paragraph(
+            canvas,
+            "This is recorded as an evidence limitation. It is not treated as a negative customer result or a zero review score.",
+            MARGIN + 22,
+            y - 98,
+            CONTENT_WIDTH - 44,
+            size=9,
+            color=MID,
+            max_lines=4,
+        )
+        return
     card_height = 94
     for index, item in enumerate(quotes):
         card_y = y - index * (card_height + 10)
