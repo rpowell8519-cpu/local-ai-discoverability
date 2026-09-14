@@ -7,7 +7,7 @@ import requests
 from src.llm_providers.base import (
     ProviderError,
     ProviderResponse,
-    SYSTEM_INSTRUCTION,
+    instruction_for_mode,
 )
 
 
@@ -19,9 +19,32 @@ def call_anthropic(
     api_key: str,
     model: str,
     prompt: str,
+    benchmark_mode: str = "model_memory",
+    location_context: str = "",
     timeout_seconds: int = 90,
 ) -> ProviderResponse:
     started = time.perf_counter()
+
+    request_body = {
+        "model": model,
+        "max_tokens": 1200,
+        "system": instruction_for_mode(benchmark_mode),
+        "messages": [{"role": "user", "content": prompt}],
+    }
+    if benchmark_mode == "consumer_web":
+        request_body["tools"] = [{
+            "type": "web_search_20260318",
+            "name": "web_search",
+            "max_uses": 3,
+            "allowed_callers": ["direct"],
+            "user_location": {
+                "type": "approximate",
+                "city": location_context or "Brighton and Hove",
+                "region": "England",
+                "country": "GB",
+                "timezone": "Europe/London",
+            },
+        }]
 
     response = requests.post(
         ANTHROPIC_URL,
@@ -30,17 +53,7 @@ def call_anthropic(
             "anthropic-version": "2023-06-01",
             "content-type": "application/json",
         },
-        json={
-            "model": model,
-            "max_tokens": 1200,
-            "system": SYSTEM_INSTRUCTION,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": prompt,
-                }
-            ],
-        },
+        json=request_body,
         timeout=timeout_seconds,
     )
 
@@ -65,6 +78,12 @@ def call_anthropic(
         raise ProviderError(
             f"Anthropic HTTP {response.status_code}: {message}"
         )
+
+    if benchmark_mode == "consumer_web" and not any(
+        item.get("type") == "server_tool_use" and item.get("name") == "web_search"
+        for item in payload.get("content", [])
+    ):
+        raise ProviderError("Claude returned without completing a live web search.")
 
     parts = [
         str(item.get("text", ""))

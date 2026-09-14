@@ -521,14 +521,30 @@ def _build_report(
             "repetitions": int(run["repeat_count"]),
             "expected_responses": int(config["expected_responses"]),
             "complete_responses": len(complete_responses),
-            "benchmark": "Model-memory recommendation visibility",
+            "benchmark": (
+                "Live web-grounded recommendation visibility"
+                if str(run.get("benchmark_mode") or "model_memory") == "consumer_web"
+                else "Model-memory recommendation visibility"
+            ),
             "validation": list(config["methodology_validation"]),
             "evidence_inventory": [
                 f"{len(slots)} eligible parsed slots; {len(business_slots)} named-business recommendations; {len(non_business_slots)} non-business slots excluded",
                 f"{len(websites)} completed website audit(s); {sum(len(item['pages']) for item in websites)} pages frozen",
                 f"Exact review sets: {', '.join(f'{item['business_name']} {reviews_by_id[item['google_place_id']]}' for item in review_sets)}",
             ],
-            "limitations": list(config["methodology_limitations"]),
+            "limitations": (
+                [
+                    item
+                    for item in config["methodology_limitations"]
+                    if "model-memory" not in str(item).lower()
+                    and "web-search" not in str(item).lower()
+                ]
+                + [
+                    "Each provider used its supported live web-search tool; results may still differ from its consumer app because product settings, personalisation and interfaces are not exposed by the API."
+                ]
+                if str(run.get("benchmark_mode") or "model_memory") == "consumer_web"
+                else list(config["methodology_limitations"])
+            ),
             "non_causality": config["non_causality"],
         },
     }

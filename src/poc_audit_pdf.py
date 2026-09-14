@@ -748,7 +748,13 @@ def _draw_cover(canvas: Canvas, payload: Mapping[str, Any], report: Mapping[str,
     canvas.drawString(MARGIN + 18, 105, f"{complete} API responses")
     canvas.setFont(FONT, 10)
     canvas.setFillColor(HexColor("#D7E1F0"))
-    canvas.drawString(MARGIN + 18, 82, "Model-memory benchmark | Browsing disabled | Saved responses checked")
+    benchmark = _text(report["methodology"]["benchmark"])
+    cover_method = (
+        "Live web-grounded benchmark | Saved responses checked"
+        if "web-grounded" in benchmark.lower()
+        else "Model-memory benchmark | Browsing disabled | Saved responses checked"
+    )
+    canvas.drawString(MARGIN + 18, 82, cover_method)
     canvas.setFont(FONT, 9)
     canvas.setFillColor(HexColor("#AFC0D6"))
     canvas.drawString(MARGIN, 38, f"Audit date: {_text(audit['audit_date'])}")
@@ -1542,7 +1548,7 @@ def render_poc_audit_pdf(payload: Mapping[str, Any]) -> bytes:
     )
     canvas.setTitle(f"AI Visibility & Discoverability Audit - {client_name}")
     canvas.setAuthor("POC Audit v1")
-    canvas.setSubject("Model-memory AI visibility and comparative evidence audit")
+    canvas.setSubject(f"{_text(report['methodology']['benchmark'])} and comparative evidence audit")
 
     _draw_cover(canvas, payload, report)
     page = 2

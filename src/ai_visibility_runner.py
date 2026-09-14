@@ -33,12 +33,16 @@ def _call_provider(
     api_key: str,
     model: str,
     prompt: str,
+    benchmark_mode: str,
+    location_context: str,
 ):
     if provider == "OpenAI":
         return call_openai(
             api_key=api_key,
             model=model,
             prompt=prompt,
+            benchmark_mode=benchmark_mode,
+            location_context=location_context,
         )
 
     if provider == "Claude":
@@ -46,6 +50,8 @@ def _call_provider(
             api_key=api_key,
             model=model,
             prompt=prompt,
+            benchmark_mode=benchmark_mode,
+            location_context=location_context,
         )
 
     if provider == "Gemini":
@@ -53,6 +59,8 @@ def _call_provider(
             api_key=api_key,
             model=model,
             prompt=prompt,
+            benchmark_mode=benchmark_mode,
+            location_context=location_context,
         )
 
     raise ValueError(
@@ -263,6 +271,8 @@ def execute_calls(
     known_businesses: list[
         dict[str, str]
     ],
+    benchmark_mode: str = "consumer_web",
+    location_context: str = "",
     progress_callback: Callable[
         [int, int],
         None,
@@ -336,6 +346,8 @@ def execute_calls(
                     api_key=api_key,
                     model=model,
                     prompt=prompt_text,
+                    benchmark_mode=benchmark_mode,
+                    location_context=location_context,
                 )
 
                 futures[

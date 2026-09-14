@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 import time
-from urllib.parse import quote
-
 import requests
 
 from src.llm_providers.base import (
     ProviderError,
     ProviderResponse,
-    SYSTEM_INSTRUCTION,
+    instruction_for_mode,
 )
 
 
@@ -17,19 +15,37 @@ def call_gemini(
     api_key: str,
     model: str,
     prompt: str,
+    benchmark_mode: str = "model_memory",
+    location_context: str = "",
     timeout_seconds: int = 90,
 ) -> ProviderResponse:
-    encoded_model = quote(
-        model,
-        safe="-._",
-    )
-
-    url = (
+    web_grounded = benchmark_mode == "consumer_web"
+    url = "https://generativelanguage.googleapis.com/v1beta/interactions" if web_grounded else (
         "https://generativelanguage.googleapis.com/"
-        f"v1beta/models/{encoded_model}:generateContent"
+        f"v1beta/models/{model}:generateContent"
     )
 
     started = time.perf_counter()
+
+    if web_grounded:
+        request_body = {
+            "model": model,
+            "input": (
+                instruction_for_mode(benchmark_mode)
+                + "\n\nCustomer location: " + (location_context or "Brighton and Hove")
+                + "\n\nCustomer question: " + prompt
+            ),
+            "tools": [{"type": "google_search"}],
+        }
+    else:
+        request_body = {
+            "systemInstruction": {"parts": [{"text": instruction_for_mode(benchmark_mode)}]},
+            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+            "generationConfig": {
+                "maxOutputTokens": 1200,
+                "thinkingConfig": {"thinkingLevel": "minimal"},
+            },
+        }
 
     response = requests.post(
         url,
@@ -37,31 +53,7 @@ def call_gemini(
             "x-goog-api-key": api_key,
             "Content-Type": "application/json",
         },
-        json={
-            "systemInstruction": {
-                "parts": [
-                    {
-                        "text": SYSTEM_INSTRUCTION,
-                    }
-                ]
-            },
-            "contents": [
-                {
-                    "role": "user",
-                    "parts": [
-                        {
-                            "text": prompt,
-                        }
-                    ],
-                }
-            ],
-            "generationConfig": {
-                "maxOutputTokens": 1200,
-                "thinkingConfig": {
-                    "thinkingLevel": "minimal",
-                },
-            },
-        },
+        json=request_body,
         timeout=timeout_seconds,
     )
 
@@ -85,6 +77,32 @@ def call_gemini(
         )
         raise ProviderError(
             f"Gemini HTTP {response.status_code}: {message}"
+        )
+
+    if web_grounded:
+        steps = payload.get("steps", [])
+        if not any(item.get("type") == "google_search_call" for item in steps):
+            raise ProviderError("Gemini returned without completing a live Google Search.")
+        output_blocks = [
+            block
+            for step in steps
+            if step.get("type") == "model_output"
+            for block in step.get("content", [])
+            if block.get("type") == "text"
+        ]
+        text_value = "\n".join(str(item.get("text", "")) for item in output_blocks).strip()
+        if not text_value:
+            raise ProviderError("Gemini returned no text output.")
+        usage = payload.get("usage") or {}
+        return ProviderResponse(
+            provider="Gemini", model=model, text=text_value,
+            input_tokens=usage.get("input_tokens"),
+            output_tokens=usage.get("output_tokens"),
+            total_tokens=usage.get("total_tokens"),
+            reasoning_tokens=None, latency_ms=latency_ms,
+            finish_reason=str(payload.get("status") or "completed"),
+            response_complete=str(payload.get("status") or "completed") == "completed",
+            raw=payload,
         )
 
     candidates = payload.get(

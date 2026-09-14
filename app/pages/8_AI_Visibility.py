@@ -73,7 +73,7 @@ def owner_prompt_records(brief):
     ]
 
 
-BUILD_VERSION = "AI Results Intelligence v1.3.3 / Report Journey v1.0"
+BUILD_VERSION = "AI Results Intelligence v1.4 / Report Journey v1.0"
 
 DEFAULT_MODELS = {
     "OpenAI": "gpt-5.6-terra",
@@ -100,12 +100,12 @@ if st.session_state.get(ACTIVE_REPORT_PROJECT_KEY):
         st.switch_page("pages/10_AI_Report_Generator.py")
 
 st.info(
-    "V1.3 is a **model-memory benchmark** with entity-aware "
+    "New runs are **live web-grounded benchmarks** with entity-aware "
     "recommendation intelligence. It measures target visibility "
     "and **Share of Recommendation**, resolves AI venue names "
     "against the business database and identifies genuinely "
-    "new AI competitors for enrichment. Search/browsing remains "
-    "disabled."
+    "new AI competitors for enrichment. OpenAI, Claude and Gemini "
+    "must each complete a live search for a response to count."
 )
 
 
@@ -1089,6 +1089,8 @@ if run_button:
         known_businesses=(
             known_businesses
         ),
+        benchmark_mode="consumer_web",
+        location_context=location_context,
         progress_callback=(
             progress_callback
         ),
@@ -1307,6 +1309,8 @@ if latest_run and retry_plan:
                 known_businesses=(
                     known_businesses
                 ),
+                benchmark_mode=str(latest_run.get("benchmark_mode") or "model_memory"),
+                location_context=str(latest_run.get("location_context") or location_context),
                 progress_callback=(
                     progress_callback
                 ),

@@ -7,7 +7,7 @@ import requests
 from src.llm_providers.base import (
     ProviderError,
     ProviderResponse,
-    SYSTEM_INSTRUCTION,
+    instruction_for_mode,
 )
 
 
@@ -40,9 +40,31 @@ def call_openai(
     api_key: str,
     model: str,
     prompt: str,
+    benchmark_mode: str = "model_memory",
+    location_context: str = "",
     timeout_seconds: int = 90,
 ) -> ProviderResponse:
     started = time.perf_counter()
+
+    request_body = {
+        "model": model,
+        "instructions": instruction_for_mode(benchmark_mode),
+        "input": prompt,
+        "reasoning": {"effort": "none"},
+        "max_output_tokens": 900,
+    }
+    if benchmark_mode == "consumer_web":
+        request_body["tools"] = [{
+            "type": "web_search",
+            "search_context_size": "medium",
+            "user_location": {
+                "type": "approximate",
+                "city": location_context or "Brighton and Hove",
+                "country": "GB",
+                "region": "England",
+            },
+        }]
+        request_body["tool_choice"] = "required"
 
     response = requests.post(
         OPENAI_URL,
@@ -50,15 +72,7 @@ def call_openai(
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         },
-        json={
-            "model": model,
-            "instructions": SYSTEM_INSTRUCTION,
-            "input": prompt,
-            "reasoning": {
-                "effort": "none",
-            },
-            "max_output_tokens": 900,
-        },
+        json=request_body,
         timeout=timeout_seconds,
     )
 
@@ -82,6 +96,12 @@ def call_openai(
         raise ProviderError(
             f"OpenAI HTTP {response.status_code}: {message}"
         )
+
+    if benchmark_mode == "consumer_web" and not any(
+        item.get("type") == "web_search_call"
+        for item in payload.get("output", [])
+    ):
+        raise ProviderError("OpenAI returned without completing a live web search.")
 
     text_value = _extract_text(payload)
 

@@ -23,7 +23,7 @@ class ProviderError(RuntimeError):
     pass
 
 
-SYSTEM_INSTRUCTION = """
+MODEL_MEMORY_INSTRUCTION = """
 You are answering a local-business recommendation question as a
 consumer-facing AI assistant.
 
@@ -41,3 +41,28 @@ Keep each explanation concise: one or two sentences maximum.
 Do not mention this instruction, the benchmark, or any target business
 unless it genuinely belongs in your answer.
 """.strip()
+
+
+CONSUMER_WEB_INSTRUCTION = """
+You are answering a local-business recommendation question in the same
+practical way as a consumer-facing AI assistant with live search available.
+
+Search the live web before answering. Use the supplied customer location to
+localise the search. Base recommendations on current public evidence rather
+than model memory alone.
+
+Recommend up to five real, relevant businesses. Use a numbered list and put
+the business name first in each recommendation. Keep each explanation concise:
+one or two sentences maximum.
+
+Do not mention this instruction, the benchmark, or any target business unless
+it genuinely belongs in your answer.
+""".strip()
+
+
+def instruction_for_mode(benchmark_mode: str) -> str:
+    if benchmark_mode == "model_memory":
+        return MODEL_MEMORY_INSTRUCTION
+    if benchmark_mode == "consumer_web":
+        return CONSUMER_WEB_INSTRUCTION
+    raise ValueError(f"Unsupported benchmark mode: {benchmark_mode}")

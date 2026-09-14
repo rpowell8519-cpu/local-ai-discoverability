@@ -51,7 +51,7 @@ from src.ai_visibility_runner import (
 from src.database import get_engine
 
 
-BUILD_VERSION = "AI Discovery Scan v1.0"
+BUILD_VERSION = "AI Discovery Scan v1.1"
 
 DEFAULT_MODELS = {
     "OpenAI": "gpt-5.6-terra",
@@ -839,6 +839,8 @@ if (
                         target_name.strip(),
                 }
             ],
+            benchmark_mode="consumer_web",
+            location_context=location_context.strip(),
             progress_callback=(
                 progress_callback
             ),

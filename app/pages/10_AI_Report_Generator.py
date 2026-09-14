@@ -65,7 +65,7 @@ from src.report_generator_readiness import (  # noqa: E402
 )
 
 
-BUILD_VERSION = "Accessible AI Report Generator v2.3.1"
+BUILD_VERSION = "Accessible AI Report Generator v2.4"
 REPORT_STATE_KEY = "accessible_ai_report_generator_result"
 AI_VISIBILITY_HANDOFF_KEY = "ai_visibility_report_handoff_target"
 AI_VISIBILITY_FORCE_PROMPTS_KEY = "ai_visibility_force_owner_prompts"
@@ -687,7 +687,7 @@ if next_step["key"] == "benchmark":
         )
     st.warning(
         "This starts paid API calls. Check the questions and planned call count before continuing. "
-        "No live web browsing is used."
+        "Each platform will use its live web search capability, so search-tool charges may also apply."
     )
     confirm_ai_spend = st.checkbox(
         "I have reviewed the questions and approve this AI Visibility run",
@@ -765,6 +765,11 @@ if next_step["key"] == "benchmark":
                     }
                     for item in business_records
                 ],
+                benchmark_mode="consumer_web",
+                location_context=(
+                    ", ".join(dict(saved_brief.get("owner_context") or {}).get("service_areas") or [])
+                    or "Brighton and Hove"
+                ),
                 progress_callback=progress_callback,
                 status_callback=status_callback,
             )

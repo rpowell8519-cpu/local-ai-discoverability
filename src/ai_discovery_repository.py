@@ -26,6 +26,7 @@ def create_discovery_run(
     models: dict[str, str],
     prompt_count: int,
     repeat_count: int,
+    benchmark_mode: str = "consumer_web",
 ) -> dict[str, str]:
     run_id = str(
         uuid.uuid4()
@@ -72,7 +73,7 @@ def create_discovery_run(
             :target_business_name,
             :primary_group,
             :location_context,
-            'model_memory',
+            :benchmark_mode,
             cast(:providers as jsonb),
             cast(:models as jsonb),
             :prompt_count,
@@ -99,6 +100,7 @@ def create_discovery_run(
                     target_id,
                 "target_business_name":
                     target_business_name,
+                "benchmark_mode": benchmark_mode,
                 "primary_group":
                     primary_group,
                 "location_context":

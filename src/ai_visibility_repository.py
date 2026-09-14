@@ -20,6 +20,7 @@ def create_visibility_run(
     models: dict[str, str],
     prompt_count: int,
     repeat_count: int = 1,
+    benchmark_mode: str = "consumer_web",
 ) -> str:
     run_id = str(uuid.uuid4())
     engine = get_engine()
@@ -45,7 +46,7 @@ def create_visibility_run(
             :target_business_name,
             :primary_group,
             :location_context,
-            'model_memory',
+            :benchmark_mode,
             cast(:providers as jsonb),
             cast(:models as jsonb),
             :prompt_count,
@@ -64,6 +65,7 @@ def create_visibility_run(
                     target_google_place_id,
                 "target_business_name":
                     target_business_name,
+                "benchmark_mode": benchmark_mode,
                 "primary_group":
                     primary_group,
                 "location_context":
