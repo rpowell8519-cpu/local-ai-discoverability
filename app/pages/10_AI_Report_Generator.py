@@ -77,7 +77,7 @@ from src.report_generator_readiness import (  # noqa: E402
 )
 
 
-BUILD_VERSION = "Accessible AI Report Generator v2.4"
+BUILD_VERSION = "Accessible AI Report Generator v2.4.1"
 REPORT_STATE_KEY = "accessible_ai_report_generator_result"
 AI_VISIBILITY_HANDOFF_KEY = "ai_visibility_report_handoff_target"
 AI_VISIBILITY_FORCE_PROMPTS_KEY = "ai_visibility_force_owner_prompts"
