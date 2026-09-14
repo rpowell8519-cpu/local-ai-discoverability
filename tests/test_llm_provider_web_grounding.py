@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import inspect
 from unittest.mock import Mock, patch
 
+from src.ai_discovery_repository import create_discovery_run
+from src.ai_visibility_repository import create_visibility_run
+from src.ai_visibility_runner import SUPPORTED_BENCHMARK_MODES
 from src.llm_providers.anthropic_provider import call_anthropic
 from src.llm_providers.gemini_provider import call_gemini
 from src.llm_providers.openai_provider import call_openai
@@ -13,6 +17,12 @@ def _response(payload: dict) -> Mock:
     response.status_code = 200
     response.json.return_value = payload
     return response
+
+
+def test_persisted_search_mode_matches_database_contract() -> None:
+    assert inspect.signature(create_visibility_run).parameters["benchmark_mode"].default == "search_grounded"
+    assert inspect.signature(create_discovery_run).parameters["benchmark_mode"].default == "search_grounded"
+    assert SUPPORTED_BENCHMARK_MODES == {"model_memory", "search_grounded"}
 
 
 def test_openai_consumer_web_forces_localised_search() -> None:
@@ -27,7 +37,7 @@ def test_openai_consumer_web_forces_localised_search() -> None:
     with patch("src.llm_providers.openai_provider.requests.post", return_value=_response(payload)) as post:
         result = call_openai(
             api_key="test", model="test-model", prompt="Best cleaner?",
-            benchmark_mode="consumer_web", location_context="Brighton",
+            benchmark_mode="search_grounded", location_context="Brighton",
         )
 
     body = post.call_args.kwargs["json"]
@@ -49,7 +59,7 @@ def test_claude_consumer_web_enables_localised_search() -> None:
     with patch("src.llm_providers.anthropic_provider.requests.post", return_value=_response(payload)) as post:
         result = call_anthropic(
             api_key="test", model="test-model", prompt="Best cleaner?",
-            benchmark_mode="consumer_web", location_context="Brighton",
+            benchmark_mode="search_grounded", location_context="Brighton",
         )
 
     tool = post.call_args.kwargs["json"]["tools"][0]
@@ -71,7 +81,7 @@ def test_gemini_consumer_web_uses_google_search_interaction() -> None:
     with patch("src.llm_providers.gemini_provider.requests.post", return_value=_response(payload)) as post:
         result = call_gemini(
             api_key="test", model="test-model", prompt="Best cleaner?",
-            benchmark_mode="consumer_web", location_context="Brighton",
+            benchmark_mode="search_grounded", location_context="Brighton",
         )
 
     assert post.call_args.args[0].endswith("/v1beta/interactions")

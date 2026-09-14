@@ -26,7 +26,7 @@ def create_discovery_run(
     models: dict[str, str],
     prompt_count: int,
     repeat_count: int,
-    benchmark_mode: str = "consumer_web",
+    benchmark_mode: str = "search_grounded",
 ) -> dict[str, str]:
     run_id = str(
         uuid.uuid4()

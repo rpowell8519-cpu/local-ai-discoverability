@@ -27,6 +27,9 @@ from src.llm_providers.openai_provider import (
 )
 
 
+SUPPORTED_BENCHMARK_MODES = frozenset({"model_memory", "search_grounded"})
+
+
 def _call_provider(
     *,
     provider: str,
@@ -271,7 +274,7 @@ def execute_calls(
     known_businesses: list[
         dict[str, str]
     ],
-    benchmark_mode: str = "consumer_web",
+    benchmark_mode: str = "search_grounded",
     location_context: str = "",
     progress_callback: Callable[
         [int, int],

@@ -31,7 +31,7 @@ def call_anthropic(
         "system": instruction_for_mode(benchmark_mode),
         "messages": [{"role": "user", "content": prompt}],
     }
-    if benchmark_mode == "consumer_web":
+    if benchmark_mode == "search_grounded":
         request_body["tools"] = [{
             "type": "web_search_20260318",
             "name": "web_search",
@@ -79,7 +79,7 @@ def call_anthropic(
             f"Anthropic HTTP {response.status_code}: {message}"
         )
 
-    if benchmark_mode == "consumer_web" and not any(
+    if benchmark_mode == "search_grounded" and not any(
         item.get("type") == "server_tool_use" and item.get("name") == "web_search"
         for item in payload.get("content", [])
     ):

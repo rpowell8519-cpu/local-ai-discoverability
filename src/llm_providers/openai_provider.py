@@ -53,7 +53,7 @@ def call_openai(
         "reasoning": {"effort": "none"},
         "max_output_tokens": 900,
     }
-    if benchmark_mode == "consumer_web":
+    if benchmark_mode == "search_grounded":
         request_body["tools"] = [{
             "type": "web_search",
             "search_context_size": "medium",
@@ -97,7 +97,7 @@ def call_openai(
             f"OpenAI HTTP {response.status_code}: {message}"
         )
 
-    if benchmark_mode == "consumer_web" and not any(
+    if benchmark_mode == "search_grounded" and not any(
         item.get("type") == "web_search_call"
         for item in payload.get("output", [])
     ):

@@ -20,7 +20,7 @@ def create_visibility_run(
     models: dict[str, str],
     prompt_count: int,
     repeat_count: int = 1,
-    benchmark_mode: str = "consumer_web",
+    benchmark_mode: str = "search_grounded",
 ) -> str:
     run_id = str(uuid.uuid4())
     engine = get_engine()

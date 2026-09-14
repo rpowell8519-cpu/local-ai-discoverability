@@ -18,13 +18,22 @@ sys.path.append(str(PROJECT_ROOT))
 from src.database import get_engine  # noqa: E402
 import src.ai_visibility_repository as visibility_repository  # noqa: E402
 import src.ai_visibility_runner as visibility_runner  # noqa: E402
+import src.llm_providers.anthropic_provider as anthropic_provider  # noqa: E402
+import src.llm_providers.base as provider_base  # noqa: E402
+import src.llm_providers.gemini_provider as gemini_provider  # noqa: E402
+import src.llm_providers.openai_provider as openai_provider  # noqa: E402
 
 # Streamlit can hot-reload a page while retaining an older imported module.
 # Reload the benchmark modules when a deployment changes their public API,
 # before a paid-run control can be displayed.
-if "benchmark_mode" not in inspect.signature(visibility_repository.create_visibility_run).parameters:
+repository_mode = inspect.signature(visibility_repository.create_visibility_run).parameters.get("benchmark_mode")
+if repository_mode is None or repository_mode.default != "search_grounded":
     visibility_repository = importlib.reload(visibility_repository)
-if "benchmark_mode" not in inspect.signature(visibility_runner.execute_calls).parameters:
+if getattr(visibility_runner, "SUPPORTED_BENCHMARK_MODES", frozenset()) != frozenset({"model_memory", "search_grounded"}):
+    provider_base = importlib.reload(provider_base)
+    openai_provider = importlib.reload(openai_provider)
+    anthropic_provider = importlib.reload(anthropic_provider)
+    gemini_provider = importlib.reload(gemini_provider)
     visibility_runner = importlib.reload(visibility_runner)
 
 create_visibility_queries = visibility_repository.create_visibility_queries
@@ -77,7 +86,7 @@ from src.report_generator_readiness import (  # noqa: E402
 )
 
 
-BUILD_VERSION = "Accessible AI Report Generator v2.4.1"
+BUILD_VERSION = "Accessible AI Report Generator v2.4.2"
 REPORT_STATE_KEY = "accessible_ai_report_generator_result"
 AI_VISIBILITY_HANDOFF_KEY = "ai_visibility_report_handoff_target"
 AI_VISIBILITY_FORCE_PROMPTS_KEY = "ai_visibility_force_owner_prompts"
@@ -777,7 +786,7 @@ if next_step["key"] == "benchmark":
                     }
                     for item in business_records
                 ],
-                benchmark_mode="consumer_web",
+                benchmark_mode="search_grounded",
                 location_context=(
                     ", ".join(dict(saved_brief.get("owner_context") or {}).get("service_areas") or [])
                     or "Brighton and Hove"

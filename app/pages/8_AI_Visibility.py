@@ -35,10 +35,19 @@ from src.ai_enrichment_repository import (
 )
 import src.ai_visibility_repository as visibility_repository
 import src.ai_visibility_runner as visibility_runner
+import src.llm_providers.anthropic_provider as anthropic_provider
+import src.llm_providers.base as provider_base
+import src.llm_providers.gemini_provider as gemini_provider
+import src.llm_providers.openai_provider as openai_provider
 
-if "benchmark_mode" not in inspect.signature(visibility_repository.create_visibility_run).parameters:
+repository_mode = inspect.signature(visibility_repository.create_visibility_run).parameters.get("benchmark_mode")
+if repository_mode is None or repository_mode.default != "search_grounded":
     visibility_repository = importlib.reload(visibility_repository)
-if "benchmark_mode" not in inspect.signature(visibility_runner.execute_calls).parameters:
+if getattr(visibility_runner, "SUPPORTED_BENCHMARK_MODES", frozenset()) != frozenset({"model_memory", "search_grounded"}):
+    provider_base = importlib.reload(provider_base)
+    openai_provider = importlib.reload(openai_provider)
+    anthropic_provider = importlib.reload(anthropic_provider)
+    gemini_provider = importlib.reload(gemini_provider)
     visibility_runner = importlib.reload(visibility_runner)
 
 create_visibility_queries = visibility_repository.create_visibility_queries
@@ -1095,7 +1104,7 @@ if run_button:
         known_businesses=(
             known_businesses
         ),
-        benchmark_mode="consumer_web",
+        benchmark_mode="search_grounded",
         location_context=location_context,
         progress_callback=(
             progress_callback

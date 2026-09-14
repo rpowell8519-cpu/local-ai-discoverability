@@ -63,6 +63,6 @@ it genuinely belongs in your answer.
 def instruction_for_mode(benchmark_mode: str) -> str:
     if benchmark_mode == "model_memory":
         return MODEL_MEMORY_INSTRUCTION
-    if benchmark_mode == "consumer_web":
+    if benchmark_mode == "search_grounded":
         return CONSUMER_WEB_INSTRUCTION
     raise ValueError(f"Unsupported benchmark mode: {benchmark_mode}")

@@ -523,7 +523,7 @@ def _build_report(
             "complete_responses": len(complete_responses),
             "benchmark": (
                 "Live web-grounded recommendation visibility"
-                if str(run.get("benchmark_mode") or "model_memory") == "consumer_web"
+                if str(run.get("benchmark_mode") or "model_memory") == "search_grounded"
                 else "Model-memory recommendation visibility"
             ),
             "validation": list(config["methodology_validation"]),
@@ -542,7 +542,7 @@ def _build_report(
                 + [
                     "Each provider used its supported live web-search tool; results may still differ from its consumer app because product settings, personalisation and interfaces are not exposed by the API."
                 ]
-                if str(run.get("benchmark_mode") or "model_memory") == "consumer_web"
+                if str(run.get("benchmark_mode") or "model_memory") == "search_grounded"
                 else list(config["methodology_limitations"])
             ),
             "non_causality": config["non_causality"],

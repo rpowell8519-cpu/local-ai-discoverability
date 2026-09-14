@@ -19,7 +19,7 @@ def call_gemini(
     location_context: str = "",
     timeout_seconds: int = 90,
 ) -> ProviderResponse:
-    web_grounded = benchmark_mode == "consumer_web"
+    web_grounded = benchmark_mode == "search_grounded"
     url = "https://generativelanguage.googleapis.com/v1beta/interactions" if web_grounded else (
         "https://generativelanguage.googleapis.com/"
         f"v1beta/models/{model}:generateContent"
