@@ -68,6 +68,7 @@ def save_owner_brief_revision(
     exclusions: str = "",
     additional_context: str = "",
     manual_website_url: str = "",
+    workflow_origin: str = "",
     created_by: str = "streamlit_report_generator",
     engine: Engine | None = None,
 ) -> dict[str, Any]:
@@ -97,6 +98,8 @@ def save_owner_brief_revision(
         "exclusions": [line.strip(" \t-•") for line in exclusions.splitlines() if line.strip(" \t-•")],
         "additional_context": " ".join(str(additional_context or "").split()),
     }
+    if str(workflow_origin or "").strip():
+        owner_context["workflow_origin"] = str(workflow_origin).strip()
 
     database = engine or get_engine()
     with database.begin() as connection:

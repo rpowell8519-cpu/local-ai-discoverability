@@ -65,7 +65,7 @@ from src.report_generator_readiness import (  # noqa: E402
 )
 
 
-BUILD_VERSION = "Accessible AI Report Generator v2.2.1"
+BUILD_VERSION = "Accessible AI Report Generator v2.3"
 REPORT_STATE_KEY = "accessible_ai_report_generator_result"
 AI_VISIBILITY_HANDOFF_KEY = "ai_visibility_report_handoff_target"
 AI_VISIBILITY_FORCE_PROMPTS_KEY = "ai_visibility_force_owner_prompts"
@@ -200,6 +200,26 @@ def load_review_choices(place_ids: tuple[str, ...]) -> list[dict[str, Any]]:
     return [dict(row) for row in rows][:100]
 
 
+@st.cache_data(ttl=120)
+def load_run_prompt_seed(run_id: str) -> list[dict[str, Any]]:
+    """Load one verbatim copy of each question from a saved benchmark."""
+
+    with get_engine().connect() as connection:
+        rows = connection.execute(
+            text(
+                """
+                select distinct on (base_prompt_order)
+                    base_prompt_order, prompt_category, prompt_source, prompt_text
+                from ai_visibility_queries
+                where run_id = :run_id
+                order by base_prompt_order, repeat_index, prompt_order, id
+                """
+            ),
+            {"run_id": run_id},
+        ).mappings().all()
+    return [dict(row) for row in rows]
+
+
 def business_label(row: dict[str, Any]) -> str:
     descriptor = str(row.get("business_format") or row.get("raw_type") or "Business")
     return f"{row['business_name']} — {descriptor} — {str(row['google_place_id'])[-8:]}"
@@ -276,7 +296,7 @@ definitions = list_report_generator_definitions()
 configured_definitions = [
     item for item in definitions if item.target_google_place_id == selected_place_id
 ]
-definition = configured_definitions[0] if configured_definitions else None
+configured_definition = configured_definitions[0] if configured_definitions else None
 
 try:
     evidence = load_evidence_status(selected_place_id)
@@ -292,6 +312,23 @@ except Exception as exc:
     st.error("The saved report setup could not be loaded.")
     st.exception(exc)
     st.stop()
+
+new_measurement_origin = "configured_report_restart"
+has_new_measurement = bool(
+    configured_definition
+    and durable_audit
+    and dict(durable_audit.get("owner_context") or {}).get("workflow_origin")
+    == new_measurement_origin
+)
+measurement_view_key = f"report_measurement_view_{selected_place_id}"
+if measurement_view_key not in st.session_state:
+    st.session_state[measurement_view_key] = "new" if has_new_measurement else "original"
+viewing_new_measurement = bool(
+    configured_definition
+    and has_new_measurement
+    and st.session_state[measurement_view_key] == "new"
+)
+definition = None if viewing_new_measurement else configured_definition
 saved_brief = durable_audit or briefs.get(selected_place_id, {})
 if durable_audit:
     briefs[selected_place_id] = {
@@ -299,6 +336,59 @@ if durable_audit:
         "desired_searches": list(durable_audit["desired_searches"]),
         "owner_competitors": list(durable_audit["owner_competitors"]),
     }
+
+if configured_definition is not None:
+    if viewing_new_measurement:
+        with st.container(border=True):
+            st.info(
+                "**New measurement in progress.** Edit the exact questions in the AI Visibility table below, "
+                "then approve the paid run when they are ready. The original report remains unchanged."
+            )
+            if st.button("View the original saved report", use_container_width=True):
+                st.session_state[measurement_view_key] = "original"
+                st.rerun()
+    else:
+        with st.container(border=True):
+            st.success(
+                "**Original saved report available.** You can generate it again without rerunning AI Visibility."
+            )
+            if has_new_measurement:
+                if st.button("Continue editing the new measurement", type="primary", use_container_width=True):
+                    st.session_state[measurement_view_key] = "new"
+                    st.rerun()
+            elif st.button(
+                "Start a new measurement and edit the prompts",
+                type="primary",
+                use_container_width=True,
+                help="Copies the original questions into a new editable project. It does not alter the original report.",
+            ):
+                try:
+                    configured_queries = load_run_prompt_seed(
+                        configured_definition.baseline_run_id
+                    )
+                    if not configured_queries:
+                        raise ValueError("The original saved benchmark has no questions to copy")
+                    save_owner_brief_revision(
+                        target_google_place_id=selected_place_id,
+                        target_business_name=str(business["business_name"]),
+                        known_for=(
+                            f"The services and customer needs covered by the original "
+                            f"{configured_definition.client_name} measurement. Review and update this description."
+                        ),
+                        desired_searches="\n".join(
+                            str(query["prompt_text"]) for query in configured_queries
+                        ),
+                        manual_website_url=str(business.get("source_website_url") or ""),
+                        workflow_origin=new_measurement_origin,
+                        created_by="streamlit_configured_report_restart",
+                    )
+                except Exception as exc:
+                    st.error("The editable measurement project could not be created.")
+                    st.exception(exc)
+                else:
+                    st.session_state[measurement_view_key] = "new"
+                    st.cache_data.clear()
+                    st.rerun()
 
 st.subheader("1. Owner context")
 st.write(
@@ -319,16 +409,26 @@ else:
                 "colour advice in Brighton."
             ),
         )
-        desired_searches = st.text_area(
-            "What would an ideal customer ask an AI assistant?",
-            value="\n".join(saved_brief.get("desired_searches") or []),
-            placeholder=(
-                "Add one search per line, for example:\n"
-                "Who is best for balayage in Brighton?\n"
-                "Which Brighton salon is good for wedding hair?"
-            ),
-            help="One realistic customer question per line.",
-        )
+        if viewing_new_measurement:
+            desired_searches = "\n".join(saved_brief.get("desired_searches") or [])
+            st.info(
+                "Edit the exact customer questions in **3. Run AI Visibility** below. "
+                "That table is the single source for the next measurement."
+            )
+            st.caption(
+                f"{len(saved_brief.get('desired_searches') or [])} question(s) copied from the original report."
+            )
+        else:
+            desired_searches = st.text_area(
+                "What would an ideal customer ask an AI assistant?",
+                value="\n".join(saved_brief.get("desired_searches") or []),
+                placeholder=(
+                    "Add one search per line, for example:\n"
+                    "Who is best for balayage in Brighton?\n"
+                    "Which Brighton salon is good for wedding hair?"
+                ),
+                help="One realistic customer question per line.",
+            )
         with st.expander("Additional owner details", expanded=False):
             priority_services = st.text_area(
                 "Priority services or products",

@@ -92,6 +92,21 @@ def test_owner_can_supply_a_missing_website_address():
     assert '"Office cleaning"' in result["owner_context"]
 
 
+def test_owner_brief_can_mark_a_new_measurement_from_a_configured_report():
+    engine = Engine()
+
+    result = save_owner_brief_revision(
+        target_google_place_id="place-1",
+        target_business_name="Example Business",
+        known_for="Excellent commercial cleaning in Brighton",
+        desired_searches="Who offers commercial cleaning in Brighton?",
+        workflow_origin="configured_report_restart",
+        engine=engine,
+    )
+
+    assert '"workflow_origin": "configured_report_restart"' in result["owner_context"]
+
+
 def test_invalid_manual_website_address_is_rejected():
     engine = Engine()
 
