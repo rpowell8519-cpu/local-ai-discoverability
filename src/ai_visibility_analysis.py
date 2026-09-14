@@ -182,7 +182,21 @@ def find_recommendation_position(
         ranked_name = extract_business_name(match.group(2))
         ranked_normalised = normalise_name(ranked_name)
 
-        if ranked_normalised in aliases:
+        legal_suffix_variants = tuple(
+            alias + suffix
+            for alias in aliases
+            for suffix in (
+                " limited",
+                " ltd",
+                " plc",
+                " llp",
+            )
+        )
+
+        if (
+            ranked_normalised in aliases
+            or ranked_normalised.startswith(legal_suffix_variants)
+        ):
             return item_number
 
     return None

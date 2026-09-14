@@ -58,6 +58,23 @@ class RecommendationExtractionTests(unittest.TestCase):
         self.assertFalse(result["target_recommended"])
         self.assertIsNone(result["target_position"])
 
+    def test_target_legal_and_trading_name_variant_is_a_recommendation(self):
+        result = analyse_visibility_response(
+            response_text=(
+                "1. Another Cleaner - a local option.\n"
+                "2. UDR Properties Limited (UDR Cleaning) - commercial cleaning in Brighton."
+            ),
+            target_google_place_id="target-id",
+            target_business_name="UDR Properties",
+            known_businesses=[
+                {"google_place_id": "target-id", "business_name": "UDR Properties"},
+            ],
+        )
+
+        self.assertTrue(result["target_mentioned"])
+        self.assertTrue(result["target_recommended"])
+        self.assertEqual(result["target_position"], 2)
+
     def test_one_business_is_counted_once_per_answer_after_alias_resolution(self):
         results = pd.DataFrame(
             [

@@ -62,7 +62,7 @@ def load_report_candidates(
             ).mappings().all()
         )
     if results.empty:
-        return {"verified": [], "unresolved": []}
+        return {"target": [], "verified": [], "unresolved": []}
     records = build_recommendation_records(
         results=results,
         businesses=businesses,
@@ -72,7 +72,16 @@ def load_report_candidates(
         primary_group=str(run.get("primary_group") or ""),
     )
     if records.empty:
-        return {"verified": [], "unresolved": []}
+        return {"target": [], "verified": [], "unresolved": []}
+    target_records = records[
+        records["google_place_id"].notna()
+        & records["google_place_id"].astype(str).eq(str(target_google_place_id))
+    ]
+    target = (
+        build_business_share_table(target_records).to_dict("records")
+        if not target_records.empty
+        else []
+    )
     verified_records = records[
         records["google_place_id"].notna()
         & records["google_place_id"].astype(str).ne(str(target_google_place_id))
@@ -97,4 +106,4 @@ def load_report_candidates(
         for name, count in unresolved_counts.items()
         if str(name).strip()
     ]
-    return {"verified": verified, "unresolved": unresolved}
+    return {"target": target, "verified": verified, "unresolved": unresolved}

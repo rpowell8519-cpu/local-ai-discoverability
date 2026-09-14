@@ -302,12 +302,6 @@ def _validate_cross_evidence(
         for item in responses
     ):
         errors.append("visibility target-mention count")
-    if visibility["recommendations"] != sum(
-        bool(item["parser_reconciliation"].get("persisted_target_recommended"))
-        for item in responses
-    ):
-        errors.append("visibility target-recommendation count")
-
     methodology = report["methodology"]
     method_source = payload["methodology"]
     if methodology["prompt_count"] != method_source["prompt_count"]:
@@ -364,6 +358,12 @@ def _validate_cross_evidence(
         if item["slot_disposition"] == "business"
         and str(item.get("google_place_id")) == target_id
     ]
+    # Entity resolution can correctly identify a target recommendation whose
+    # displayed name is a legal or trading-name variant that the initial
+    # exact-name flag did not recognise. The frozen, resolved recommendation
+    # slots are therefore authoritative for recommendation counts.
+    if visibility["recommendations"] != len(target_slots):
+        errors.append("visibility target-recommendation count")
     if target_slots and "average_position" in visibility:
         average_position = sum(float(item["position"]) for item in target_slots) / len(target_slots)
         if abs(float(visibility["average_position"]) - average_position) > 0.0001:
@@ -1391,7 +1391,11 @@ def _draw_methodology(canvas: Canvas, report: Mapping[str, Any]) -> None:
         f"Expected responses: {data['expected_responses']}",
         f"Complete responses: {data['complete_responses']}",
         f"Benchmark: {data['benchmark']}",
-        "Live web search: disabled",
+        (
+            "Live web search: enabled"
+            if "web-grounded" in str(data["benchmark"]).lower()
+            else "Live web search: disabled"
+        ),
     ]
     _paragraph(canvas, "\n".join(benchmark_lines), MARGIN, y - 58, left_width, size=8, color=INK, leading=13, max_lines=12)
     canvas.setFont(FONT_BOLD, 11)

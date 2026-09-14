@@ -116,20 +116,6 @@ def assemble_generic_report_payload(
             raise ValueError("Every comparison business must have a verified Google Place ID")
         all_ids = [str(audit_revision["target_google_place_id"]), *cohort_ids]
         websites, review_sets, inventory = _evidence_definitions(connection, all_ids, names)
-        target_response_recommendations = int(
-            connection.execute(
-                text(
-                    """
-                    select count(*) from ai_visibility_results
-                    where run_id = cast(:run_id as uuid)
-                      and status = 'completed'
-                      and coalesce(response_complete, true)
-                      and coalesce(target_recommended, false)
-                    """
-                ),
-                {"run_id": run_id},
-            ).scalar_one()
-        )
         review_ids = [str(item) for item in decisions_input.get("review_quote_ids") or []]
         quote_rows = _rows(
             connection,
@@ -147,18 +133,22 @@ def assemble_generic_report_payload(
     location = str(run.get("location_context") or "the local area")
     category = str(run.get("target_category_label") or run.get("primary_group") or "Local services").replace("_", " ").title()
     expected = int(run["prompt_count"]) * int(run["repeat_count"]) * len(list(run["providers"]))
-    recommendations = target_response_recommendations
     candidate_summary = load_report_candidates(
         run_id=run_id,
         target_google_place_id=target_id,
         engine=database,
+    )
+    recommendations = (
+        int(candidate_summary["target"][0].get("recommendations") or 0)
+        if candidate_summary.get("target")
+        else 0
     )
     recommendation_counts = {
         str(item["google_place_id"]): int(item.get("recommendations") or 0)
         for item in candidate_summary["verified"]
     }
     headline = str(decisions_input.get("headline") or (
-        f"{target_name} appeared in {recommendations} of {expected} AI responses."
+        f"{target_name} was recommended in {recommendations} of {expected} AI responses."
         if recommendations else
         f"{target_name} was not recommended in this {expected}-response benchmark."
     ))

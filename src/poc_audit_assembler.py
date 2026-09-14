@@ -429,14 +429,15 @@ def _build_report(
     visibility_provider_rows = []
     for source_provider, display in zip(run["providers"], providers):
         matching = [item for item in complete_responses if item["provider"] == source_provider]
+        provider_target_slots = [
+            item for item in target_slots
+            if item["provider"] == source_provider
+        ]
         visibility_provider_rows.append({
             "name": display,
             "complete": len(matching),
             "expected": int(run["prompt_count"]) * int(run["repeat_count"]),
-            "recommendations": sum(
-                bool(item["parser_reconciliation"].get("persisted_target_recommended"))
-                for item in matching
-            ),
+            "recommendations": len(provider_target_slots),
         })
     question_performance = _question_performance(
         baseline=baseline,
