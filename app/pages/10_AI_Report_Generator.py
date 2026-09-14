@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import importlib
+import inspect
 import sys
 import uuid
 from pathlib import Path
@@ -14,11 +16,21 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.append(str(PROJECT_ROOT))
 
 from src.database import get_engine  # noqa: E402
-from src.ai_visibility_repository import (  # noqa: E402
-    create_visibility_queries,
-    create_visibility_run,
-)
-from src.ai_visibility_runner import execute_calls, finalise_run_from_results  # noqa: E402
+import src.ai_visibility_repository as visibility_repository  # noqa: E402
+import src.ai_visibility_runner as visibility_runner  # noqa: E402
+
+# Streamlit can hot-reload a page while retaining an older imported module.
+# Reload the benchmark modules when a deployment changes their public API,
+# before a paid-run control can be displayed.
+if "benchmark_mode" not in inspect.signature(visibility_repository.create_visibility_run).parameters:
+    visibility_repository = importlib.reload(visibility_repository)
+if "benchmark_mode" not in inspect.signature(visibility_runner.execute_calls).parameters:
+    visibility_runner = importlib.reload(visibility_runner)
+
+create_visibility_queries = visibility_repository.create_visibility_queries
+create_visibility_run = visibility_repository.create_visibility_run
+execute_calls = visibility_runner.execute_calls
+finalise_run_from_results = visibility_runner.finalise_run_from_results
 from src.website_audit import audit_website  # noqa: E402
 from src.website_audit_repository import (  # noqa: E402
     create_audit_run,

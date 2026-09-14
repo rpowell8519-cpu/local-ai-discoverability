@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import importlib
+import inspect
 import json
 import sys
 from pathlib import Path
@@ -31,18 +33,22 @@ from src.ai_enrichment_repository import (
     load_entity_aliases,
     upsert_enrichment_candidates,
 )
-from src.ai_visibility_repository import (
-    create_visibility_queries,
-    create_visibility_run,
-    get_latest_run,
-    get_run_queries,
-    get_run_results,
-)
-from src.ai_visibility_runner import (
-    build_retry_plan,
-    execute_calls,
-    finalise_run_from_results,
-)
+import src.ai_visibility_repository as visibility_repository
+import src.ai_visibility_runner as visibility_runner
+
+if "benchmark_mode" not in inspect.signature(visibility_repository.create_visibility_run).parameters:
+    visibility_repository = importlib.reload(visibility_repository)
+if "benchmark_mode" not in inspect.signature(visibility_runner.execute_calls).parameters:
+    visibility_runner = importlib.reload(visibility_runner)
+
+create_visibility_queries = visibility_repository.create_visibility_queries
+create_visibility_run = visibility_repository.create_visibility_run
+get_latest_run = visibility_repository.get_latest_run
+get_run_queries = visibility_repository.get_run_queries
+get_run_results = visibility_repository.get_run_results
+build_retry_plan = visibility_runner.build_retry_plan
+execute_calls = visibility_runner.execute_calls
+finalise_run_from_results = visibility_runner.finalise_run_from_results
 from src.database import get_engine
 from src.review_repository import (
     get_reviews,

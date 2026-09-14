@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import importlib
+import inspect
 import json
 import re
 import sys
@@ -18,12 +20,7 @@ from src.ai_discovery_prompt_generator import (
     generate_discovery_prompts,
     vertical_key,
 )
-from src.ai_discovery_repository import (
-    create_discovery_run,
-    get_discovery_run,
-    list_discovery_runs,
-    load_diagnostic_readiness,
-)
+import src.ai_discovery_repository as discovery_repository
 from src.ai_enrichment_repository import (
     load_entity_aliases,
     upsert_enrichment_candidates,
@@ -44,10 +41,19 @@ from src.ai_visibility_repository import (
     create_visibility_queries,
     get_run_results,
 )
-from src.ai_visibility_runner import (
-    execute_calls,
-    finalise_run_from_results,
-)
+import src.ai_visibility_runner as visibility_runner
+
+if "benchmark_mode" not in inspect.signature(discovery_repository.create_discovery_run).parameters:
+    discovery_repository = importlib.reload(discovery_repository)
+if "benchmark_mode" not in inspect.signature(visibility_runner.execute_calls).parameters:
+    visibility_runner = importlib.reload(visibility_runner)
+
+create_discovery_run = discovery_repository.create_discovery_run
+get_discovery_run = discovery_repository.get_discovery_run
+list_discovery_runs = discovery_repository.list_discovery_runs
+load_diagnostic_readiness = discovery_repository.load_diagnostic_readiness
+execute_calls = visibility_runner.execute_calls
+finalise_run_from_results = visibility_runner.finalise_run_from_results
 from src.database import get_engine
 
 
