@@ -65,7 +65,7 @@ from src.report_generator_readiness import (  # noqa: E402
 )
 
 
-BUILD_VERSION = "Accessible AI Report Generator v2.3"
+BUILD_VERSION = "Accessible AI Report Generator v2.3.1"
 REPORT_STATE_KEY = "accessible_ai_report_generator_result"
 AI_VISIBILITY_HANDOFF_KEY = "ai_visibility_report_handoff_target"
 AI_VISIBILITY_FORCE_PROMPTS_KEY = "ai_visibility_force_owner_prompts"
@@ -220,6 +220,28 @@ def load_run_prompt_seed(run_id: str) -> list[dict[str, Any]]:
     return [dict(row) for row in rows]
 
 
+@st.cache_data(ttl=60)
+def has_configured_measurement_project(google_place_id: str) -> bool:
+    """Recognise a configured-report restart across all saved revisions."""
+
+    with get_engine().connect() as connection:
+        return bool(
+            connection.execute(
+                text(
+                    """
+                    select exists (
+                        select 1
+                        from report_audit_revisions
+                        where target_google_place_id = :google_place_id
+                          and owner_context->>'workflow_origin' = 'configured_report_restart'
+                    )
+                    """
+                ),
+                {"google_place_id": google_place_id},
+            ).scalar_one()
+        )
+
+
 def business_label(row: dict[str, Any]) -> str:
     descriptor = str(row.get("business_format") or row.get("raw_type") or "Business")
     return f"{row['business_name']} — {descriptor} — {str(row['google_place_id'])[-8:]}"
@@ -317,8 +339,11 @@ new_measurement_origin = "configured_report_restart"
 has_new_measurement = bool(
     configured_definition
     and durable_audit
-    and dict(durable_audit.get("owner_context") or {}).get("workflow_origin")
-    == new_measurement_origin
+    and (
+        dict(durable_audit.get("owner_context") or {}).get("workflow_origin")
+        == new_measurement_origin
+        or has_configured_measurement_project(selected_place_id)
+    )
 )
 measurement_view_key = f"report_measurement_view_{selected_place_id}"
 if measurement_view_key not in st.session_state:
@@ -472,7 +497,10 @@ else:
                 "If no website is stored, enter it manually here. Leave this blank if the business genuinely has no website."
             ),
         )
-        submitted = st.form_submit_button("Submit report brief", type="primary")
+        submitted = st.form_submit_button(
+            "Save owner details" if viewing_new_measurement else "Submit report brief",
+            type="primary",
+        )
 
     if submitted:
         brief = normalise_owner_brief(
@@ -497,6 +525,9 @@ else:
                     exclusions=exclusions,
                     additional_context=additional_context,
                     manual_website_url=manual_website_url,
+                    workflow_origin=(
+                        new_measurement_origin if viewing_new_measurement else ""
+                    ),
                 )
             except Exception as exc:
                 st.error("The owner context could not be saved.")

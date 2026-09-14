@@ -108,6 +108,12 @@ def save_owner_brief_revision(
             {"target_google_place_id": target_google_place_id},
         ).mappings().first()
         previous: Mapping[str, Any] = latest or {}
+        previous_context = dict(previous.get("owner_context") or {})
+        preserved_origin = str(
+            workflow_origin or previous_context.get("workflow_origin") or ""
+        ).strip()
+        if preserved_origin:
+            owner_context["workflow_origin"] = preserved_origin
         parameters = {
             "id": str(uuid.uuid4()),
             "schema_version": WORKFLOW_SCHEMA_VERSION,

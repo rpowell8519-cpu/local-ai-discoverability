@@ -152,6 +152,29 @@ def test_owner_brief_update_invalidates_benchmark_and_review_state():
     assert result["reviewer_decisions_complete"] is False
 
 
+def test_owner_brief_update_preserves_configured_measurement_origin():
+    engine = Engine(
+        {
+            "id": "audit-1",
+            "revision": 1,
+            "benchmark_run_id": None,
+            "website_evidence_state": "not_checked",
+            "review_evidence_state": "not_checked",
+            "owner_context": {"workflow_origin": "configured_report_restart"},
+        }
+    )
+
+    result = save_owner_brief_revision(
+        target_google_place_id="place-1",
+        target_business_name="Example Business",
+        known_for="Updated commercial cleaning priorities",
+        desired_searches="Who offers commercial cleaning in Brighton?",
+        engine=engine,
+    )
+
+    assert '"workflow_origin": "configured_report_restart"' in result["owner_context"]
+
+
 def test_completed_benchmark_is_attached_as_a_new_revision():
     engine = Engine(
         {
