@@ -88,6 +88,20 @@ def owner_prompt_records(brief):
     ]
 
 
+@st.cache_data(ttl=60)
+def load_durable_owner_brief(google_place_id):
+    """Reload the saved owner brief so a fresh browser session cannot lose it."""
+
+    audit = get_latest_report_audit(str(google_place_id))
+    if not audit:
+        return None
+    return {
+        "known_for": audit["known_for"],
+        "desired_searches": list(audit["desired_searches"] or []),
+        "owner_competitors": list(audit["owner_competitors"] or []),
+    }
+
+
 BUILD_VERSION = "AI Results Intelligence v1.4 / Report Journey v1.0"
 
 DEFAULT_MODELS = {
@@ -541,6 +555,20 @@ if active_report_matches:
             )
             st.caption(f"Completed AI Visibility run: `{completed_context.get('run_id')}`")
 
+try:
+    durable_owner_brief = load_durable_owner_brief(str(target_id))
+except Exception:
+    durable_owner_brief = None
+durable_owner_questions = [
+    str(question).strip()
+    for question in list((durable_owner_brief or {}).get("desired_searches") or [])
+    if str(question).strip()
+]
+if durable_owner_brief:
+    st.session_state.setdefault(BRIEFS_STATE_KEY, {}).setdefault(
+        str(target_id), durable_owner_brief
+    )
+
 default_location = str(
     target_row.get(
         "location_hint"
@@ -763,6 +791,8 @@ if (
         max_prompts=20,
     )
     owner_brief = st.session_state.get(BRIEFS_STATE_KEY, {}).get(str(target_id), {})
+    if not owner_brief:
+        owner_brief = durable_owner_brief or {}
     owner_prompts = owner_prompt_records(owner_brief)
     if owner_prompts:
         owner_frame = pd.DataFrame(owner_prompts)
@@ -996,6 +1026,44 @@ def run_progress_ui():
     )
 
 
+selected_prompt_sources = (
+    set(selected_prompt_frame["source"].astype(str))
+    if len(selected_prompt_frame)
+    else set()
+)
+owner_questions_missing = bool(durable_owner_questions) and (
+    "owner_brief" not in selected_prompt_sources
+)
+override_owner_questions = False
+if owner_questions_missing:
+    st.warning(
+        "This business has a saved report brief with "
+        f"{len(durable_owner_questions)} owner-priority question(s), but none of them are "
+        "in the question list above. Running now would measure generic questions instead "
+        "of what the owner asked to be known for."
+    )
+    with st.expander("Show the saved owner-priority questions"):
+        for question in durable_owner_questions:
+            st.write(f"- {question}")
+    guard_columns = st.columns(2)
+    with guard_columns[0]:
+        if st.button(
+            "Reload the owner's priority questions",
+            type="primary",
+            use_container_width=True,
+        ):
+            st.session_state[AI_VISIBILITY_FORCE_PROMPTS_KEY] = str(target_id)
+            st.session_state.pop(prompt_state_key, None)
+            st.rerun()
+    with guard_columns[1]:
+        override_owner_questions = st.checkbox(
+            "Run without the owner's priority questions",
+            help=(
+                "Only use this for a generic benchmark that is not part of "
+                "the client report."
+            ),
+        )
+
 run_button = st.button(
     "Run new AI visibility test",
     type="primary",
@@ -1009,6 +1077,7 @@ run_button = st.button(
         )
         == 0
         or bool(attached_run_id)
+        or (owner_questions_missing and not override_owner_questions)
     ),
 )
 
