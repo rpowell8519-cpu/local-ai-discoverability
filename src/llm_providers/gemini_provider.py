@@ -96,10 +96,10 @@ def call_gemini(
         usage = payload.get("usage") or {}
         return ProviderResponse(
             provider="Gemini", model=model, text=text_value,
-            input_tokens=usage.get("input_tokens"),
-            output_tokens=usage.get("output_tokens"),
+            input_tokens=usage.get("total_input_tokens", usage.get("input_tokens")),
+            output_tokens=usage.get("total_output_tokens", usage.get("output_tokens")),
             total_tokens=usage.get("total_tokens"),
-            reasoning_tokens=None, latency_ms=latency_ms,
+            reasoning_tokens=usage.get("total_thought_tokens"), latency_ms=latency_ms,
             finish_reason=str(payload.get("status") or "completed"),
             response_complete=str(payload.get("status") or "completed") == "completed",
             raw=payload,

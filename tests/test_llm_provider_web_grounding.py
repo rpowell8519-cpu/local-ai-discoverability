@@ -76,7 +76,13 @@ def test_gemini_consumer_web_uses_google_search_interaction() -> None:
             {"type": "google_search_call", "arguments": {"queries": ["cleaners Brighton"]}},
             {"type": "model_output", "content": [{"type": "text", "text": "1. Example"}]},
         ],
-        "usage": {},
+        "usage": {
+            "total_input_tokens": 120,
+            "total_output_tokens": 35,
+            "total_tokens": 155,
+            "total_thought_tokens": 4,
+            "grounding_tool_count": [{"type": "google_search", "count": 1}],
+        },
     }
     with patch("src.llm_providers.gemini_provider.requests.post", return_value=_response(payload)) as post:
         result = call_gemini(
@@ -88,3 +94,7 @@ def test_gemini_consumer_web_uses_google_search_interaction() -> None:
     assert post.call_args.kwargs["json"]["tools"] == [{"type": "google_search"}]
     assert "Customer location: Brighton" in post.call_args.kwargs["json"]["input"]
     assert result.text == "1. Example"
+    assert result.input_tokens == 120
+    assert result.output_tokens == 35
+    assert result.total_tokens == 155
+    assert result.reasoning_tokens == 4
