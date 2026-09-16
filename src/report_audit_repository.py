@@ -198,8 +198,8 @@ def save_reviewer_decisions_revision(
         if not latest or not latest.get("benchmark_run_id"):
             raise ValueError("A completed benchmark must be attached before report review")
         cohort = list(reviewer_decisions.get("cohort_place_ids") or [])
-        if complete and not cohort:
-            raise ValueError("Select at least one verified AI-visible comparison business")
+        if len(cohort) > 3 or len(set(cohort)) != len(cohort):
+            raise ValueError("Select up to three distinct verified comparison businesses")
         parameters = {
             "id": str(uuid.uuid4()),
             "schema_version": WORKFLOW_SCHEMA_VERSION,

@@ -43,12 +43,25 @@ def load_report_candidates(
                 {"id": run_id},
             ).mappings().all()
         )
+        business_rows = [dict(item) for item in connection.execute(
+            text(
+                """
+                select bf.google_place_id, bf.business_name, bf.primary_group, bf.business_format,
+                       rol.raw_data->>'city' as city,
+                       coalesce(rol.raw_data->>'address', rol.raw_data->>'full_address') as address,
+                       coalesce(rol.raw_data->>'latitude', rol.raw_data->>'lat') as latitude,
+                       coalesce(rol.raw_data->>'longitude', rol.raw_data->>'lng') as longitude
+                from business_features bf
+                left join lateral (
+                    select raw_data from raw_outscraper_locations
+                    where google_place_id = bf.google_place_id
+                    order by created_at desc, id desc limit 1
+                ) rol on true
+                """
+            )
+        ).mappings().all()]
         businesses = pd.DataFrame(
-            connection.execute(
-                text(
-                    "select google_place_id, business_name, primary_group, business_format from business_features"
-                )
-            ).mappings().all()
+            business_rows
         )
         aliases = pd.DataFrame(
             connection.execute(
@@ -95,6 +108,12 @@ def load_report_candidates(
         verified,
         key=lambda item: (-int(item.get("recommendations") or 0), str(item.get("business_name") or "")),
     )
+    details = {str(item["google_place_id"]): item for item in business_rows}
+    verified = [
+        {**item, **{key: details.get(str(item.get("google_place_id")), {}).get(key)
+                    for key in ("city", "address", "latitude", "longitude", "primary_group", "business_format")}}
+        for item in verified
+    ]
     unresolved_counts = (
         records[records["google_place_id"].isna()]
         .groupby("raw_business_name", dropna=False)
