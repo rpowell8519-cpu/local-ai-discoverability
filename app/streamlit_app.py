@@ -1,9 +1,9 @@
-import json
+from __future__ import annotations
+
 import sys
 from pathlib import Path
 from typing import Any
 
-import pandas as pd
 import streamlit as st
 from sqlalchemy import text
 
@@ -12,499 +12,255 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(PROJECT_ROOT))
 
 from src.database import get_engine
+from src.poc_audit_production import list_report_generator_definitions
+from src.report_generator_readiness import (
+    ACTIVE_REPORT_PROJECT_KEY,
+    owner_brief_missing_fields,
+    report_journey,
+)
 
+
+BUILD_VERSION = "Report Console v1.0"
+REPORT_GENERATOR_PAGE = "pages/10_AI_Report_Generator.py"
 
 st.set_page_config(
-    page_title="Local AI Discoverability",
-    page_icon="📍",
+    page_title="Report Console",
+    page_icon="📋",
     layout="wide",
 )
 
-st.title("Local AI Discoverability")
-st.caption("Brighton business data explorer")
+
+_PROJECTS = text(
+    """
+    with latest as (
+        select distinct on (target_google_place_id)
+            target_google_place_id,
+            target_business_name,
+            revision,
+            known_for,
+            desired_searches,
+            benchmark_run_id,
+            reviewer_decisions_complete,
+            created_at
+        from report_audit_revisions
+        order by target_google_place_id, revision desc
+    )
+    select
+        latest.target_google_place_id,
+        latest.target_business_name,
+        latest.revision,
+        latest.known_for,
+        latest.desired_searches,
+        latest.reviewer_decisions_complete,
+        latest.created_at,
+        exists (
+            select 1
+            from ai_visibility_runs run
+            where run.id = latest.benchmark_run_id
+              and run.status = 'completed'
+        ) as benchmark_complete,
+        exists (
+            select 1
+            from website_audit_runs audit
+            where audit.google_place_id = latest.target_google_place_id
+              and audit.audit_status in ('completed', 'partial')
+        ) as website_ready,
+        (
+            select count(*)
+            from business_reviews review
+            where review.google_place_id = latest.target_google_place_id
+        ) as review_count
+    from latest
+    order by latest.created_at desc
+    """
+)
 
 
-def parse_json_value(value: Any) -> Any:
-    """Parse JSON stored as text where possible."""
-    if value is None:
-        return None
+@st.cache_data(ttl=60)
+def load_report_projects() -> list[dict[str, Any]]:
+    """Read every saved report project with its evidence state. Read-only."""
 
-    if isinstance(value, (list, dict)):
-        return value
-
-    if isinstance(value, str):
-        value = value.strip()
-
-        if not value:
-            return None
-
-        try:
-            return json.loads(value)
-        except json.JSONDecodeError:
-            return value
-
-    return value
-
-
-def display_subtypes(value: Any) -> str:
-    """Convert subtype data into readable text."""
-    parsed = parse_json_value(value)
-
-    if isinstance(parsed, list):
-        return ", ".join(str(item) for item in parsed)
-
-    if isinstance(parsed, dict):
-        return ", ".join(str(item) for item in parsed.values())
-
-    if parsed is None:
-        return ""
-
-    return str(parsed)
-
-
-def safe_numeric(series: pd.Series) -> pd.Series:
-    return pd.to_numeric(series, errors="coerce")
+    with get_engine().connect() as connection:
+        rows = connection.execute(_PROJECTS).mappings().all()
+    return [dict(row) for row in rows]
 
 
 @st.cache_data(ttl=300)
-def load_businesses() -> pd.DataFrame:
-    engine = get_engine()
+def configured_place_ids() -> set[str]:
+    """Place IDs with an approved, already-configured report definition."""
 
-    query = text(
-        """
-        select
-            id,
-            source_row_number,
-            google_place_id,
-            raw_data
-        from raw_outscraper_locations
-        order by source_row_number
-        """
+    return {
+        str(definition.target_google_place_id)
+        for definition in list_report_generator_definitions()
+    }
+
+
+def project_journey(project: dict[str, Any], *, configured: bool) -> dict[str, Any]:
+    """Describe one project using the same rules as the report generator."""
+
+    brief = {
+        "known_for": project.get("known_for") or "",
+        "desired_searches": list(project.get("desired_searches") or []),
+    }
+    return report_journey(
+        owner_ready=configured or not owner_brief_missing_fields(brief),
+        ai_ready=configured or bool(project.get("benchmark_complete")),
+        website_ready=bool(project.get("website_ready")),
+        reviews_ready=int(project.get("review_count") or 0) > 0,
+        configuration_ready=(
+            configured or bool(project.get("reviewer_decisions_complete"))
+        ),
     )
 
-    with engine.connect() as connection:
-        rows = connection.execute(query).mappings().all()
 
-    records = []
+def open_report(place_id: str) -> None:
+    """Send the operator to the report generator with this project selected."""
 
-    for row in rows:
-        raw_data = row["raw_data"]
+    st.session_state[ACTIVE_REPORT_PROJECT_KEY] = str(place_id)
+    st.switch_page(REPORT_GENERATOR_PAGE)
 
-        if isinstance(raw_data, str):
-            raw_data = json.loads(raw_data)
 
-        records.append(
-            {
-                "record_id": str(row["id"]),
-                "source_row_number": row["source_row_number"],
-                "google_place_id": row["google_place_id"],
-                **raw_data,
-            }
-        )
+def readiness_line(journey: dict[str, Any]) -> str:
+    parts = []
+    for item in journey["items"]:
+        if item["importance"] == "Optional":
+            continue
+        parts.append(("✅ " if item["ready"] else "⬜ ") + str(item["label"]))
+    return " · ".join(parts)
 
-    df = pd.DataFrame(records)
 
-    if "rating" in df.columns:
-        df["rating"] = safe_numeric(df["rating"])
+st.title("Client report console")
+st.caption(
+    "Start a new AI visibility report, or pick up one that is already under way. "
+    "Each report walks you through every step in order."
+)
 
-    if "reviews" in df.columns:
-        df["reviews"] = safe_numeric(df["reviews"])
-
-    if "subtypes" in df.columns:
-        df["subtypes_display"] = df["subtypes"].apply(display_subtypes)
-    else:
-        df["subtypes_display"] = ""
-
-    return df
-
+if st.button("Start a new report", type="primary", icon=":material/add:"):
+    st.session_state.pop(ACTIVE_REPORT_PROJECT_KEY, None)
+    st.switch_page(REPORT_GENERATOR_PAGE)
 
 try:
-    df = load_businesses()
+    projects = load_report_projects()
 except Exception as exc:
-    st.error("The business data could not be loaded.")
+    st.error("The saved report projects could not be loaded from the database.")
     st.exception(exc)
-    st.stop()
+    projects = []
 
+try:
+    configured = configured_place_ids()
+except Exception:
+    configured = set()
 
-# ---------------------------------------------------------
-# COLUMN MAPPING
-# ---------------------------------------------------------
+decorated = []
+for project in projects:
+    place_id = str(project["target_google_place_id"])
+    journey = project_journey(project, configured=place_id in configured)
+    decorated.append((project, place_id, journey))
 
-name_column = next(
-    (
-        column
-        for column in ["name", "business_name", "title"]
-        if column in df.columns
-    ),
-    None,
-)
-
-type_column = next(
-    (
-        column
-        for column in ["type", "category", "primary_category"]
-        if column in df.columns
-    ),
-    None,
-)
-
-address_column = next(
-    (
-        column
-        for column in ["full_address", "address"]
-        if column in df.columns
-    ),
-    None,
-)
-
-website_column = next(
-    (
-        column
-        for column in ["site", "website", "website_url"]
-        if column in df.columns
-    ),
-    None,
-)
-
-maps_column = next(
-    (
-        column
-        for column in ["google_maps_url", "location_link"]
-        if column in df.columns
-    ),
-    None,
-)
-
-
-# ---------------------------------------------------------
-# SUMMARY METRICS
-# ---------------------------------------------------------
-
-metric_columns = st.columns(4)
-
-with metric_columns[0]:
-    st.metric("Businesses", len(df))
-
-with metric_columns[1]:
-    rated_count = int(df["rating"].notna().sum()) if "rating" in df else 0
-    st.metric("With ratings", rated_count)
-
-with metric_columns[2]:
-    website_count = (
-        int(df[website_column].notna().sum())
-        if website_column
-        else 0
-    )
-    st.metric("With websites", website_count)
-
-with metric_columns[3]:
-    average_rating = (
-        round(df["rating"].mean(), 2)
-        if "rating" in df and df["rating"].notna().any()
-        else 0
-    )
-    st.metric("Average rating", average_rating)
-
-
-# ---------------------------------------------------------
-# FILTERS
-# ---------------------------------------------------------
-
-st.sidebar.header("Filters")
-
-search_term = st.sidebar.text_input(
-    "Business name",
-    placeholder="For example: Ciscos Karma",
-)
-
-selected_types = []
-
-if type_column:
-    available_types = sorted(
-        df[type_column]
-        .dropna()
-        .astype(str)
-        .unique()
-        .tolist()
-    )
-
-    selected_types = st.sidebar.multiselect(
-        "Primary type",
-        options=available_types,
-    )
-
-available_subtypes = sorted(
-    {
-        subtype.strip()
-        for value in df["subtypes_display"].dropna()
-        for subtype in str(value).split(",")
-        if subtype.strip()
-    }
-)
-
-selected_subtypes = st.sidebar.multiselect(
-    "Subtype",
-    options=available_subtypes,
-)
-
-minimum_rating = st.sidebar.slider(
-    "Minimum rating",
-    min_value=0.0,
-    max_value=5.0,
-    value=0.0,
-    step=0.1,
-)
-
-maximum_review_value = (
-    int(df["reviews"].max())
-    if "reviews" in df and df["reviews"].notna().any()
-    else 0
-)
-
-minimum_reviews = st.sidebar.number_input(
-    "Minimum review count",
-    min_value=0,
-    max_value=max(maximum_review_value, 1),
-    value=0,
-    step=10,
-)
-
-website_only = st.sidebar.checkbox(
-    "Only businesses with a website"
-)
-
-operational_only = st.sidebar.checkbox(
-    "Only operational businesses",
-    value=True,
-)
-
-
-# ---------------------------------------------------------
-# APPLY FILTERS
-# ---------------------------------------------------------
-
-filtered_df = df.copy()
-
-if search_term and name_column:
-    filtered_df = filtered_df[
-        filtered_df[name_column]
-        .fillna("")
-        .astype(str)
-        .str.contains(search_term, case=False, regex=False)
-    ]
-
-if selected_types and type_column:
-    filtered_df = filtered_df[
-        filtered_df[type_column].astype(str).isin(selected_types)
-    ]
-
-if selected_subtypes:
-    subtype_pattern = "|".join(
-        selected_subtypes
-    )
-
-    filtered_df = filtered_df[
-        filtered_df["subtypes_display"]
-        .fillna("")
-        .str.contains(
-            subtype_pattern,
-            case=False,
-            regex=True,
-        )
-    ]
-
-if "rating" in filtered_df.columns:
-    filtered_df = filtered_df[
-        filtered_df["rating"].fillna(0) >= minimum_rating
-    ]
-
-if "reviews" in filtered_df.columns:
-    filtered_df = filtered_df[
-        filtered_df["reviews"].fillna(0) >= minimum_reviews
-    ]
-
-if website_only and website_column:
-    filtered_df = filtered_df[
-        filtered_df[website_column]
-        .fillna("")
-        .astype(str)
-        .str.strip()
-        .ne("")
-    ]
-
-if operational_only and "business_status" in filtered_df.columns:
-    filtered_df = filtered_df[
-        filtered_df["business_status"]
-        .fillna("")
-        .astype(str)
-        .str.lower()
-        .eq("operational")
-    ]
-
-
-# ---------------------------------------------------------
-# RESULTS TABLE
-# ---------------------------------------------------------
-
-st.subheader(f"Showing {len(filtered_df)} businesses")
-
-display_columns = [
-    column
-    for column in [
-        name_column,
-        type_column,
-        "subtypes_display",
-        "rating",
-        "reviews",
-        address_column,
-        website_column,
-    ]
-    if column and column in filtered_df.columns
-]
-
-column_names = {
-    name_column: "Business",
-    type_column: "Type",
-    "subtypes_display": "Subtypes",
-    "rating": "Rating",
-    "reviews": "Reviews",
-    address_column: "Address",
-    website_column: "Website",
-}
-
-results_df = filtered_df[display_columns].rename(
-    columns=column_names
-)
-
-st.dataframe(
-    results_df,
-    use_container_width=True,
-    hide_index=True,
-    height=450,
-)
-
-
-# ---------------------------------------------------------
-# BUSINESS DETAIL
-# ---------------------------------------------------------
+in_progress = [item for item in decorated if not item[2]["can_generate"]]
+finished = [item for item in decorated if item[2]["can_generate"]]
 
 st.divider()
-st.subheader("Business detail")
+st.subheader(f"Reports in progress ({len(in_progress)})")
 
-if name_column and not filtered_df.empty:
-    business_options = (
-        filtered_df[[name_column, "record_id"]]
-        .dropna(subset=[name_column])
-        .sort_values(name_column)
+if not in_progress:
+    st.info(
+        "Nothing is part-finished. Every saved report has reached the point where "
+        "its PDF can be generated."
     )
 
-    selected_record_id = st.selectbox(
-        "Select a business",
-        options=business_options["record_id"].tolist(),
-        format_func=lambda record_id: business_options.loc[
-            business_options["record_id"] == record_id,
-            name_column,
-        ].iloc[0],
+for project, place_id, journey in in_progress:
+    with st.container(border=True):
+        details, action = st.columns([4, 1])
+        with details:
+            st.markdown(f"**{project['target_business_name']}**")
+            st.caption(
+                f"Saved setup revision {project['revision']} · "
+                f"last updated {project['created_at']:%d %b %Y}"
+            )
+            st.markdown(f"**Next step:** {journey['next_step']['title']}")
+            st.caption(journey["next_step"]["body"])
+            st.caption(readiness_line(journey))
+        with action:
+            if st.button(
+                "Continue",
+                key=f"continue_{place_id}",
+                type="primary",
+                use_container_width=True,
+            ):
+                open_report(place_id)
+
+st.divider()
+st.subheader(f"Ready to generate ({len(finished)})")
+st.caption(
+    "These reports have the evidence they need. Open one to review it or produce the PDF again."
+)
+
+for project, place_id, journey in finished:
+    with st.container(border=True):
+        details, action = st.columns([4, 1])
+        with details:
+            st.markdown(f"**{project['target_business_name']}**")
+            st.caption(
+                f"Saved setup revision {project['revision']} · "
+                f"last updated {project['created_at']:%d %b %Y}"
+            )
+            st.caption(readiness_line(journey))
+            if journey["missing_recommended"]:
+                st.caption(
+                    "Reported as unavailable: "
+                    + ", ".join(journey["missing_recommended"])
+                )
+        with action:
+            if st.button(
+                "Open",
+                key=f"open_{place_id}",
+                use_container_width=True,
+            ):
+                open_report(place_id)
+
+st.divider()
+st.subheader("Tools")
+st.caption(
+    "You do not normally need these. The report takes you to the right tool at the "
+    "right moment, then brings you back."
+)
+
+evidence_column, testing_column, data_column = st.columns(3)
+
+with evidence_column:
+    st.markdown("**Evidence**")
+    st.page_link("pages/5_Website_Audits.py", label="Check a website", icon="🌐")
+    st.page_link("pages/7_Review_Insights.py", label="Pull customer reviews", icon="⭐")
+    st.page_link(
+        "pages/6_Website_Benchmark.py", label="Compare website features", icon="📊"
     )
 
-    selected_record = filtered_df[
-        filtered_df["record_id"] == selected_record_id
-    ].iloc[0]
+with testing_column:
+    st.markdown("**AI testing**")
+    st.page_link(
+        "pages/8_AI_Visibility.py", label="Run an AI visibility test", icon="🤖"
+    )
+    st.page_link(
+        "pages/0_AI_Discovery_Scan.py", label="Explore who AI recommends", icon="🔍"
+    )
+    st.page_link(
+        "pages/9_AI_Competitive_Diagnostic.py",
+        label="Competitive diagnostic (older report flow)",
+        icon="🗂️",
+    )
 
-    detail_columns = st.columns(3)
+with data_column:
+    st.markdown("**Business data**")
+    st.page_link(
+        "pages/12_Business_Data_Explorer.py", label="Browse business data", icon="🔎"
+    )
+    st.page_link(
+        "pages/4_Data_Admin.py", label="Import and manage businesses", icon="⚙️"
+    )
+    st.page_link(
+        "pages/3_Competitor_Matcher.py", label="Match competitor identities", icon="🔗"
+    )
 
-    with detail_columns[0]:
-        st.write("### Business")
-        st.write(selected_record.get(name_column, "Not available"))
-
-        st.write("**Primary type**")
-        st.write(
-            selected_record.get(type_column, "Not available")
-            if type_column
-            else "Not available"
-        )
-
-        st.write("**Subtypes**")
-        st.write(
-            selected_record.get(
-                "subtypes_display",
-                "Not available",
-            )
-            or "Not available"
-        )
-
-    with detail_columns[1]:
-        st.write("### Google profile")
-
-        st.write("**Rating**")
-        st.write(selected_record.get("rating", "Not available"))
-
-        st.write("**Reviews**")
-        st.write(selected_record.get("reviews", "Not available"))
-
-        st.write("**Status**")
-        st.write(
-            selected_record.get(
-                "business_status",
-                "Not available",
-            )
-        )
-
-    with detail_columns[2]:
-        st.write("### Contact")
-
-        st.write("**Address**")
-        st.write(
-            selected_record.get(
-                address_column,
-                "Not available",
-            )
-            if address_column
-            else "Not available"
-        )
-
-        st.write("**Telephone**")
-        st.write(selected_record.get("phone", "Not available"))
-
-        website = (
-            selected_record.get(website_column)
-            if website_column
-            else None
-        )
-
-        if website:
-            st.link_button(
-                "Open website",
-                str(website),
-                use_container_width=True,
-            )
-
-        maps_url = (
-            selected_record.get(maps_column)
-            if maps_column
-            else None
-        )
-
-        if maps_url:
-            st.link_button(
-                "Open Google Maps",
-                str(maps_url),
-                use_container_width=True,
-            )
-
-    with st.expander("View complete raw record"):
-        raw_record = {}
-
-        for key, value in selected_record.to_dict().items():
-            if value is None:
-                continue
-
-            if isinstance(value, float) and pd.isna(value):
-                continue
-
-            raw_record[key] = value
-
-        st.json(raw_record)
-
-else:
-    st.info("No businesses match the selected filters.")
+st.divider()
+st.caption(f"Build: {BUILD_VERSION}")
