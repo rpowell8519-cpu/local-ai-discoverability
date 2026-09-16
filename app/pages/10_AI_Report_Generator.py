@@ -66,6 +66,11 @@ from src.poc_audit_production import (  # noqa: E402
 )
 from src.poc_audit_generic import build_reviewable_generic_audit  # noqa: E402
 from src.report_audit_candidates import load_report_candidates  # noqa: E402
+from src.report_competitors import (  # noqa: E402
+    catchment_radius_miles,
+    classify_location,
+    match_owner_competitors,
+)
 from src.report_audit_workflow import (  # noqa: E402
     AuditWorkflowInput,
     EvidenceState,
@@ -86,7 +91,7 @@ from src.report_generator_readiness import (  # noqa: E402
 )
 
 
-BUILD_VERSION = "Accessible AI Report Generator v2.4.3"
+BUILD_VERSION = "Accessible AI Report Generator v3.0.0"
 REPORT_STATE_KEY = "accessible_ai_report_generator_result"
 AI_VISIBILITY_HANDOFF_KEY = "ai_visibility_report_handoff_target"
 AI_VISIBILITY_FORCE_PROMPTS_KEY = "ai_visibility_force_owner_prompts"
@@ -119,6 +124,10 @@ def load_businesses() -> pd.DataFrame:
             raw_type,
             primary_group,
             business_format,
+            rol.raw_data->>'city' as city,
+            coalesce(rol.raw_data->>'address', rol.raw_data->>'full_address') as address,
+            coalesce(rol.raw_data->>'latitude', rol.raw_data->>'lat') as latitude,
+            coalesce(rol.raw_data->>'longitude', rol.raw_data->>'lng') as longitude,
             coalesce(
                 nullif(rol.raw_data->>'website', ''),
                 nullif(rol.raw_data->>'site', '')
@@ -1041,9 +1050,10 @@ with st.container(border=True):
 if ai_ready and definition is None:
     st.subheader("5. Review the AI-selected comparison set")
     st.write(
-        "The platform automatically selects the three most-mentioned verified businesses "
-        "from AI Visibility. The owner does not need to supply competitors. A reviewer can "
-        "override the selection only when there is a clear relevance or identity reason."
+        "The platform suggests three verified, geographically relevant businesses found in "
+        "AI Visibility. Owner-nominated competitors are measured separately, including those "
+        "with no visibility. A reviewer can override the AI-discovered set when there is a "
+        "clear relevance, location or identity reason."
     )
     try:
         candidates = load_report_candidates(
@@ -1055,6 +1065,40 @@ if ai_ready and definition is None:
         st.exception(exc)
         candidates = {"verified": [], "unresolved": []}
     verified_candidates = candidates["verified"]
+    owner_context = dict((saved_brief or {}).get("owner_context") or {})
+    initial_decisions = dict((durable_audit or {}).get("reviewer_decisions") or {})
+    suggested_radius = catchment_radius_miles(
+        str(business.get("primary_group") or ""),
+        str(business.get("business_format") or ""),
+    )
+    radius_options = [10, 25, 35, 60]
+    saved_radius = float(initial_decisions.get("catchment_radius_miles") or suggested_radius)
+    default_radius = min(radius_options, key=lambda value: abs(value - saved_radius))
+    selected_radius = st.selectbox(
+        "Expected competitor catchment",
+        options=radius_options,
+        index=radius_options.index(default_radius),
+        format_func=lambda value: f"{value} miles",
+        help="The suggested distance reflects the business type. Adjust it when the owner's real service area is narrower or wider.",
+    )
+    target_location = {
+        key: business.get(key) for key in ("city", "address", "latitude", "longitude")
+    }
+    service_areas = list(owner_context.get("service_areas") or [])
+    verified_candidates = [
+        {
+            **item,
+            **classify_location(
+                item,
+                target=target_location,
+                primary_group=str(business.get("primary_group") or ""),
+                business_format=str(business.get("business_format") or ""),
+                service_areas=service_areas,
+                radius_miles=float(selected_radius),
+            ),
+        }
+        for item in verified_candidates
+    ]
     candidate_by_id = {
         str(item["google_place_id"]): item for item in verified_candidates
         if item.get("google_place_id")
@@ -1070,12 +1114,50 @@ if ai_ready and definition is None:
                 st.switch_page("pages/8_AI_Visibility.py")
     if len(candidate_by_id) < 3:
         st.warning(
-            "Fewer than three verified AI-visible businesses are available. Resolve additional names in AI Visibility before completing the report review."
+            "Fewer than three verified AI-visible businesses are available. Use the relevant verified businesses available; a report can proceed without a forced comparison set."
         )
     existing_decisions = dict((durable_audit or {}).get("reviewer_decisions") or {})
+    local_default_ids = [
+        str(item["google_place_id"])
+        for item in verified_candidates
+        if item.get("location_classification") in {"local", "unknown"}
+    ]
+    wider_default_ids = [
+        str(item["google_place_id"])
+        for item in verified_candidates
+        if item.get("location_classification") == "wider_area"
+    ]
+    eligible_default_ids = [*local_default_ids, *wider_default_ids]
     default_cohort = [
         item for item in existing_decisions.get("cohort_place_ids", []) if item in candidate_by_id
-    ] or list(candidate_by_id)[:3]
+    ] or eligible_default_ids[:3]
+    recommendation_counts = {
+        str(item.get("google_place_id")): int(item.get("recommendations") or 0)
+        for item in verified_candidates
+    }
+    owner_matches = match_owner_competitors(
+        list((saved_brief or {}).get("owner_competitors") or []),
+        business_records,
+        recommendation_counts,
+    )
+    st.caption(
+        f"Suggested catchment for this business type: {suggested_radius:.0f} miles. "
+        "Owner-stated service areas take priority when provided."
+    )
+    if owner_matches:
+        st.markdown("**The competitors the owner identified**")
+        st.dataframe(
+            pd.DataFrame([
+                {
+                    "Owner entry": item["owner_name"],
+                    "Matched business": item["business_name"] if item["match_status"] == "matched" else "Needs confirmation",
+                    "Benchmark result": item["visibility_status"],
+                }
+                for item in owner_matches
+            ]),
+            hide_index=True,
+            use_container_width=True,
+        )
     if default_cohort:
         st.dataframe(
             pd.DataFrame(
@@ -1083,6 +1165,8 @@ if ai_ready and definition is None:
                     {
                         "AI-selected business": candidate_by_id[place_id]["business_name"],
                         "Recommendations": int(candidate_by_id[place_id].get("recommendations") or 0),
+                        "Location": candidate_by_id[place_id].get("city") or "Not available",
+                        "Catchment": str(candidate_by_id[place_id].get("location_classification") or "unknown").replace("_", " ").title(),
                     }
                     for place_id in default_cohort
                 ]
@@ -1105,9 +1189,19 @@ if ai_ready and definition is None:
                 max_selections=3,
                 format_func=lambda place_id: (
                     f"{candidate_by_id[place_id]['business_name']} — "
-                    f"{int(candidate_by_id[place_id].get('recommendations') or 0)} recommendation(s)"
+                    f"{int(candidate_by_id[place_id].get('recommendations') or 0)} recommendation(s) — "
+                    f"{str(candidate_by_id[place_id].get('location_classification') or 'unknown').replace('_', ' ')}"
                 ),
-                help="Keep the automatic selection unless a business is irrelevant or incorrectly matched.",
+                help="Locally relevant businesses are suggested first. Wider or out-of-area results remain available when there is a clear reason.",
+            )
+        outside_selected = [
+            candidate_by_id[item]["business_name"] for item in selected_cohort
+            if candidate_by_id[item].get("location_classification") == "outside"
+        ]
+        if outside_selected:
+            st.warning(
+                "Outside the expected catchment: " + ", ".join(outside_selected)
+                + ". Keep only when the wider-area comparison is genuinely relevant."
             )
         headline = st.text_area(
             "Plain-English headline",
@@ -1122,7 +1216,7 @@ if ai_ready and definition is None:
         action_titles = st.text_area(
             "Priority action titles",
             value="\n".join(existing_decisions.get("action_titles") or []),
-            placeholder="Optional: one accessible action title per line. The report uses three.",
+            placeholder="Reviewer ideas only. The v4 report needs source-checked observations and completion checks before prescribing changes.",
         )
         selected_quotes = st.multiselect(
             "Verbatim customer review quotes (optional, up to six)",
@@ -1145,7 +1239,7 @@ if ai_ready and definition is None:
             "Complete report review",
             type="primary",
             use_container_width=True,
-            disabled=len(selected_cohort) != 3,
+            disabled=len(selected_cohort) > 3,
         )
     if save_draft or complete_review:
         reviewer_decisions = {
@@ -1155,6 +1249,15 @@ if ai_ready and definition is None:
             "action_titles": [line.strip(" \t-•") for line in action_titles.splitlines() if line.strip(" \t-•")],
             "review_quote_ids": selected_quotes,
             "review_notes": " ".join(review_notes.split()),
+            "owner_competitor_matches": owner_matches,
+            "cohort_location_assessments": {
+                place_id: {
+                    key: candidate_by_id[place_id].get(key)
+                    for key in ("city", "address", "location_classification", "location_reason", "distance_miles", "catchment_radius_miles")
+                }
+                for place_id in selected_cohort
+            },
+            "catchment_radius_miles": float(selected_radius),
         }
         try:
             saved_review = save_reviewer_decisions_revision(
@@ -1230,3 +1333,14 @@ else:
             "This draft was generated in memory. Downloading it does not freeze or "
             "save a report snapshot."
         )
+        if reviewable.payload.get("report", {}).get("report_format") == "accessible_owner_services_v4":
+            from src.owner_services_report import evidence_index_html
+            index_name = reviewable.payload["report"].get("owner_report", {}).get("evidence_index", "Report evidence index.html")
+            st.download_button(
+                "Download companion evidence index",
+                data=evidence_index_html(reviewable.payload),
+                file_name=index_name,
+                mime="text/html",
+                use_container_width=True,
+            )
+            st.caption("Keep the evidence index beside the PDF so its saved-answer links work. It contains original answers and saved research, not newly collected evidence.")
