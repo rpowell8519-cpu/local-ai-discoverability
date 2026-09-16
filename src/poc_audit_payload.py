@@ -399,7 +399,7 @@ def validate_poc_audit_payload(
         if not response_id:
             errors.append(f"AI response {index} has no response_id")
 
-        if not isinstance(raw_text, str) or not raw_text:
+        if not isinstance(raw_text, str) or (not raw_text and response.get("response_complete") and response.get("status") == "completed"):
             errors.append(
                 f"AI response {response_id or index} has no raw text"
             )

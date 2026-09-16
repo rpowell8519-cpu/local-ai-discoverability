@@ -175,5 +175,5 @@ def build_reviewable_poc_audit(
         payload_sha256=canonical_hash,
         pdf_bytes=pdf_bytes,
         pdf_sha256=sha256_bytes(pdf_bytes),
-        renderer_version=PDF_RENDERER_VERSION,
+        renderer_version=("poc_audit_pdf_owner_services_v4" if payload.get("report", {}).get("report_format") == "accessible_owner_services_v4" else PDF_RENDERER_VERSION),
     )

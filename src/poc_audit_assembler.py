@@ -317,6 +317,9 @@ def _question_performance(
         responses = [
             item for item in complete_responses if int(item["base_prompt_order"]) == order
         ]
+        prompt_records = responses or [
+            item for item in baseline["responses"] if int(item["base_prompt_order"]) == order
+        ]
         question_slots = [
             item for item in business_slots if int(item["base_prompt_order"]) == order
         ]
@@ -341,8 +344,8 @@ def _question_performance(
             })
         result.append({
             "order": order,
-            "prompt_category": responses[0]["prompt_category"],
-            "prompt_text": responses[0]["prompt_text"],
+            "prompt_category": prompt_records[0]["prompt_category"] if prompt_records else "Unknown",
+            "prompt_text": prompt_records[0]["prompt_text"] if prompt_records else "Question unavailable",
             "answer_count": len(responses),
             "target_appearances": len(target_slots),
             "target_best_position": (
@@ -375,10 +378,16 @@ def _build_report(
         market, key=lambda item: (-int(item["recommendations"]), str(item["business_name"]))
     )
     target_market = _market_row(market, target_id)
-    target_rank = next(
-        index for index, item in enumerate(sorted_market, start=1)
-        if str(item.get("google_place_id")) == target_id
-    )
+    if str(config.get("report_format")) == "accessible_owner_services_v3":
+        target_rank = 1 + sum(
+            int(item["recommendations"]) > int(target_market["recommendations"])
+            for item in sorted_market
+        )
+    else:
+        target_rank = next(
+            index for index, item in enumerate(sorted_market, start=1)
+            if str(item.get("google_place_id")) == target_id
+        )
     cohort_rows = []
     for member in config["cohort"]:
         row = _market_row(market, member["google_place_id"])
@@ -458,7 +467,12 @@ def _build_report(
     return {
         "report_format": str(config.get("report_format") or "poc_audit_v1"),
         "introduction": dict(decisions.get("introduction") or {}),
+        "story": dict(decisions.get("story") or {}),
+        "confidence_definition": str(decisions.get("confidence_definition") or "Confidence describes the strength of evidence for the observed finding, not the likelihood of an AI visibility improvement."),
+        "service_evidence_matrix": list(decisions.get("service_evidence_matrix") or []),
+        "service_evidence_businesses": list(decisions.get("service_evidence_businesses") or []),
         "review_quotes": list(decisions.get("review_quotes") or []),
+        "owner_competitors": list(decisions.get("owner_competitors") or []),
         "question_performance": question_performance,
         "client_context": {"category": config["category"], "location": config["location"]},
         "executive_summary": decisions["executive_summary"],
@@ -597,6 +611,8 @@ def assemble_poc_audit_payload(
         config=config, run=run, baseline=baseline, slots=slots,
         market=market, websites=websites, review_sets=review_sets,
     )
+    if config.get("owner_report") is not None:
+        report["owner_report"] = dict(config["owner_report"])
     decisions = config["analyst_decisions"]
     registry = dict(config["evidence_registry"])
     payload = build_poc_audit_payload(
@@ -611,7 +627,8 @@ def assemble_poc_audit_payload(
             "supersedes_snapshot_id": None,
             "revision_reason": "Original POC audit",
         })),
-        methodology={"providers": run["providers"], "models": run["models"], "prompt_count": run["prompt_count"], "repetitions": run["repeat_count"], "queries": queries},
+        methodology={"providers": run["providers"], "models": run["models"], "prompt_count": run["prompt_count"], "repetitions": run["repeat_count"], "queries": queries,
+                     **({"benchmark_mode": run.get("benchmark_mode", "unknown")} if config.get("report_format") == "accessible_owner_services_v4" else {})},
         baseline_validation=baseline,
         source_traceability={
             "ai_run_id": config["run_id"],

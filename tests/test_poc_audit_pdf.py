@@ -218,14 +218,16 @@ class PocAuditPdfTests(unittest.TestCase):
         })
         rendered = render_poc_audit_pdf(payload)
         reader = PdfReader(__import__("io").BytesIO(rendered))
-        self.assertEqual(len(reader.pages), 17)
+        self.assertEqual(len(reader.pages), 18)
         text = " ".join(" ".join((page.extract_text() or "").split()) for page in reader.pages)
         self.assertIn("How we explored your visibility in AI recommendations", text)
+        self.assertIn("The competitors you identified", text)
+        self.assertIn("Who AI treated as your competition", text)
         self.assertIn("What customers say in their own words", text)
         self.assertIn("Question-by-question detail (1 of 2)", text)
         for page_number, page in enumerate(reader.pages, start=1):
             page_text = " ".join((page.extract_text() or "").split())
-            self.assertEqual(page_text.count(f"{page_number} / 17"), 1)
+            self.assertEqual(page_text.count(f"{page_number} / 18"), 1)
 
         no_quotes = copy.deepcopy(payload)
         no_quotes["report"]["review_quotes"] = []
@@ -272,7 +274,7 @@ class PocAuditPdfTests(unittest.TestCase):
         )
         four_prompt_pdf = render_poc_audit_pdf(four_prompt_payload)
         four_prompt_reader = PdfReader(__import__("io").BytesIO(four_prompt_pdf))
-        self.assertEqual(len(four_prompt_reader.pages), 17)
+        self.assertEqual(len(four_prompt_reader.pages), 18)
         four_prompt_text = " ".join(
             " ".join((page.extract_text() or "").split())
             for page in four_prompt_reader.pages
@@ -283,6 +285,77 @@ class PocAuditPdfTests(unittest.TestCase):
         payload["report"]["review_quotes"][0]["quote"] = "Edited quotation."
         with self.assertRaisesRegex(PdfRenderError, "not verbatim"):
             render_poc_audit_pdf(payload)
+
+    def test_accessible_v3_report_leads_with_service_split_and_shorter_story(self):
+        payload = copy.deepcopy(self.payload)
+        payload["report"].update({
+            "report_format": "accessible_owner_services_v3",
+            "introduction": {
+                "owner_priority": "Example Salon wants to be known for service alpha.",
+                "method_steps": [
+                    {"title": "Set priorities", "body": "Use the owner's priorities."},
+                    {"title": "Test the platforms", "body": "Ask the same questions."},
+                    {"title": "Review evidence", "body": "Compare public information."},
+                ],
+                "scope_note": "A dated controlled test.",
+            },
+            "story": {
+                "headline": "Example Salon was absent from all questions in this synthetic test.",
+                "segments": [
+                    {"label": "Questions 1–6", "appearances": 0, "answers": 18, "detail": "Not observed in the saved answers."},
+                    {"label": "Questions 7–8", "appearances": 0, "answers": 6, "detail": "Not observed in the saved answers."},
+                ],
+                "overall": "Overall: 0 of 24 answers.",
+                "coverage_note": "A future question set should cover every owner priority.",
+            },
+            "service_evidence_businesses": ["Example Salon", "Alpha Salon"],
+            "service_evidence_matrix": [
+                {"question": "Does the website explain the service?", "values": {"Example Salon": "Partly", "Alpha Salon": "Observed"}},
+            ],
+            "confidence_definition": "Confidence describes evidence strength, not expected visibility improvement.",
+            "review_quotes": [],
+        })
+        for action in payload["report"]["priority_actions"]:
+            action.update({
+                "deliverable": "One checked deliverable.",
+                "owner": "Business owner",
+                "effort": "One day",
+                "completion_check": "Review against the customer question.",
+            })
+        prompts = [
+            item for item in payload["methodology"]["queries"]
+            if int(item["repeat_index"]) == 1
+        ]
+        payload["report"]["question_performance"] = [
+            {
+                "order": int(prompt["base_prompt_order"]),
+                "prompt_category": prompt["prompt_category"],
+                "prompt_text": prompt["prompt_text"],
+                "answer_count": 3,
+                "target_appearances": 0,
+                "target_best_position": None,
+                "leaders": [],
+                "provider_results": [
+                    {"provider": provider, "answer_count": 1, "leaders": []}
+                    for provider in ("OpenAI", "Claude", "Gemini")
+                ],
+            }
+            for prompt in prompts
+        ]
+        rendered = render_poc_audit_pdf(payload)
+        reader = PdfReader(__import__("io").BytesIO(rendered))
+        self.assertEqual(len(reader.pages), 17)
+        text = " ".join(" ".join((page.extract_text() or "").split()) for page in reader.pages)
+        self.assertIn("Example Salon was absent from all questions", text)
+        self.assertIn("answers analysed", text)
+        self.assertIn("Small, concrete actions to start", text)
+        self.assertIn("COMPLETION CHECK", text)
+        self.assertNotIn("POC AUDIT V1", text)
+        self.assertNotIn("API responses", text)
+        self.assertNotIn("service journeys", text)
+        for page_number, page in enumerate(reader.pages, start=1):
+            page_text = " ".join((page.extract_text() or "").split())
+            self.assertEqual(page_text.count(f"{page_number} / 17"), 1)
 
     def test_rendering_never_opens_a_database(self):
         with patch(

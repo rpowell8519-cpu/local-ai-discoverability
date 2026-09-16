@@ -11,6 +11,7 @@ from src.poc_audit_assembler import assemble_poc_audit_payload
 from src.poc_audit_cisco_assembler import NON_BUSINESS_PREFIXES
 from src.poc_audit_production import PocAuditDefinition, ReviewablePocAudit, build_reviewable_poc_audit
 from src.report_audit_candidates import load_report_candidates
+from src.report_competitors import classify_location, match_owner_competitors
 
 
 def _rows(connection, sql: str, parameters: Mapping[str, Any] | None = None) -> list[dict[str, Any]]:
@@ -93,8 +94,8 @@ def assemble_generic_report_payload(
     run_id = str(audit_revision.get("benchmark_run_id") or "")
     decisions_input = dict(audit_revision.get("reviewer_decisions") or {})
     cohort_ids = [str(item) for item in decisions_input.get("cohort_place_ids") or []]
-    if len(cohort_ids) != 3:
-        raise ValueError("Exactly three verified AI-visible comparison businesses are required")
+    if len(cohort_ids) > 3 or len(set(cohort_ids)) != len(cohort_ids):
+        raise ValueError("Select up to three distinct verified comparison businesses")
 
     database = engine or get_engine()
     with database.connect() as connection:
@@ -108,7 +109,20 @@ def assemble_generic_report_payload(
             raise ValueError("The accessible report requires completed OpenAI, Claude and Gemini results")
         business_rows = _rows(
             connection,
-            "select google_place_id, business_name from business_features where google_place_id = any(:ids)",
+            """
+            select bf.google_place_id, bf.business_name, bf.primary_group, bf.business_format,
+                   rol.raw_data->>'city' as city,
+                   coalesce(rol.raw_data->>'address', rol.raw_data->>'full_address') as address,
+                   coalesce(rol.raw_data->>'latitude', rol.raw_data->>'lat') as latitude,
+                   coalesce(rol.raw_data->>'longitude', rol.raw_data->>'lng') as longitude
+            from business_features bf
+            left join lateral (
+                select raw_data from raw_outscraper_locations
+                where google_place_id = bf.google_place_id
+                order by created_at desc, id desc limit 1
+            ) rol on true
+            where bf.google_place_id = any(:ids)
+            """,
             {"ids": [str(audit_revision["target_google_place_id"]), *cohort_ids]},
         )
         names = {str(item["google_place_id"]): str(item["business_name"]) for item in business_rows}
@@ -125,6 +139,10 @@ def assemble_generic_report_payload(
             where review_id = any(:review_ids)
             """,
             {"review_ids": review_ids or ["__none__"]},
+        )
+        all_businesses = _rows(
+            connection,
+            "select google_place_id, business_name from business_features where google_place_id is not null",
         )
 
     target_id = str(audit_revision["target_google_place_id"])
@@ -147,6 +165,13 @@ def assemble_generic_report_payload(
         str(item["google_place_id"]): int(item.get("recommendations") or 0)
         for item in candidate_summary["verified"]
     }
+    owner_competitors = list(decisions_input.get("owner_competitor_matches") or [])
+    if not owner_competitors:
+        owner_competitors = match_owner_competitors(
+            list(audit_revision.get("owner_competitors") or []),
+            all_businesses,
+            recommendation_counts,
+        )
     headline = str(decisions_input.get("headline") or (
         f"{target_name} was recommended in {recommendations} of {expected} AI responses."
         if recommendations else
@@ -193,8 +218,21 @@ def assemble_generic_report_payload(
         {"action_id": f"action_{index}", "title": title, "category": "Public evidence", "steps": "Use the owner priorities and observed comparison evidence to make this information clear, accurate and easy to verify.", "intended_improvement": "Clearer client-controllable public evidence for the agreed customer need.", "timing": timing, "evidence_refs": [generic_ref]}
         for index, (title, timing) in enumerate(zip(action_titles, ("Weeks 1-2", "Weeks 2-8", "Weeks 3-10")), 1)
     ]
+    location_assessments = dict(decisions_input.get("cohort_location_assessments") or {})
+    details_by_id = {str(item["google_place_id"]): item for item in business_rows}
+    target_details = details_by_id.get(target_id, {})
+    for place_id in cohort_ids:
+        if place_id not in location_assessments:
+            location_assessments[place_id] = classify_location(
+                details_by_id.get(place_id, {}),
+                target=target_details,
+                primary_group=str(run.get("primary_group") or ""),
+                business_format=str(target_details.get("business_format") or ""),
+                service_areas=list(owner_context.get("service_areas") or []),
+                radius_miles=decisions_input.get("catchment_radius_miles"),
+            )
     cohort = [
-        {"google_place_id": place_id, "business_name": names[place_id], "website_audit_run_id": next((item["website_audit_run_id"] for item in websites if item["google_place_id"] == place_id), None), "selection_reason": "A verified business selected because it appeared prominently in the saved AI benchmark."}
+        {"google_place_id": place_id, "business_name": names[place_id], "website_audit_run_id": next((item["website_audit_run_id"] for item in websites if item["google_place_id"] == place_id), None), "selection_reason": "A verified business selected because it appeared prominently in the saved AI benchmark.", **dict(location_assessments.get(place_id) or {})}
         for place_id in cohort_ids
     ]
     matrix_names = [target_name, *[names[item] for item in cohort_ids]]
@@ -230,6 +268,7 @@ def assemble_generic_report_payload(
         "strengths": strengths,
         "strengths_note": "These foundations make the next improvements more focused and measurable.",
         "review_quotes": review_quotes,
+        "owner_competitors": owner_competitors,
         "gaps": gaps,
         "actions": actions,
         "priority_action_ids": [item["action_id"] for item in actions],
@@ -253,7 +292,18 @@ def assemble_generic_report_payload(
         "provider_hypotheses": [],
     }
     config = {
-        "report_format": "beta_accessible_v2",
+        "report_format": "accessible_owner_services_v4",
+        # Unmapped priorities are not silently labelled untested. A reviewer can
+        # supply explicit question groups and source-checked findings using the
+        # same owner_report contract as the maintained report definitions.
+        "owner_report": dict(decisions_input.get("owner_report") or {
+            "evidence_index": "Report evidence index.html",
+            "priority_context": "Owner priorities: " + ", ".join(owner_context.get("priority_services") or ["Not yet confirmed"]),
+            "services": [{"name": name, "questions": None} for name in owner_context.get("priority_services") or []],
+            "sources": [{"ref": f"R{i}", "kind": "review", "record_id": str(row["review_id"]),
+                         "title": "Selected customer review", "excerpt": str(row["review_text"])}
+                        for i, row in enumerate(quote_rows, 1)],
+        }),
         "run_id": run_id,
         "target_google_place_id": target_id,
         "target_business_name": target_name,
@@ -279,7 +329,7 @@ def assemble_generic_report_payload(
         "matrix_business_place_ids": {name: pid for name, pid in zip(matrix_names, all_ids)},
         "market_note": "Business Share of Recommendation describes named-business recommendations in this benchmark, not commercial market share.",
         "provider_caveat": "The report describes what each assistant recommended and does not assume how any platform chose its answers.",
-        "cohort_note": "The comparison set contains three reviewer-approved, verified businesses found in the measured AI answers.",
+        "cohort_note": "The comparison set contains reviewer-approved, verified businesses found in the measured AI answers.",
         "gap_caveat": "Observed differences are evidence-backed opportunities, not proven causes of AI recommendations.",
         "action_caveat": "The actions strengthen public evidence; no AI visibility improvement is guaranteed.",
         "methodology_validation": (f"{expected} saved response records loaded", f"{int(run['prompt_count'])} owner-reviewed questions", "Comparison businesses selected from measured AI responses"),
