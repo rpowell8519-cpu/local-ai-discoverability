@@ -19,13 +19,41 @@ Treat this as a working product. Preserve existing functionality unless the user
 
 ## Core architecture
 
-- UI: `app/streamlit_app.py` and `app/pages/`
+- UI entry point: `app/streamlit_app.py` is the client report console. It lists saved
+  report projects, splits them into work in progress and reports ready to generate, and
+  hands off to `app/pages/10_AI_Report_Generator.py`.
+- UI pages: `app/pages/`
 - Domain/workflow logic: `src/`
 - Database: PostgreSQL / Supabase via SQLAlchemy + psycopg
 - Durable results: PostgreSQL
 - Cross-page temporary workflow state: `st.session_state`
 
 There is no separate backend service.
+
+## Operator workflow state
+
+`report_audit_revisions` is the durable, append-only record of a report project. It holds
+the owner brief (`known_for`, `desired_searches`), the attached benchmark run, evidence
+states and reviewer decisions.
+
+`st.session_state` is browser-session-only. It does not survive a reopened tab, an app
+restart or a session timeout.
+
+Do not source a report-critical input from `st.session_state` alone. Always reload it from
+the latest durable revision and treat session state as a cache.
+
+This rule exists because AI Visibility previously read the owner's priority questions only
+from session state. A new browser session silently fell back to generic generated prompts
+and still allowed a paid benchmark to start, producing a report that measured the wrong
+questions. See `load_durable_owner_brief` in `app/pages/8_AI_Visibility.py`.
+
+Specifically:
+- A paid run must not start when a saved brief exists but none of its questions are selected.
+  Offer to reload the owner's questions, or require an explicit opt-out.
+- `ACTIVE_REPORT_PROJECT_KEY` is a navigation convenience for handoffs between pages. It is
+  not a source of truth, and must not gate a correctness guard.
+- Derive report status from `report_journey()` in `src/report_generator_readiness.py` rather
+  than reimplementing readiness rules per page.
 
 ## Business identity rules
 
@@ -162,6 +190,16 @@ Where practical, run a local Streamlit smoke launch:
 
 `streamlit run app/streamlit_app.py --server.headless true`
 
+A single page can be executed headlessly, without a browser, using Streamlit's own
+harness. This runs the real script against the configured database and reports any
+exception:
+
+`AppTest.from_file("app/pages/8_AI_Visibility.py", default_timeout=180).run()`
+(from `streamlit.testing.v1`)
+
+Keep this read-only: it renders the page, it must not be used to click import, rebuild,
+save, delete, audit-run, review-pull or AI-run controls.
+
 Do not trigger paid APIs as part of smoke testing.
 
 The configured local database may be a production database. QA and smoke testing must remain read-only unless the user explicitly authorises mutations. Do not use import, rebuild, save, delete, audit-run, review-pull, or AI-run controls during routine smoke testing against an unconfirmed database.
@@ -206,7 +244,9 @@ Codex previously identified:
 - `requests` is used directly but may only be installed transitively;
 - `vertical_profiles.py` appears to contain two definitions of `get_profile_for_business`;
 - `get_engine()` may create a new SQLAlchemy engine on every call;
-- automated tests are currently absent;
+- automated tests now exist under `tests/` and are run with pytest, so this earlier
+  observation is resolved; run them with
+  `env PYTHONPATH=<repo root> .venv/bin/pytest -q`;
 - database migrations/schema bootstrap are not stored in the repo;
 - Data Admin's full feature rebuild reads all historical raw rows ordered by `source_row_number` and repeatedly upserts `business_features`; with multiple imports, this may not leave the latest `created_at DESC, id DESC` snapshot as the current feature record and should be investigated as a separate potential defect.
 
