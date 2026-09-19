@@ -30,6 +30,31 @@ Treat this as a working product. Preserve existing functionality unless the user
 
 There is no separate backend service.
 
+## Owner-services report (v4)
+
+The accessible owner report is a read-only projection of saved evidence. It is a
+conversation tool for small-business owners, not a technical audit.
+
+- `src/owner_services_report.py` builds the report (`build_owner_report`). All counts
+  come from saved answers, never narrative copy: one appearance is one resolved business
+  in one valid completed answer's recommendation list. Unknown names stay in the market
+  but are never upgraded to verified entities. Raw slots and answers are not modified.
+- `src/owner_services_pdf.py` is the flowing PDF layout shared by client and synthetic
+  reports. `src/poc_audit_pdf.py` dispatches to it for the v4 format.
+- `src/owner_services_synthetic.py` holds fictional demonstration evidence. Never use it
+  as client research.
+- `src/owner_services_export.py` is an offline export
+  (`python -m src.owner_services_export --udr-payload <evidence.json>`). It makes no
+  database access, benchmark calls or snapshot writes.
+- `src/report_competitors.py` selects comparison businesses. The reviewer sets the
+  catchment; the default radius depends on business type: 10 miles for fixed-location
+  businesses (salons, cafes), 60 for specialist or destination ones, 35 otherwise.
+- `app/pages/10_AI_Report_Generator.py` is the operator UI for all of the above.
+
+Process and open QA items live in `docs/beta-report-process.md` (owner conversation,
+question sets, what may be claimed) and `docs/udr-report-qa-required-changes.md`. Read
+both before changing report wording, layout or counting rules.
+
 ## Operator workflow state
 
 `report_audit_revisions` is the durable, append-only record of a report project. It holds
