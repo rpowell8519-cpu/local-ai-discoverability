@@ -6,12 +6,15 @@ from difflib import SequenceMatcher
 from typing import Any, Iterable, Mapping
 
 
-FIXED_LOCATION_GROUPS = frozenset({
-    "bar", "bars", "cafe", "cafes", "coworking", "food_drink",
-    "hair_beauty", "hospitality_food_drink", "restaurant", "restaurants",
+# Walk-in businesses whose customers do not travel far: salons, cafes, pubs and
+# their close peers. Everything else uses the wider default until decided otherwise.
+LOCAL_WALK_IN_GROUPS = frozenset({
+    "bar", "bars", "cafe", "cafes", "food_drink", "hair_beauty",
+    "hospitality_food_drink", "pub", "pubs", "restaurant", "restaurants",
     "salon", "salons",
 })
-SPECIALIST_GROUPS = frozenset({"specialist", "destination"})
+WALK_IN_CATCHMENT_MILES = 3.0
+DEFAULT_CATCHMENT_MILES = 15.0
 
 
 def normalise_business_name(value: str) -> str:
@@ -23,11 +26,9 @@ def normalise_business_name(value: str) -> str:
 def catchment_radius_miles(primary_group: str, business_format: str = "") -> float:
     group = normalise_business_name(primary_group).replace(" ", "_")
     format_name = normalise_business_name(business_format).replace(" ", "_")
-    if group in FIXED_LOCATION_GROUPS or format_name in {"venue", "fixed_location"}:
-        return 10.0
-    if group in SPECIALIST_GROUPS or format_name in {"destination", "specialist"}:
-        return 60.0
-    return 35.0
+    if group in LOCAL_WALK_IN_GROUPS or format_name in {"venue", "fixed_location"}:
+        return WALK_IN_CATCHMENT_MILES
+    return DEFAULT_CATCHMENT_MILES
 
 
 def _coordinate(value: Any) -> float | None:

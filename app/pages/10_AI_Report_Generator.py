@@ -1071,7 +1071,7 @@ if ai_ready and definition is None:
         str(business.get("primary_group") or ""),
         str(business.get("business_format") or ""),
     )
-    radius_options = [10, 25, 35, 60]
+    radius_options = [3, 5, 10, 15, 25, 35, 60]
     saved_radius = float(initial_decisions.get("catchment_radius_miles") or suggested_radius)
     default_radius = min(radius_options, key=lambda value: abs(value - saved_radius))
     selected_radius = st.selectbox(

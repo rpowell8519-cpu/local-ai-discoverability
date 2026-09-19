@@ -47,8 +47,8 @@ conversation tool for small-business owners, not a technical audit.
   (`python -m src.owner_services_export --udr-payload <evidence.json>`). It makes no
   database access, benchmark calls or snapshot writes.
 - `src/report_competitors.py` selects comparison businesses. The reviewer sets the
-  catchment; the default radius depends on business type: 10 miles for fixed-location
-  businesses (salons, cafes), 60 for specialist or destination ones, 35 otherwise.
+  catchment; the default radius is 3 miles for walk-in businesses (salons, cafes, pubs
+  and close peers) and 15 miles for everything else. These are provisional defaults.
 - `app/pages/10_AI_Report_Generator.py` is the operator UI for all of the above.
 
 Process and open QA items live in `docs/beta-report-process.md` (owner conversation,

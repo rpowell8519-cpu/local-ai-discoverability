@@ -6,9 +6,11 @@ from src.report_competitors import (
 
 
 def test_business_type_changes_default_catchment() -> None:
-    assert catchment_radius_miles("restaurants") == 10
-    assert catchment_radius_miles("cleaning_services") == 35
-    assert catchment_radius_miles("specialist") == 60
+    for group in ("salons", "cafes", "pubs", "restaurants", "hair_beauty"):
+        assert catchment_radius_miles(group) == 3
+    assert catchment_radius_miles("cleaning_services") == 15
+    assert catchment_radius_miles("specialist") == 15
+    assert catchment_radius_miles("destination") == 15
 
 
 def test_location_classification_preserves_out_of_area_result() -> None:
