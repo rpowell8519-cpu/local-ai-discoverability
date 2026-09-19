@@ -23,3 +23,8 @@ __pycache__/
 # Generated report artefacts and scratch renders
 output/
 tmp/
+
+# Agency prospecting analysis: commercial lead data, not for the public repo
+analysis/website_agency_prospects/
+brighton_website_agency_*.csv
+brighton_website_agency_*.xlsx
