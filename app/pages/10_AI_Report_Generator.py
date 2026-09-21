@@ -46,8 +46,12 @@ from src.website_audit import audit_website  # noqa: E402
 from src.website_audit_repository import (  # noqa: E402
     create_audit_run,
     finish_audit_run,
+    get_audit_pages,
+    get_latest_audits,
     save_audit_page,
 )
+from src.review_repository import get_reviews  # noqa: E402
+from src.evidence_analysis import analyse_evidence, select_leaders  # noqa: E402
 from src.review_ingestion import (  # noqa: E402
     import_reviews,
     normalise_review_frame,
@@ -121,7 +125,7 @@ from src.report_generator_readiness import (  # noqa: E402
 )
 
 
-BUILD_VERSION = "Accessible AI Report Generator v3.2.0 (eight businesses, name matching, review counts)"
+BUILD_VERSION = "Accessible AI Report Generator v3.3.0 (recommendations from the evidence)"
 REPORT_STATE_KEY = "accessible_ai_report_generator_result"
 SUMMARY_STATE_KEY = "accessible_ai_client_summary_result"
 AI_VISIBILITY_HANDOFF_KEY = "ai_visibility_report_handoff_target"
@@ -261,6 +265,22 @@ def load_review_choices(place_ids: tuple[str, ...]) -> list[dict[str, Any]]:
             {"place_ids": list(place_ids)},
         ).mappings().all()
     return [dict(row) for row in rows][:100]
+
+
+@st.cache_data(ttl=60)
+def load_evidence_frames(place_ids: tuple[str, ...]):
+    """Saved website audits, their pages and review text for the client and the most visible businesses."""
+
+    ids = list(place_ids)
+    audits = get_latest_audits(ids)
+    pages_by_run = {}
+    if not audits.empty:
+        for row in audits.to_dict("records"):
+            try:
+                pages_by_run[str(row["id"])] = get_audit_pages(str(row["id"]))
+            except Exception:
+                pages_by_run[str(row["id"])] = pd.DataFrame()
+    return audits, pages_by_run, get_reviews(ids)
 
 
 @st.cache_data(ttl=120)
@@ -1312,6 +1332,31 @@ if ai_ready and definition is None:
     except Exception:
         questions_now = []
     plan_cohort_ids = list(dict.fromkeys([*default_cohort, *owner_place_ids_now]))
+    # Compare the client with the businesses the AI actually recommended, on the evidence saved for them.
+    leaders_now = select_leaders(
+        [{**candidate_by_id[pid], "recommendations": recommendation_counts.get(pid, 0)} for pid in plan_cohort_ids if pid in candidate_by_id],
+        selected_place_id,
+    )
+    try:
+        audits_frame, pages_frames, reviews_frame = load_evidence_frames(
+            tuple([selected_place_id, *[str(item["google_place_id"]) for item in leaders_now]])
+        )
+        evidence_analysis = analyse_evidence(
+            target_id=selected_place_id, target_name=str(business["business_name"]),
+            primary_group=str(business.get("primary_group") or "generic"), leaders=leaders_now,
+            audits=audits_frame, pages_by_run=pages_frames, propositions=owner_priorities_now, reviews=reviews_frame,
+        )
+    except Exception as exc:
+        evidence_analysis = None
+        st.warning("The comparison with the most visible businesses could not be run, so the report will not include recommendations from it. "
+                   f"({type(exc).__name__})")
+    evidence_candidates = list((evidence_analysis or {}).get("candidates") or [])
+    saved_recommendation_choices = dict(existing_decisions.get("recommendation_decisions") or {})
+    open_recommendations = [c for c in evidence_candidates if c["id"] not in saved_recommendation_choices]
+    if open_recommendations:
+        review_update_reasons.append(
+            f"decide which of the {len(open_recommendations)} recommendation(s) from the evidence to include"
+        )
     identity_plan = plan_subjects(
         target_id=selected_place_id,
         target_name=str(business["business_name"]),
@@ -1476,6 +1521,35 @@ if ai_ready and definition is None:
     except Exception:
         review_choices = []
     review_by_id = {str(item["review_id"]): item for item in review_choices}
+    if evidence_analysis is not None:
+        st.markdown("**What the recommendations from the evidence are based on**")
+        st.caption(
+            "The client's saved website, and its reviews, are compared with the businesses the AI actually recommended. "
+            "A competitor the owner named that the AI never recommended is not used as a leader. Recommendations only "
+            "appear where the evidence supports them, and each says what was and was not detected, never why."
+        )
+        layer_names = {"website": "Website comparison", "propositions": "Owner priorities on the websites", "reviews": "Review text"}
+        st.dataframe(
+            pd.DataFrame([
+                {"Layer": layer_names[key], "Status": "Used" if info["status"] == "used" else "Not available", "Detail": info["note"]}
+                for key, info in evidence_analysis["layers"].items()
+            ]),
+            hide_index=True, use_container_width=True,
+        )
+        if evidence_analysis["leaders"]:
+            st.dataframe(
+                pd.DataFrame([
+                    {"Most visible business": item["business_name"], "Recommended in": f"{item['recommendations']} answers",
+                     "Website read": item["website_read"] or "Not saved", "Reviews saved": item["reviews"]}
+                    for item in evidence_analysis["leaders"]
+                ]),
+                hide_index=True, use_container_width=True,
+            )
+        if any(info["status"] != "used" for info in evidence_analysis["layers"].values()):
+            st.caption(
+                "A layer that is not available can be added by collecting the missing website pages or review text in the "
+                "evidence panel above. The report says which layers it used."
+            )
     with st.form(f"report_review_{selected_place_id}"):
         with st.expander("Optional: override the AI-selected businesses"):
             selected_cohort = st.multiselect(
@@ -1599,6 +1673,45 @@ if ai_ready and definition is None:
                         f":orange[Check Q{order}: it is linked to “{stored_links[order]}”, but its wording fits "
                         f"“{better}” better.]"
                     )
+        recommendation_choices: dict[str, str] = {}
+        recommendation_wording: dict[str, str] = {}
+        if evidence_candidates:
+            st.markdown("**Recommendations from the evidence**")
+            st.caption(
+                "Each one compares what was detected on the client's saved pages, or in its reviews, with the most visible "
+                "businesses. Nothing goes into the report until you include it. You can change the wording for the client; "
+                "the numbers and the evidence stay as found. The report cannot be completed while any is undecided."
+            )
+            saved_wording = {item["id"]: item for item in existing_decisions.get("approved_recommendations") or []}
+            for position, candidate in enumerate(evidence_candidates):
+                with st.container(border=True):
+                    kind = "Observation from reviews" if candidate["kind"] == "finding" else "Recommendation"
+                    st.markdown(
+                        f"**{candidate['title']}**  \n:gray[{kind} · confidence {candidate['confidence']}"
+                        + (f" · prevalence {candidate['prevalence']}" if candidate["prevalence"] else "")
+                        + (" · housekeeping, not expected to change AI answers" if candidate["hygiene"] else "") + "]"
+                    )
+                    st.write(candidate["observation"])
+                    if candidate["evidence"]:
+                        st.caption("Evidence: " + "  |  ".join(
+                            f"{e['business']}: {e['note']} (read {e['read_on'] or 'date not saved'})" for e in candidate["evidence"]
+                        ))
+                    saved_choice = saved_recommendation_choices.get(candidate["id"], "undecided")
+                    recommendation_choices[candidate["id"]] = st.radio(
+                        "Include in the report?",
+                        options=["undecided", "include", "leave_out"],
+                        index=["undecided", "include", "leave_out"].index(saved_choice if saved_choice in ("include", "leave_out") else "undecided"),
+                        format_func={"undecided": "Not decided", "include": "Include", "leave_out": "Leave out"}.get,
+                        horizontal=True,
+                        key=f"rec_choice_{selected_place_id}_{position}",
+                    )
+                    if candidate["kind"] == "action":
+                        recommendation_wording[candidate["id"]] = st.text_area(
+                            "Wording for the client",
+                            value=(saved_wording.get(candidate["id"]) or {}).get("action") or candidate["action"],
+                            max_chars=380,
+                            key=f"rec_wording_{selected_place_id}_{position}",
+                        )
         headline = st.text_area(
             "Plain-English headline",
             value=str(existing_decisions.get("headline") or ""),
@@ -1643,7 +1756,8 @@ if ai_ready and definition is None:
     unlinked_questions = [
         order for order, choice in question_choices.items() if not choice
     ] if checking else []
-    if complete_review and (open_names or unchosen_owners or unlinked_questions):
+    open_recs = [cid for cid, choice in recommendation_choices.items() if choice == "undecided"] if checking else []
+    if complete_review and (open_names or unchosen_owners or unlinked_questions or open_recs):
         problems = []
         if unchosen_owners:
             problems.append(
@@ -1657,6 +1771,11 @@ if ai_ready and definition is None:
         if unlinked_questions:
             problems.append(
                 "which priority each of these questions tests: " + ", ".join(f"Q{order}" for order in unlinked_questions)
+            )
+        if open_recs:
+            titles = {c["id"]: c["title"] for c in evidence_candidates}
+            problems.append(
+                "which recommendations from the evidence to include: " + ", ".join(f"“{titles[cid]}”" for cid in open_recs)
             )
         st.error(
             "Before completing the review, decide " + "; and ".join(problems)
@@ -1678,6 +1797,15 @@ if ai_ready and definition is None:
             "rejected_target_names": [i["name"] for i in target_items if i["choice"] == "no"],
             "owner_competitor_places": chosen_places,
             "name_links": links,
+            "recommendation_decisions": {cid: choice for cid, choice in recommendation_choices.items() if choice != "undecided"},
+            "approved_recommendations": [
+                {**candidate, "action": (recommendation_wording.get(candidate["id"]) or candidate["action"]).strip()[:380]}
+                for candidate in evidence_candidates if recommendation_choices.get(candidate["id"]) == "include"
+            ],
+            "recommendation_basis": (
+                {"layers": evidence_analysis["layers"], "leaders": evidence_analysis["leaders"], "basis": evidence_analysis["basis"]}
+                if evidence_analysis is not None else {}
+            ),
             "question_priority_map": {order: choice for order, choice in question_choices.items() if choice},
             "cohort_place_ids": selected_cohort,
             "headline": " ".join(headline.split()),

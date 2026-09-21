@@ -122,6 +122,8 @@ def validate_report(payload):
     for a in actions:
         for key, limit in [('title', 75), ('task', 380), ('owner', 100), ('done_when', 200)]:
             text(a.get(key), f'action.{key}', limit)
+        if a.get('why') is not None:
+            text(a['why'], 'action.why', 260)
         if not isinstance(a.get('question_id'), str) or a['question_id'] not in questions:
             fail('Each action must reference a measured question_id.')
         if a.get('status') not in ('suggested_check', 'verified_gap'):

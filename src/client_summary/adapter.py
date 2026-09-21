@@ -103,6 +103,20 @@ def _merge_findings(
     return [{**f, "id": f"E{number}"} for number, f in enumerate(findings, 1)]
 
 
+def _comparison_evidence(owner_config: Mapping[str, Any], approved: list[dict[str, Any]], taken: int) -> list[dict[str, str]]:
+    """One line saying what the approved recommendations were compared with, if there is room for it."""
+
+    basis = str(dict(owner_config.get("recommendation_basis") or {}).get("basis") or "")
+    if not approved or not basis or taken >= 3:
+        return []
+    dates = sorted({str(e["read_on"]) for a in approved for e in a.get("evidence", []) if e.get("read_on")})
+    return [{
+        "id": f"E{taken + 1}",
+        "observation": _shorten(basis.split(", read between")[0], 218) + ".",
+        "source": _shorten("Saved website audits" + (f", read {dates[0]}" + (f" to {dates[-1]}" if dates[-1] != dates[0] else "") if dates else ""), 200),
+    }]
+
+
 def build_client_summary_report(
     payload: Mapping[str, Any],
     *,
@@ -150,8 +164,10 @@ def build_client_summary_report(
     ]
     group = business_group or owner_config.get("primary_group")
     findings = _merge_findings(payload, owner_config, target_id, site_findings)
+    approved = [dict(i) for i in owner_config.get("evidence_recommendations") or [] if i.get("kind") == "action"]
     actions = build_actions(
-        measured, business_group=group, reviewer_titles=reviewer_action_titles, findings=findings
+        measured, business_group=group, reviewer_titles=reviewer_action_titles, findings=findings,
+        evidence_actions=approved,
     )
 
     models = _provider_models(report["responses"])
@@ -230,7 +246,7 @@ def build_client_summary_report(
         "evidence": [
             {"id": str(f["id"]), "observation": str(f["observation"]), "source": str(f["source"])}
             for f in findings
-        ],
+        ] + _comparison_evidence(owner_config, approved, len(findings)),
         "actions": actions,
         "limitations": limitations[:4],
     }

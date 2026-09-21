@@ -23,6 +23,7 @@ from src.site_checks import check_contact_details, contact_finding
 _STRONG_RATE = 0.5
 _NEEDS_A_QUESTION_LABEL = "Question "  # unconfirmed priority mapping rows are named "Question N ..."
 _NOT_ESTIMATED = "Not yet estimated. "
+_OWNER_PHRASE = "Business owner supplies the facts; website provider publishes them"
 
 
 def target_pages(payload: Mapping[str, Any], target_id: str) -> tuple[list[dict[str, Any]], str]:
@@ -250,8 +251,46 @@ def derive_owner_content(
         })
 
     actions = [_verified_action(f, number) for number, f in enumerate((f for f in findings if f["gap"]), 1)]
+    approved = [dict(item) for item in config.get("evidence_recommendations") or []]
+    approved_actions = [item for item in approved if item.get("kind") == "action"][:6]
+    approved_findings = [item for item in approved if item.get("kind") == "finding"]
+    taken = {str(item.get("ref")) for item in [*config.get("sources", []), *sources]}
+    if approved:
+        basis = dict(config.get("recommendation_basis") or {})
+        website_actions = [a for a in approved_actions if a.get("layer") != "reviews"]
+        if website_actions:
+            pages = dict.fromkeys(
+                f"{e['business']} (read {e.get('read_on') or 'date not saved'}, {e.get('url') or 'page not recorded'})"
+                for a in website_actions for e in a.get("evidence", [])
+            )
+            ref = "A1" if "A1" not in taken else next(f"A{n}" for n in range(2, 99) if f"A{n}" not in taken)
+            taken.add(ref)
+            sources.append({"ref": ref, "kind": "analysis", "title": "Comparison with the most visible businesses' saved websites",
+                            "record_id": "website comparison", "date": None,
+                            "observation": (str(basis.get("basis") or "") + ". Sites and dates: " + "; ".join(pages) + ".").strip(". ") + "."})
+            for item in website_actions:
+                item["_ref"] = ref
+        review_items = [a for a in approved_findings if a.get("layer") == "reviews"]
+        if review_items:
+            ref = next(f"A{n}" for n in range(1, 99) if f"A{n}" not in taken)
+            taken.add(ref)
+            sources.append({"ref": ref, "kind": "analysis", "title": "Comparison of Google review text",
+                            "record_id": "review comparison", "date": None, "observation": str(review_items[0].get("basis") or "")})
+            for item in review_items:
+                item["_ref"] = ref
+        for item in approved_actions:
+            actions.append({
+                "title": f"{len(actions) + 1}. {item['title']}", "need": item["why"], "observation": item["observation"],
+                "deliverable": item["action"], "supplier": item.get("owner") or _OWNER_PHRASE,
+                "implementer": "Website provider, with the business owner's facts",
+                "effort": _NOT_ESTIMATED + "It depends on how many pages the change touches.",
+                "dependencies": "The owner supplies accurate details; access to the website.",
+                "check": item["done_when"], "refs": [item["_ref"], "INVENTORY"],
+            })
+        for item in approved_findings:
+            gaps.append({"title": item["title"], "body": item["observation"], "refs": [item.get("_ref", "INVENTORY")]})
     weakest = sorted(tested, key=lambda s: (_rate(s), s["name"]))[:2]
-    if weakest and _rate(weakest[0]) < 1.0:
+    if weakest and _rate(weakest[0]) < 1.0 and not approved_actions:
         untested = [s["name"] for s in services if s.get("status") == "Not tested"]
         actions.append(_investigation_action(weakest, untested, len(actions) + 1, target_name))
 

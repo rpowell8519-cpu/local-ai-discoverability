@@ -464,6 +464,8 @@ def _render(payload, level):
         if a['status'] == 'verified_gap':
             observed = next((e['observation'] for e in d.get('evidence', []) if e['id'] in a['evidence_ids']), '')
             page.para('<b>Why:</b> ' + safe(observed), 'body')
+        elif a.get('why'):
+            page.para('<b>Why:</b> ' + safe(a['why']), 'body')
         else:
             page.para(f'<b>Why:</b> you appeared in {q["appearances"]} of {q["complete"]} answers about {quoted(q["label"])}.', 'body')
         if a['status'] == 'suggested_check':

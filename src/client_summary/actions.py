@@ -22,6 +22,10 @@ _TOPIC_LIMIT_IN_TITLE = 40
 class BusinessProfile:
     details: str
     platforms: str
+    # How this kind of business talks about the things a website should make easy.
+    booking: str = "enquire or book"
+    pricing: str = "prices or price guidance"
+    questions: str = "the questions customers ask before they enquire"
 
 
 _DEFAULT = BusinessProfile(
@@ -32,18 +36,26 @@ _PROFILES: dict[str, BusinessProfile] = {
     "hospitality": BusinessProfile(
         details="opening times, menus and prices, how to book or enquire (including groups), and what is on",
         platforms="Google Business Profile, Apple Business, Bing Places, TripAdvisor and any booking platform you use",
+        booking="book a table, a group or an event", pricing="menus and prices",
+        questions="opening times, dietary needs, groups and children",
     ),
     "beauty": BusinessProfile(
         details="services and prices, how to book, who offers what, and opening times",
         platforms="Google Business Profile, Apple Business, Bing Places and your booking platform (Fresha, Booksy or Treatwell)",
+        booking="book an appointment", pricing="services and prices",
+        questions="patch tests, timings and cancellations",
     ),
     "trades": BusinessProfile(
         details="the services you offer, areas covered, price guidance, how to ask for a quote, and accreditations",
         platforms="Google Business Profile, Bing Places, and trade directories you belong to such as Checkatrade or MyBuilder",
+        booking="request a quote or book a visit", pricing="price guidance for common jobs",
+        questions="areas covered, guarantees and accreditations",
     ),
     "workspace": BusinessProfile(
         details="spaces and capacity, prices, availability, how to book a visit or a room, and facilities",
         platforms="Google Business Profile, Apple Business, Bing Places and any workspace listing site you use",
+        booking="book a tour, a desk or a meeting room", pricing="membership, desk and room prices",
+        questions="access hours, guests, contracts and facilities",
     ),
 }
 _GROUPS = {
@@ -61,6 +73,15 @@ _OWNER_DETAILS = "Business owner, with the website provider"
 _DONE_DETAILS = "Details agree everywhere they appear, and the website provider has confirmed AI search crawlers can visit the site"
 _DONE_DETAILS_CHECKED = "Details agree everywhere they appear"
 _CRAWLER_CLAUSE = " Ask your website provider to confirm AI search crawlers are not blocked."
+
+
+def _cut(text: str, limit: int) -> str:
+    """Shorten at a word boundary with an ellipsis; text already within the limit is unchanged."""
+
+    text = " ".join(text.split())
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1].rsplit(" ", 1)[0].rstrip(",;:- ") + "\u2026"
 
 
 def profile_for(business_group: str | None) -> BusinessProfile:
@@ -85,6 +106,7 @@ def build_actions(
     business_group: str | None = None,
     reviewer_titles: Iterable[str] = (),
     findings: Sequence[Mapping[str, Any]] = (),
+    evidence_actions: Sequence[Mapping[str, Any]] = (),
 ) -> list[dict[str, Any]]:
     """Return exactly three actions.
 
@@ -136,8 +158,17 @@ def build_actions(
                 "done_when": f"The same {fields} appears on the website, Google Business Profile and the main directories",
             }
         )
-    include_consistency = contact_gap is None
-    topic_slots = 3 - len(actions) - (1 if include_consistency else 0)
+    # Recommendations a reviewer approved from the comparison with the most visible businesses.
+    for item in list(evidence_actions)[: 3 - len(actions)]:
+        topic = str(item.get("signal") or "").casefold()
+        question = next((q for q in questions if topic and topic in str(q["label"]).casefold()), weakest_first[0])
+        actions.append({
+            "title": _cut(str(item["title"]), TITLE_LIMIT), "question_id": question["id"], "status": "suggested_check", "evidence_ids": [],
+            "task": _cut(str(item["action"]), TASK_LIMIT), "owner": _cut(str(item.get("owner") or _OWNER_TOPIC), OWNER_LIMIT),
+            "done_when": _cut(str(item.get("done_when") or _DONE_TOPIC), DONE_LIMIT), "why": _cut(str(item["why"]), 240),
+        })
+    include_consistency = contact_gap is None and len(actions) < 3
+    topic_slots = max(0, 3 - len(actions) - (1 if include_consistency else 0))
     for question in weakest_first[:topic_slots]:
         label = str(question["label"]).strip()
         actions.append(

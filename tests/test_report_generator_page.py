@@ -427,7 +427,7 @@ def test_the_build_label_changes_so_the_team_can_tell_which_version_is_live():
     at, _, stack = run_page(revision())
     with stack:
         captions = " ".join(c.value for c in at.caption)
-        assert "Build: Accessible AI Report Generator v3.2.0" in captions
+        assert "Build: Accessible AI Report Generator v3.3.0" in captions
 
 
 # ---------------------------------------------------------------- reviews saved before the new checks
@@ -665,3 +665,71 @@ def test_the_evidence_panel_shows_googles_count_beside_what_was_saved_and_explai
         captions = " ".join(c.value for c in at.caption)
         assert "They do not affect the AI visibility counts" in captions
         assert "the AI platforms answer without reading reviews" in captions
+
+
+# ------------------------------------------------------------ recommendations from the evidence
+def _real_fixture_analysis():
+    from tests.test_evidence_recommendations_in_reports import analysis
+    return analysis()
+
+
+_FIXTURE_ANALYSIS = _real_fixture_analysis()  # computed with the real engine, before it is patched out
+
+
+def _fixture_analysis(**_):
+    return _FIXTURE_ANALYSIS
+
+
+def rec_radios(at):
+    return [r for r in at.radio if str(r.key).startswith("rec_choice_")]
+
+
+def test_each_recommendation_is_offered_for_a_decision_with_editable_client_wording():
+    at, saved, stack = run_page(revision(OLD_REVIEW, complete=True), extra=[mock.patch("src.evidence_analysis.analyse_evidence", _fixture_analysis)])
+    with stack:
+        assert not at.exception, [e.value for e in at.exception]
+        radios = rec_radios(at)
+        assert radios and all(r.value == "undecided" for r in radios)
+        wording = [t for t in at.text_area if str(t.key).startswith("rec_wording_")]
+        assert wording and all(len(t.value) <= 380 for t in wording)
+        assert any("recommendation(s) from the evidence" in w.value for w in at.warning)
+
+
+def test_the_review_cannot_be_completed_while_a_recommendation_is_undecided():
+    at, saved, stack = run_page(revision(), extra=[mock.patch("src.evidence_analysis.analyse_evidence", _fixture_analysis)])
+    with stack:
+        decide_everything(at)
+        button(at, "Complete report review").click().run()
+        saved.assert_not_called()
+        assert any("which recommendations from the evidence to include" in e.value for e in at.error)
+
+
+def test_included_recommendations_are_saved_with_the_reviewers_wording_and_the_basis():
+    at, saved, stack = run_page(revision(), extra=[mock.patch("src.evidence_analysis.analyse_evidence", _fixture_analysis)])
+    with stack:
+        decide_everything(at)
+        radios = rec_radios(at)
+        for radio in radios:
+            radio.set_value("leave_out")
+        radios[0].set_value("include")
+        at.run()
+        first_wording = next(t for t in at.text_area if str(t.key).startswith("rec_wording_"))
+        first_wording.set_value("Our own wording for the client.")
+        at.run()
+        button(at, "Complete report review").click().run()
+        assert not at.exception, [e.value for e in at.exception]
+        decisions = saved.call_args.kwargs["reviewer_decisions"]
+        assert set(decisions["recommendation_decisions"].values()) == {"include", "leave_out"}
+        assert len(decisions["approved_recommendations"]) == 1
+        assert decisions["approved_recommendations"][0]["action"] == "Our own wording for the client."
+        assert decisions["recommendation_basis"]["layers"] and decisions["recommendation_basis"]["leaders"] is not None
+
+
+def test_a_failed_comparison_is_said_plainly_and_does_not_break_the_page():
+    def broken(**_):
+        raise RuntimeError("boom")
+
+    at, saved, stack = run_page(revision(), extra=[mock.patch("src.evidence_analysis.analyse_evidence", broken)])
+    with stack:
+        assert not at.exception, [e.value for e in at.exception]
+        assert any("could not be run" in w.value for w in at.warning) and not rec_radios(at)

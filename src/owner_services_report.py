@@ -62,7 +62,7 @@ def _sources(payload, config):
     sources = {}
     for item in config.get("sources", []):
         source = dict(item)
-        if item["kind"] in ("site_check", "listing"):
+        if item["kind"] in ("site_check", "listing", "analysis"):
             # Observations the audit made itself, not saved pages or reviews: shown with their own source and date.
             source.update(url=item.get("url"), date=item.get("date"), collection_id=None,
                           business=payload["audit"]["target_business_name"], text=item.get("observation", ""),
@@ -252,7 +252,7 @@ def evidence_index_html(payload: Mapping[str, Any]) -> str:
         parts.append(f"<h3>{e(audit['business_name'])}</h3><p>Audit {e(audit['id'])}; {len(audit.get('pages', []))} saved page records.</p>")
         for page in audit.get("pages", []):
             parts.append(f"<section id='{e(page['id'])}'><h4><a href='{e(page.get('url'))}'>{e(page.get('page_title') or page.get('url'))}</a></h4><small>Record {e(page['id'])}; collected {e(page.get('crawled_at'))}</small><pre>{e(page.get('text_excerpt'))}</pre></section>")
-    checks = [(ref, s) for ref, s in report["sources"].items() if s["kind"] in ("site_check", "listing")]
+    checks = [(ref, s) for ref, s in report["sources"].items() if s["kind"] in ("site_check", "listing", "analysis")]
     if checks:
         parts.append("<h2>Checks made by this audit</h2><p>Observations made from saved records or by reading the site's robots.txt on the date shown. They describe what was seen, not why.</p>")
         for ref, source in checks:

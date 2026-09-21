@@ -344,6 +344,8 @@ def assemble_generic_report_payload(
             "primary_group": str(run.get("primary_group") or "generic"),
             # Ask the report to build its strengths, gaps and actions from the findings.
             "auto_findings": True,
+            "evidence_recommendations": [dict(item) for item in decisions_input.get("approved_recommendations") or []],
+            "recommendation_basis": dict(decisions_input.get("recommendation_basis") or {}),
             "site_findings": [dict(finding) for finding in site_findings],
             "listing_reviews": {
                 place_id: {"reviews": _whole_number(row.get("reviews")), "rating": _number(row.get("rating"))}
@@ -391,6 +393,11 @@ def assemble_generic_report_payload(
             f"{int(run['prompt_count'])} owner-reviewed questions",
             "Comparison businesses chosen from the most visible in the AI answers and the businesses the owner named",
             *disclosure_lines(subjects, decisions_input),
+            *(
+                (f"{len(decisions_input['approved_recommendations'])} recommendation(s) from the evidence were reviewed and approved: "
+                 "each compares what was detected on the client's saved website or in its reviews with the businesses the AI recommended most.",)
+                if decisions_input.get("approved_recommendations") else ()
+            ),
         ),
         "methodology_limitations": ("This is a model-memory benchmark, not a live web-search test.", "Results depend on the exact questions, models and audit date.", "Unavailable website or review evidence is disclosed rather than scored.", "Observed differences are not causal."),
         "non_causality": "No website, identity or review difference is presented as a proven ranking factor.",

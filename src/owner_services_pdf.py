@@ -229,7 +229,7 @@ def render_owner_services_pdf(payload) -> bytes:
         group = [p(title, "h2", True), p(f"{source['business']} · {str(source['date'])[:10] if source.get('date') else 'Date unavailable'}", "small")]
         if source.get("excerpt"):
             group.append(p('“' + source["excerpt"] + '”'))
-        if source["kind"] in ("site_check", "listing") and source.get("text"):
+        if source["kind"] in ("site_check", "listing", "analysis") and source.get("text"):
             group.append(p(source["text"]))
         for excerpt in source.get("additional_excerpts", []):
             group.append(p('“' + excerpt + '”'))

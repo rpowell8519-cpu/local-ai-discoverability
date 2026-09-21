@@ -107,6 +107,28 @@ Process and open QA items live in `docs/beta-report-process.md` (owner conversat
 question sets, what may be claimed) and `docs/udr-report-qa-required-changes.md`. Read
 both before changing report wording, layout or counting rules.
 
+### Recommendations from the evidence (reviewer-approved)
+
+Recommendations are grounded in what was saved for the client and for the businesses the AI actually
+recommended ("leaders", `src/evidence_analysis.py`, at most `MAX_LEADERS`), never written per business.
+
+- Layers: website (13 baseline checks on saved audit pages), propositions (the owner's priorities,
+  covered or not on saved pages), reviews (keyword themes; observations only, never client actions).
+  A layer that cannot run is reported as such; unreadable = unknown, never a gap.
+- Reviews and website text never change AI-visibility counts and are not shown at that stage.
+- Every candidate carries evidence (business, page, read date), confidence, prevalence (n of N leaders)
+  and a `hygiene` flag; schema is housekeeping ("no evidence that it changes AI answers").
+- The reviewer must include or leave out every candidate before "Complete report review" succeeds;
+  wording of an action can be edited (numbers and evidence cannot). Decisions are saved in
+  `reviewer_decisions` (`recommendation_decisions`, `approved_recommendations`, `recommendation_basis`),
+  so no schema change.
+- LS: verified findings first, then approved actions (with a "Why" line), then topic checks, then the
+  generic consistency check. RP: approved actions get all 10 fields, cite `A1` (website comparison, lists
+  every business, date and URL) and `INVENTORY`; review observations become gaps citing `A2`.
+- With nothing approved both reports are unchanged.
+- Known limits: audit and review profiles are generic across business types (coworking review themes are
+  hospitality-derived); review themes are keyword heuristics; competitor review text needs a paid scrape.
+
 ## Operator workflow state
 
 `report_audit_revisions` is the durable, append-only record of a report project. It holds
