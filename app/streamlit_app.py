@@ -15,6 +15,7 @@ from src.database import get_engine
 from src.poc_audit_production import list_report_generator_definitions
 from src.report_generator_readiness import (
     ACTIVE_REPORT_PROJECT_KEY,
+    REPORT_SEARCH_KEY,
     owner_brief_missing_fields,
     report_journey,
 )
@@ -113,9 +114,17 @@ def project_journey(project: dict[str, Any], *, configured: bool) -> dict[str, A
     )
 
 
+def clear_business_search() -> None:
+    """A search left over from earlier must not filter the project being opened."""
+
+    for key in (REPORT_SEARCH_KEY, "report_business_search_box"):
+        st.session_state.pop(key, None)
+
+
 def open_report(place_id: str) -> None:
     """Send the operator to the report generator with this project selected."""
 
+    clear_business_search()
     st.session_state[ACTIVE_REPORT_PROJECT_KEY] = str(place_id)
     st.switch_page(REPORT_GENERATOR_PAGE)
 
@@ -135,8 +144,10 @@ st.caption(
     "Each report walks you through every step in order."
 )
 
+st.caption("A report needs the business to be in the database. You will be told straight away if it is not.")
 if st.button("Start a new report", type="primary", icon=":material/add:"):
     st.session_state.pop(ACTIVE_REPORT_PROJECT_KEY, None)
+    clear_business_search()
     st.switch_page(REPORT_GENERATOR_PAGE)
 
 try:

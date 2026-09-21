@@ -74,6 +74,7 @@ from src.poc_audit_generic import (  # noqa: E402
     build_reviewable_generic_audit,
 )
 from src.report_audit_candidates import load_report_candidates  # noqa: E402
+from src.business_lookup import near_misses, search_businesses  # noqa: E402
 from src.report_identity import find_possible_target_names  # noqa: E402
 from src.site_checks import check_ai_crawler_access, crawler_finding  # noqa: E402
 from src.report_priorities import NOT_LINKED, suggest_priority_map  # noqa: E402
@@ -97,6 +98,7 @@ from src.report_audit_repository import (  # noqa: E402
 )
 from src.report_generator_readiness import (  # noqa: E402
     ACTIVE_REPORT_PROJECT_KEY,
+    REPORT_SEARCH_KEY,
     normalise_owner_brief,
     owner_brief_missing_fields,
     report_journey,
@@ -321,6 +323,46 @@ def review_comparison_website(
         raise
 
 
+SEARCH_BOX_KEY = "report_business_search_box"
+
+
+def use_suggestion(name: str) -> None:
+    st.session_state[SEARCH_BOX_KEY] = name
+
+
+def show_business_not_found(query: str, suggestions: list[dict[str, Any]]) -> None:
+    """Say plainly that the business is not in the database, and how to add it."""
+
+    st.warning(f"“{query}” is not in the business database yet.")
+    if suggestions:
+        st.markdown("**Did you mean one of these?**")
+        for record in suggestions:
+            st.button(
+                business_label(record),
+                key=f"suggest_{record['google_place_id']}",
+                on_click=use_suggestion,
+                args=(str(record["business_name"]),),
+            )
+    with st.container(border=True):
+        st.markdown("**To run a report for it, add it to the database first**")
+        st.markdown(
+            "A report can only be run for a business that has a verified Google Place ID in the database.\n\n"
+            "1. Export the business from Google Maps with Outscraper, as a `.csv` or `.xlsx` that includes "
+            "`place_id` and `name`.\n"
+            "2. Open Data Admin and use **1. Import business data**. The import adds the business and builds its "
+            "features automatically. You do not need the full rebuild in section 2.\n"
+            "3. Come back here. Your search is kept, so the business will appear."
+        )
+        action_columns = st.columns(2)
+        with action_columns[0]:
+            if st.button("Open Data Admin to import it", type="primary", use_container_width=True):
+                st.switch_page("pages/4_Data_Admin.py")
+        with action_columns[1]:
+            if st.button("I've imported it: search again", use_container_width=True):
+                st.cache_data.clear()
+                st.rerun()
+
+
 def business_label(row: dict[str, Any]) -> str:
     descriptor = str(row.get("business_format") or row.get("raw_type") or "Business")
     return f"{row['business_name']} — {descriptor} — {str(row['google_place_id'])[-8:]}"
@@ -352,30 +394,40 @@ requested_place_id = str(
     or st.session_state.get(ACTIVE_REPORT_PROJECT_KEY)
     or ""
 )
-business_options = list(businesses_by_id)
+if SEARCH_BOX_KEY not in st.session_state:
+    # Restore a search that was waiting while the operator was in Data Admin.
+    st.session_state[SEARCH_BOX_KEY] = st.session_state.get(REPORT_SEARCH_KEY, "")
+search_query = st.text_input(
+    "Find the business",
+    placeholder="Start typing the business name, town or Google Place ID",
+    key=SEARCH_BOX_KEY,
+    help="Reports can only be run for businesses in the database. You will be told if it is not there.",
+).strip()
+st.session_state[REPORT_SEARCH_KEY] = search_query
+if search_query:
+    matches = search_businesses(business_records, search_query)
+    if not matches:
+        show_business_not_found(search_query, near_misses(business_records, search_query))
+        st.stop()
+    business_options = [str(match["google_place_id"]) for match in matches]
+else:
+    business_options = list(businesses_by_id)
 default_business_index = (
     business_options.index(requested_place_id)
-    if requested_place_id in businesses_by_id
+    if requested_place_id in business_options
     else 0
 )
 selected_place_id = st.selectbox(
-    "Business",
+    "Business" if not search_query else f"Business ({len(business_options)} found)",
     options=business_options,
     index=default_business_index,
     format_func=lambda place_id: business_label(businesses_by_id[place_id]),
-    help="Type a business name to search the full database.",
+    help="Pick the business to report on.",
 )
 business = businesses_by_id[selected_place_id]
 st.session_state[ACTIVE_REPORT_PROJECT_KEY] = selected_place_id
 st.query_params["report_business"] = selected_place_id
 
-with st.expander("Business not listed?"):
-    st.write(
-        "Add the business to the database first so it can be tied to a verified Google Place ID. "
-        "The existing import accepts an Outscraper CSV/XLSX export and preserves the full source record."
-    )
-    if st.button("Open business data import", use_container_width=True):
-        st.switch_page("pages/4_Data_Admin.py")
 with st.expander("How the report process works", expanded=True):
     process_columns = st.columns(4)
     process_steps = (

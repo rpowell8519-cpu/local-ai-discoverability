@@ -146,6 +146,26 @@ the report generator, and the decision is stored in `reviewer_decisions`
 Confirmed names are credited through `slot_adjudications` and disclosed in the report's
 methodology. Generation refuses to run while a look-alike name is undecided.
 
+### Finding the business, or being told it is not there
+
+The report generator opens on a search box (`src/business_lookup.py`). It matches the name,
+then the town or address, and a pasted Google Place ID matches exactly. If nothing matches, the
+page says so plainly, suggests near misses ("did you mean"), explains how to add the business,
+and stops. Suggestions are never treated as a match. Reports need a verified Google Place ID,
+so a business must be imported first.
+
+- Adding a business is Data Admin's **1. Import business data** (an Outscraper `.csv`/`.xlsx`
+  with `place_id` and `name`). That import builds the business's features itself and clears the
+  page cache. The full "Rebuild business features" in section 2 is not needed, and it is the
+  step with a possible defect noted under "Known code-quality observations", so do not send
+  operators to it.
+- The search is kept in `REPORT_SEARCH_KEY` while the operator is in Data Admin, which shows a
+  way back to the report generator when a search is waiting. The console clears it when a report
+  is started or opened, so a stale search cannot hide the project being opened.
+- Not built: fetching a business directly from Outscraper by name. It costs money per record
+  and writes to the database, so it needs explicit approval, the £7.50 ceiling and a
+  confirmation step. Keep the manual import as the fallback if it is added.
+
 ### Location of a run
 
 The AI platforms search as if the customer is in a stated place. `resolve_run_location`

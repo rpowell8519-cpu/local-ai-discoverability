@@ -8,6 +8,7 @@ BRIEFS_STATE_KEY = "accessible_ai_report_owner_briefs"
 AI_VISIBILITY_HANDOFF_KEY = "ai_visibility_report_handoff_target"
 AI_VISIBILITY_FORCE_PROMPTS_KEY = "ai_visibility_force_owner_prompts"
 ACTIVE_REPORT_PROJECT_KEY = "active_report_project_place_id"
+REPORT_SEARCH_KEY = "report_business_search_memo"
 AI_VISIBILITY_COMPLETED_KEY = "ai_visibility_report_completed_run"
 
 

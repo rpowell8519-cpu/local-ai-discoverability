@@ -287,3 +287,85 @@ def test_the_full_report_option_is_still_the_default():
         radio = next(r for r in at.radio if str(r.key).startswith("report_kind_"))
         assert radio.value == "full"
         assert "Generate report from saved evidence" in [b.label for b in at.button]
+
+
+# ---------------------------------------------------------------- finding the business
+SEARCH_BOX = "report_business_search_box"
+
+
+def search(at, text):
+    at.text_input(key=SEARCH_BOX).set_value(text).run()
+
+
+def picker(at):
+    return next(s for s in at.selectbox if str(s.label).startswith("Business"))
+
+
+def test_with_no_search_every_business_is_offered_as_before():
+    at, _, stack = run_page(revision())
+    with stack:
+        assert not at.exception, [e.value for e in at.exception]
+        assert picker(at).label == "Business" and len(picker(at).options) == len(BUSINESSES)
+
+
+def test_searching_narrows_the_picker_to_matching_businesses():
+    at, _, stack = run_page(revision())
+    with stack:
+        search(at, "wrap")
+        assert not at.exception, [e.value for e in at.exception]
+        assert picker(at).label == "Business (1 found)" and len(picker(at).options) == 1
+        assert any(s.value.startswith("1. Owner context") for s in at.subheader)  # the report is shown
+
+
+def test_a_business_that_is_not_in_the_database_is_said_so_and_the_report_is_not_shown():
+    at, _, stack = run_page(revision())
+    with stack:
+        search(at, "Definitely Not A Real Place")
+        assert not at.exception, [e.value for e in at.exception]
+        assert any("“Definitely Not A Real Place” is not in the business database yet." in w.value for w in at.warning)
+        assert not any(s.value.startswith("1. Owner context") for s in at.subheader)
+        labels = [b.label for b in at.button]
+        assert "Open Data Admin to import it" in labels and "I've imported it: search again" in labels
+        text = " ".join(m.value for m in at.markdown)
+        assert "place_id" in text and "You do not need the full rebuild" in text
+        assert at.session_state["report_business_search_memo"] == "Definitely Not A Real Place"
+
+
+def test_a_typo_gets_a_suggestion_that_can_be_used():
+    at, _, stack = run_page(revision())
+    with stack:
+        search(at, "Wrapp")
+        assert not at.exception, [e.value for e in at.exception]
+        suggestion = next(b for b in at.button if b.label.startswith("WRAP- Coworking"))
+        suggestion.click().run()
+        assert not at.exception, [e.value for e in at.exception]
+        assert at.text_input(key=SEARCH_BOX).value == TARGET_NAME
+        assert picker(at).label == "Business (1 found)"
+
+
+def test_a_search_kept_while_in_data_admin_is_restored_on_return():
+    stack = ExitStack()
+    for patch in (
+        mock.patch("src.database.get_engine", return_value=_Engine()),
+        mock.patch("src.report_audit_repository.get_latest_report_audit", return_value=revision()),
+        mock.patch("src.report_audit_candidates.load_report_candidates", return_value=CANDIDATES),
+    ):
+        stack.enter_context(patch)
+    with stack:
+        at = AppTest.from_file(PAGE, default_timeout=60)
+        at.session_state["report_business_search_memo"] = "The Skiff"
+        at.run()
+        assert not at.exception, [e.value for e in at.exception]
+        assert at.text_input(key=SEARCH_BOX).value == "The Skiff"
+        assert picker(at).label == "Business (1 found)"
+
+
+def test_data_admin_offers_the_way_back_when_a_search_is_waiting():
+    source = (Path(PAGE).parents[1] / "pages" / "4_Data_Admin.py").read_text()
+    assert "st.session_state.get(REPORT_SEARCH_KEY)" in source
+
+
+def test_the_console_clears_a_leftover_search_when_a_report_is_opened_or_started():
+    source = (Path(PAGE).parents[1] / "streamlit_app.py").read_text()
+    assert source.count("clear_business_search()") == 3  # definition call sites: open_report and the new-report button
+    assert '"report_business_search_box"' in source
