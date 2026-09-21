@@ -373,13 +373,13 @@ def render_pdf(payload):
     else:
         missing = join_names(p['name'] for p in providers if not p['appearances'])
         provider_note = f'Your business did not appear in any answer from {safe(missing)}. This does not establish why.'
-    page.callout(f'{name} | out of {per_provider} answers per provider', [
-        ('<b>' + ('&nbsp;' * 4).join(f'{safe(p["name"])}: {p["appearances"]} of {p["complete"]}' for p in providers) + '</b>', 'body'),
-        (provider_note, 'body'),
-    ])
-    page.heading('What we can learn from competitors')
-    page.para('The other businesses give useful examples to investigate. This report does not show that a particular '
-              'page, review or listing caused their higher visibility.')
+    # Keep the figures and interpretation in normal text. The padded callout plus a
+    # second competitor explanation used the space needed by sourced findings when
+    # comparison names wrap (for example, WRAP's full Google listing name).
+    page.para('<b>' + ('&nbsp;' * 4).join(
+        f'{safe(p["name"])}: {p["appearances"]} of {p["complete"]}' for p in providers
+    ) + '</b>', gap=6)
+    page.para(provider_note)
     if d.get('evidence'):
         page.heading('What we checked on your website')
         for e in d['evidence']:
