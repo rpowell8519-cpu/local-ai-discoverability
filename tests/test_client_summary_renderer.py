@@ -149,5 +149,34 @@ class RestyledSummaryTests(unittest.TestCase):
 
     def test_every_page_carries_the_draft_header_and_footer(self):
         for number, text in enumerate(self.pages(), 1):
-            self.assertIn('CLIENT SUMMARY | 18 SEPTEMBER 2026', text)
+            self.assertIn('CLIENT SUMMARY DRAFT | 18 SEPTEMBER 2026', text)
             self.assertIn(f'{number} / 6', text)
+
+
+class DraftLabelTests(unittest.TestCase):
+    def setUp(self):
+        self.d = json.loads((BASE / 'client_summary_example.json').read_text())
+
+    def header(self, data):
+        reader = PdfReader(BytesIO(render_pdf(data)))
+        return [' '.join(page.extract_text().split()) for page in reader.pages]
+
+    def test_a_summary_is_a_draft_unless_it_says_otherwise(self):
+        for text in self.header(self.d):
+            self.assertIn('CLIENT SUMMARY DRAFT | 18 SEPTEMBER 2026', text)
+
+    def test_the_draft_label_can_be_removed_after_sign_off(self):
+        self.d['draft'] = False
+        for text in self.header(self.d):
+            self.assertIn('CLIENT SUMMARY | 18 SEPTEMBER 2026', text)
+            self.assertNotIn('DRAFT', text)
+
+    def test_draft_must_be_a_real_boolean(self):
+        self.d['draft'] = 'no'
+        with self.assertRaises(ReportValidationError):
+            render_pdf(self.d)
+
+    def test_the_file_title_says_draft_too(self):
+        self.assertIn('(draft)', PdfReader(BytesIO(render_pdf(self.d))).metadata.title)
+        self.d['draft'] = False
+        self.assertNotIn('(draft)', PdfReader(BytesIO(render_pdf(self.d))).metadata.title)

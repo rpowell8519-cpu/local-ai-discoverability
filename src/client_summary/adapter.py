@@ -111,6 +111,7 @@ def build_client_summary_report(
     reviewer_action_titles: Iterable[str] = (),
     site_findings: Iterable[Mapping[str, Any]] = (),
     website_checked: bool = False,
+    draft: bool = True,
 ) -> dict[str, Any]:
     """Return validated client-summary data for a saved, complete benchmark."""
 
@@ -209,6 +210,7 @@ def build_client_summary_report(
         "schema_version": 1,
         "business_name": target_name,
         "short_name": display_name(target_name)[:60],
+        "draft": bool(draft),
         "location": str(location or owner_config.get("location") or "Local area"),
         "audit_date": str(audit["audit_date"]),
         "target_id": target_id,

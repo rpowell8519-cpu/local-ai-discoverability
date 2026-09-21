@@ -369,3 +369,31 @@ def test_the_console_clears_a_leftover_search_when_a_report_is_opened_or_started
     source = (Path(PAGE).parents[1] / "streamlit_app.py").read_text()
     assert source.count("clear_business_search()") == 3  # definition call sites: open_report and the new-report button
     assert '"report_business_search_box"' in source
+
+
+def test_the_summary_is_marked_draft_by_default_and_the_switch_is_passed_through():
+    captured = {}
+    real = __import__("src.client_summary.adapter", fromlist=["build_client_summary_report"]).build_client_summary_report
+
+    def spy(payload, **kwargs):
+        captured.update(kwargs)
+        return real(payload, **kwargs)
+
+    at, stack = generate_summary(_closed("open"))
+    with stack, mock.patch("src.client_summary.adapter.build_client_summary_report", spy):
+        choose_summary(at)
+        box = next(c for c in at.checkbox if str(c.key).startswith("summary_draft_"))
+        assert box.value is True
+        button(at, "Generate client summary from saved evidence").click().run()
+        assert not at.exception, [e.value for e in at.exception]
+        assert captured["draft"] is True
+        box.uncheck().run()
+        button(at, "Generate client summary from saved evidence").click().run()
+        assert captured["draft"] is False
+
+
+def test_the_build_label_changes_so_the_team_can_tell_which_version_is_live():
+    at, _, stack = run_page(revision())
+    with stack:
+        captions = " ".join(c.value for c in at.caption)
+        assert "Build: Accessible AI Report Generator v3.1.0" in captions

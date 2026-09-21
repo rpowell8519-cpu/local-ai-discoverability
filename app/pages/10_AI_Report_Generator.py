@@ -105,7 +105,7 @@ from src.report_generator_readiness import (  # noqa: E402
 )
 
 
-BUILD_VERSION = "Accessible AI Report Generator v3.0.0"
+BUILD_VERSION = "Accessible AI Report Generator v3.1.0 (client summary, identity review, business search)"
 REPORT_STATE_KEY = "accessible_ai_report_generator_result"
 SUMMARY_STATE_KEY = "accessible_ai_client_summary_result"
 AI_VISIBILITY_HANDOFF_KEY = "ai_visibility_report_handoff_target"
@@ -1568,6 +1568,14 @@ else:
             "When it is generated it also reads the website's robots.txt (a read-only request) to see whether AI search "
             "crawlers are blocked; any block found becomes a sourced action."
         )
+        summary_is_draft = True
+        if report_kind == "summary":
+            summary_is_draft = st.checkbox(
+                "Mark the summary as a draft",
+                value=True,
+                key=f"summary_draft_{selected_place_id}",
+                help="Adds a small DRAFT label to each page header. Untick it once the report has been checked and signed off.",
+            )
         generate = st.button(
             "Generate report from saved evidence" if report_kind == "full" else "Generate client summary from saved evidence",
             type="primary",
@@ -1593,6 +1601,7 @@ else:
                     summary_payload,
                     site_findings=[summary_finding] if summary_finding else [],
                     website_checked=bool(summary_site_url),
+                    draft=summary_is_draft,
                     business_group=str(business.get("primary_group") or ""),
                     owner_questions=list((saved_brief or {}).get("desired_searches") or []),
                     reviewer_action_titles=list(

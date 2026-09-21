@@ -63,6 +63,8 @@ def validate_report(payload):
         fail('schema_version must be 1.')
     for field, limit in [('business_name', 90), ('location', 80), ('source_note', 400)]:
         text(d.get(field), field, limit)
+    if d.get('draft') is not None and type(d['draft']) is not bool:
+        fail('draft must be true or false.')
     if d.get('short_name') is not None:
         text(d['short_name'], 'short_name', 60)
     try:
