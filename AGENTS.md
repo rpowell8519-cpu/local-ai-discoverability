@@ -133,6 +133,17 @@ Crawl-time behaviour (which pages are fetched first, when the crawl stops early:
 `COVERAGE_TARGETS` in `website_audit.py`) is still generic for unknown types; only change it if a real
 run shows key pages were not fetched. Saved text is capped at 8000 characters a page.
 
+### Evidence is collected only for the client and the most visible businesses
+
+Recommendations compare the client with the few businesses the AI recommended most (`select_leaders`,
+`MIN_LEADERS`..`MAX_LEADERS` = 3..5, chosen by the reviewer, saved as `leader_count`), ranked over the
+whole verified market, not just the comparison set. Website pages and reviews are collected for those
+only: little is learned from businesses the AI hardly recommends, and each costs time and money. Who
+the most visible are depends on the reviewer's name matches, so in step 5 the evidence panel, the
+recommendations and the required-evidence waivers appear only once names and owner competitors are
+decided and saved; a first "Complete" with names still open saves a draft and says what comes next.
+Other comparison businesses appear in counts only and need no pages or reviews.
+
 ### Client summary (LS): eight pages, two on competitors
 
 Pages 4 and 5 tell one story: "you told us your competitors were X" (page 4: the owner's named

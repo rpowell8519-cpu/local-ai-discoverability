@@ -35,6 +35,7 @@ from src.vertical_audit_profiles import get_audit_profile
 from src.website_benchmark import USABLE_AUDIT_STATUSES, build_website_benchmark, evaluate_business
 
 MAX_LEADERS = 5
+MIN_LEADERS = 3   # fewer than this and "n of N" says little; more than MAX_LEADERS costs time for little learning
 LAYERS = ("website", "propositions", "reviews")
 _PROPOSITION_TITLE = "Deepen crawlable content for "
 _OWNER = "Business owner supplies the facts; website provider publishes them"

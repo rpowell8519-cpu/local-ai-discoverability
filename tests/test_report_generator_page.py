@@ -205,7 +205,8 @@ def test_decisions_are_saved_once_every_choice_is_made():
         assert decisions["question_priority_map"]["1"] == "Co-working"
         assert decisions["question_priority_map"]["5"] == "Private offices"
         assert len(decisions["question_priority_map"]) == 7
-        assert saved.call_args.kwargs["complete"] is True
+        # Names were still open, so this first save cannot complete the review: the most visible businesses are not known yet.
+        assert saved.call_args.kwargs["complete"] is False
 
 
 def test_a_draft_can_be_saved_with_choices_still_open():
@@ -218,7 +219,7 @@ def test_a_draft_can_be_saved_with_choices_still_open():
 
 
 def test_comparison_evidence_panel_lists_every_business_and_offers_missing_website_checks():
-    at, _, stack = run_page(revision())
+    at, _, stack = run_page(revision(NAMES_DECIDED))
     with stack:
         assert not at.exception, [e.value for e in at.exception]
         labels = [b.label for b in at.button]
@@ -235,7 +236,7 @@ def test_a_comparison_website_review_is_started_for_the_right_business():
         mock.patch("src.website_audit.audit_website", return_value=({"audit_status": "completed"}, [])),
         mock.patch("src.website_audit_repository.finish_audit_run", crawler),
     ]
-    at, _, stack = run_page(revision(), extra=extra)
+    at, _, stack = run_page(revision(NAMES_DECIDED), extra=extra)
     with stack:
         button(at, "Review the website of Runway East Brighton | Office Space").click().run()
         assert not at.exception, [e.value for e in at.exception]
@@ -243,6 +244,11 @@ def test_a_comparison_website_review_is_started_for_the_right_business():
         assert crawler.call_args.kwargs["audit_run_id"] == "run-1"
 
 
+# Names and competitors decided, which is what makes the most visible businesses (and their evidence) known.
+NAMES_DECIDED = {
+    "confirmed_target_names": ["WRAP"], "rejected_target_names": [],
+    "name_links": {"place-plusx": {"rejected": ["Plus X Innovation Hub"]}, "place-platf9rm": {"confirmed": ["PLATF9RM"]}},
+}
 COMPLETE = {
     "confirmed_target_names": ["WRAP"], "rejected_target_names": [],
     "question_priority_map": {str(i): p for i, p in enumerate(
@@ -431,7 +437,7 @@ def test_the_build_label_changes_so_the_team_can_tell_which_version_is_live():
     at, _, stack = run_page(revision())
     with stack:
         captions = " ".join(c.value for c in at.caption)
-        assert "Build: Accessible AI Report Generator v3.7.0" in captions
+        assert "Build: Accessible AI Report Generator v3.8.0" in captions
 
 
 # ---------------------------------------------------------------- reviews saved before the new checks
@@ -669,7 +675,7 @@ def test_an_older_review_is_told_to_match_the_owners_competitors():
 
 # ---------------------------------------------------------------- reviews on the page
 def test_the_evidence_panel_shows_googles_count_beside_what_was_saved_and_explains_what_reviews_do():
-    at, _, stack = run_page(revision())
+    at, _, stack = run_page(revision(NAMES_DECIDED))
     with stack:
         assert not at.exception, [e.value for e in at.exception]
         table = next(df for df in at.dataframe if "Google reports" in df.value.columns)
@@ -697,7 +703,7 @@ def rec_radios(at):
 
 
 def test_each_recommendation_is_offered_for_a_decision_with_editable_client_wording():
-    at, saved, stack = run_page(revision(OLD_REVIEW, complete=True), extra=[mock.patch("src.evidence_analysis.analyse_evidence", _fixture_analysis)])
+    at, saved, stack = run_page(revision({**OLD_REVIEW, **NAMES_DECIDED}, complete=True), extra=[mock.patch("src.evidence_analysis.analyse_evidence", _fixture_analysis)])
     with stack:
         assert not at.exception, [e.value for e in at.exception]
         radios = rec_radios(at)
@@ -708,7 +714,7 @@ def test_each_recommendation_is_offered_for_a_decision_with_editable_client_word
 
 
 def test_the_review_cannot_be_completed_while_a_recommendation_is_undecided():
-    at, saved, stack = run_page(revision(), extra=[mock.patch("src.evidence_analysis.analyse_evidence", _fixture_analysis)])
+    at, saved, stack = run_page(revision(NAMES_DECIDED), extra=[mock.patch("src.evidence_analysis.analyse_evidence", _fixture_analysis)])
     with stack:
         decide_everything(at)
         button(at, "Complete report review").click().run()
@@ -717,7 +723,7 @@ def test_the_review_cannot_be_completed_while_a_recommendation_is_undecided():
 
 
 def test_included_recommendations_are_saved_with_the_reviewers_wording_and_the_basis():
-    at, saved, stack = run_page(revision(), extra=[mock.patch("src.evidence_analysis.analyse_evidence", _fixture_analysis)])
+    at, saved, stack = run_page(revision(NAMES_DECIDED), extra=[mock.patch("src.evidence_analysis.analyse_evidence", _fixture_analysis)])
     with stack:
         decide_everything(at)
         radios = rec_radios(at)
@@ -741,7 +747,7 @@ def test_a_failed_comparison_is_said_plainly_and_does_not_break_the_page():
     def broken(**_):
         raise RuntimeError("boom")
 
-    at, saved, stack = run_page(revision(), extra=[mock.patch("src.evidence_analysis.analyse_evidence", broken)])
+    at, saved, stack = run_page(revision(NAMES_DECIDED), extra=[mock.patch("src.evidence_analysis.analyse_evidence", broken)])
     with stack:
         assert not at.exception, [e.value for e in at.exception]
         assert any("could not be run" in w.value for w in at.warning) and not rec_radios(at)
@@ -758,12 +764,12 @@ def test_without_an_outscraper_key_the_review_collection_says_so_and_offers_no_r
 
 def test_businesses_with_no_review_text_can_be_collected_in_one_request_with_the_cost_shown():
     submit = mock.Mock(return_value={"id": "req-1"})
-    at, _, stack = run_page(revision(), secrets={"OUTSCRAPER_API_KEY": "test-key"},
+    at, _, stack = run_page(revision(NAMES_DECIDED), secrets={"OUTSCRAPER_API_KEY": "test-key"},
                             extra=[mock.patch("src.outscraper_reviews.submit_google_reviews", submit)])
     with stack:
         assert not at.exception, [e.value for e in at.exception]
         box = next(m for m in at.multiselect if str(m.key).startswith("collect_review_places_"))
-        assert TARGET_ID not in box.value and len(box.value) == 5  # the client already has reviews; every other business is offered
+        assert TARGET_ID not in box.value and len(box.value) == 3  # the client already has reviews; the three most visible are offered
         assert "conservative estimated maximum cost" in " ".join(c.value for c in at.caption)
         next(b for b in at.button if str(b.key).startswith("collect_reviews_go_")).click().run()
         assert not at.exception, [e.value for e in at.exception]
@@ -773,7 +779,7 @@ def test_businesses_with_no_review_text_can_be_collected_in_one_request_with_the
 
 
 def test_a_request_over_the_cost_ceiling_cannot_be_sent():
-    at, _, stack = run_page(revision(), secrets={"OUTSCRAPER_API_KEY": "test-key"},
+    at, _, stack = run_page(revision(NAMES_DECIDED), secrets={"OUTSCRAPER_API_KEY": "test-key"},
                             extra=[mock.patch("src.outscraper_reviews.review_pull_within_cost_ceiling", lambda **_: (False, 99.0))])
     with stack:
         assert next(b for b in at.button if str(b.key).startswith("collect_reviews_go_")).disabled
@@ -866,7 +872,7 @@ def test_the_report_types_offered_come_from_one_list_and_each_has_its_own_button
 
 # ------------------------------------------------------------ website and review evidence are required, or knowingly waived
 def test_a_review_cannot_be_completed_while_the_evidence_is_missing_and_not_waived():
-    at, saved, stack = run_page(revision())
+    at, saved, stack = run_page(revision(NAMES_DECIDED))
     with stack:
         boxes = [b for b in at.checkbox if str(b.key).startswith("waive_")]
         assert {str(b.key).split("_")[1] for b in boxes} == {"website", "reviews"} and not any(b.value for b in boxes)
@@ -880,7 +886,7 @@ def test_a_review_cannot_be_completed_while_the_evidence_is_missing_and_not_waiv
 
 
 def test_waiving_the_missing_evidence_is_saved_with_the_reason_and_disclosed_later():
-    at, saved, stack = run_page(revision())
+    at, saved, stack = run_page(revision(NAMES_DECIDED))
     with stack:
         decide_everything(at)
         button(at, "Complete report review").click().run()
@@ -893,7 +899,7 @@ def test_a_completed_review_with_no_waiver_and_no_evidence_is_paused_with_the_re
     at, _, stack = run_page(revision(decisions, complete=True))
     with stack:
         text = warnings_text(at)
-        assert "add the evidence for the website comparison (step 4), or accept going ahead without it" in text
+        assert "add the evidence for the website comparison (step 5, below the name matching), or accept going ahead without it" in text
         assert "Generating is paused" in text
 
 
@@ -903,3 +909,69 @@ def test_a_layer_that_has_its_evidence_is_never_asked_about():
     at, _, stack = run_page(revision(), extra=[mock.patch("src.evidence_analysis.analyse_evidence", lambda **_: result)])
     with stack:
         assert not [b for b in at.checkbox if str(b.key).startswith("waive_")]
+
+
+# ------------------------------------------------------------ evidence only for the most visible businesses
+MANY = {**CANDIDATES, "verified": [
+    {"google_place_id": pid, "business_name": name, "recommendations": count, "city": "Brighton",
+     "address": "x", "latitude": 50.83, "longitude": -0.14, "primary_group": "coworking", "business_format": ""}
+    for pid, name, count in (("place-plusx", "Plus X Innovation Brighton", 23),
+                             ("place-platf9rm", "PLATF9RM Brighton - Coworking, Offices & Events", 20),
+                             ("place-runway", "Runway East Brighton | Office Space", 14),
+                             ("place-skiff", "The Skiff", 8), ("place-freedom", "Freedom Works - The Palace Workspace", 5))]}
+MANY_PATCH = lambda: mock.patch("src.report_audit_candidates.load_report_candidates", return_value=MANY)  # noqa: E731
+
+
+def collect_options(at):
+    return [m for m in at.multiselect if str(m.key).startswith("collect_review_places_")]
+
+
+def test_until_the_names_are_matched_no_evidence_is_offered_because_the_most_visible_are_not_yet_known():
+    at, saved, stack = run_page(revision(), secrets={"OUTSCRAPER_API_KEY": "k"})
+    with stack:
+        assert not at.exception, [e.value for e in at.exception]
+        assert not collect_options(at) and not [s for s in at.slider if str(s.key).startswith("leader_count_")]
+        assert any("Match the AI answer names" in i.value and "depends on those matches" in i.value for i in at.info)
+        assert not [w for w in at.warning if "recommendation(s) from the evidence" in w.value]
+
+
+def test_a_first_save_with_names_decided_saves_as_a_draft_and_says_what_comes_next():
+    at, saved, stack = run_page(revision())
+    with stack:
+        decide_everything(at)
+        button(at, "Complete report review").click().run()
+        assert saved.call_args.kwargs["complete"] is False
+        assert any("most visible businesses are now known" in i.value for i in at.info)
+
+
+def test_once_names_are_decided_completing_the_review_completes_it():
+    at, saved, stack = run_page(revision(NAMES_DECIDED))
+    with stack:
+        decide_everything(at)
+        button(at, "Complete report review").click().run()
+        assert saved.call_args.kwargs["complete"] is True
+
+
+def test_only_the_most_visible_businesses_are_studied_and_the_reviewer_can_study_fewer():
+    at, saved, stack = run_page(revision(NAMES_DECIDED), secrets={"OUTSCRAPER_API_KEY": "k"}, extra=[MANY_PATCH()])
+    with stack:
+        assert not at.exception, [e.value for e in at.exception]
+        slider = next(s for s in at.slider if str(s.key).startswith("leader_count_"))
+        assert (slider.min, slider.max, slider.value) == (3, 5, 5)
+        assert len(collect_options(at)[0].value) == 5
+        slider.set_value(3).run()
+        assert not at.exception, [e.value for e in at.exception]
+        assert collect_options(at)[0].value == ["place-plusx", "place-platf9rm", "place-runway"]   # not The Skiff, not Freedom Works
+        table = next(df for df in at.dataframe if "Review text saved" in df.value.columns)
+        assert len(table.value) == 4 and not any("Freedom" in b or "Skiff" in b for b in table.value["Business"])   # the client and three
+        decide_everything(at)
+        button(at, "Complete report review").click().run()
+        assert saved.call_args.kwargs["reviewer_decisions"]["leader_count"] == 3
+
+
+def test_a_business_the_ai_never_recommended_is_never_studied_however_the_owner_ranked_it():
+    at, _, stack = run_page(revision({**NAMES_DECIDED, "owner_competitor_places": {"Freedom Works": "place-freedom"}}, owners=("Freedom Works",)))
+    with stack:
+        assert not at.exception, [e.value for e in at.exception]
+        ids = [str(o) for o in collect_options(at)[0].options] if collect_options(at) else []
+        assert not any("Freedom" in o for o in ids)
