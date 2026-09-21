@@ -98,6 +98,20 @@ When reading current raw business attributes such as website, category, type, su
 
 Do not assume there is only one raw row per Place ID.
 
+### The report target under a shorter name
+
+AI answers often use a shorter brand name than the Google listing ("WRAP" for
+"WRAP- Coworking, Meeting Rooms & Offices"). The directory only matches variants of the
+full listing name, so those answers stay unresolved and the target is credited with
+nothing, which can produce a false "did not appear" headline.
+
+Do not fix this by automatically upgrading unresolved names. `src/report_identity.py`
+finds look-alike unresolved names. The reviewer confirms or rejects each one in step 5 of
+the report generator, and the decision is stored in `reviewer_decisions`
+(`confirmed_target_names`, `rejected_target_names`), so no schema change is needed.
+Confirmed names are credited through `slot_adjudications` and disclosed in the report's
+methodology. Generation refuses to run while a look-alike name is undecided.
+
 ## Database safety
 
 Do not apply changes to the Supabase/PostgreSQL schema without the user's explicit approval.

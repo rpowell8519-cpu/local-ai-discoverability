@@ -66,6 +66,7 @@ from src.poc_audit_production import (  # noqa: E402
 )
 from src.poc_audit_generic import build_reviewable_generic_audit  # noqa: E402
 from src.report_audit_candidates import load_report_candidates  # noqa: E402
+from src.report_identity import find_possible_target_names  # noqa: E402
 from src.report_competitors import (  # noqa: E402
     catchment_radius_miles,
     classify_location,
@@ -1203,6 +1204,33 @@ if ai_ready and definition is None:
                 "Outside the expected catchment: " + ", ".join(outside_selected)
                 + ". Keep only when the wider-area comparison is genuinely relevant."
             )
+        possible_target_names = find_possible_target_names(
+            str(business["business_name"]), candidates["unresolved"]
+        )
+        stored_confirmed = set(existing_decisions.get("confirmed_target_names") or [])
+        stored_rejected = set(existing_decisions.get("rejected_target_names") or [])
+        target_name_choices: dict[str, str] = {}
+        if possible_target_names:
+            st.markdown("**Is the business under a different name in the AI answers?**")
+            st.caption(
+                f"The Google listing is “{business['business_name']}”. These names in the AI answers could not be "
+                "matched to it automatically. If they are this business, its appearances would otherwise be "
+                "left out and the report could wrongly say it did not appear. The report cannot be completed "
+                "until each name is confirmed or rejected."
+            )
+            for position, option in enumerate(possible_target_names):
+                target_name_choices[option["name"]] = st.radio(
+                    f"“{option['name']}” — named in {option['recommendations']} answer(s). {option['reason']}.",
+                    options=["undecided", "yes", "no"],
+                    index=1 if option["name"] in stored_confirmed else (2 if option["name"] in stored_rejected else 0),
+                    format_func={
+                        "undecided": "Not decided",
+                        "yes": "Yes, this is the business",
+                        "no": "No, a different business",
+                    }.get,
+                    horizontal=True,
+                    key=f"target_name_choice_{selected_place_id}_{position}",
+                )
         headline = st.text_area(
             "Plain-English headline",
             value=str(existing_decisions.get("headline") or ""),
@@ -1241,8 +1269,19 @@ if ai_ready and definition is None:
             use_container_width=True,
             disabled=len(selected_cohort) > 3,
         )
-    if save_draft or complete_review:
+    undecided_names = [
+        name for name, choice in target_name_choices.items() if choice == "undecided"
+    ] if (save_draft or complete_review) else []
+    if complete_review and undecided_names:
+        st.error(
+            "Decide whether these names are this business before completing the review: "
+            + ", ".join(f"“{name}”" for name in undecided_names)
+            + ". Your other changes have not been saved."
+        )
+    elif save_draft or complete_review:
         reviewer_decisions = {
+            "confirmed_target_names": [n for n, c in target_name_choices.items() if c == "yes"],
+            "rejected_target_names": [n for n, c in target_name_choices.items() if c == "no"],
             "cohort_place_ids": selected_cohort,
             "headline": " ".join(headline.split()),
             "summary": " ".join(summary.split()),

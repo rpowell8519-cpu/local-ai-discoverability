@@ -12,6 +12,7 @@ from src.poc_audit_cisco_assembler import NON_BUSINESS_PREFIXES
 from src.poc_audit_production import PocAuditDefinition, ReviewablePocAudit, build_reviewable_poc_audit
 from src.report_audit_candidates import load_report_candidates
 from src.report_competitors import classify_location, match_owner_competitors
+from src.report_identity import assert_target_names_decided, target_name_adjudications
 
 
 def _rows(connection, sql: str, parameters: Mapping[str, Any] | None = None) -> list[dict[str, Any]]:
@@ -151,10 +152,19 @@ def assemble_generic_report_payload(
     location = str(run.get("location_context") or "the local area")
     category = str(run.get("target_category_label") or run.get("primary_group") or "Local services").replace("_", " ").title()
     expected = int(run["prompt_count"]) * int(run["repeat_count"]) * len(list(run["providers"]))
+    confirmed_target_names = [str(item) for item in decisions_input.get("confirmed_target_names") or []]
+    rejected_target_names = [str(item) for item in decisions_input.get("rejected_target_names") or []]
     candidate_summary = load_report_candidates(
         run_id=run_id,
         target_google_place_id=target_id,
         engine=database,
+        confirmed_target_names=confirmed_target_names,
+    )
+    assert_target_names_decided(
+        target_name,
+        candidate_summary["unresolved"],
+        confirmed_target_names,
+        rejected_target_names,
     )
     recommendations = (
         int(candidate_summary["target"][0].get("recommendations") or 0)
@@ -319,7 +329,11 @@ def assemble_generic_report_payload(
         "target_indirect_terms": (),
         "response_verification_note": "Saved completed response reconciled with the persisted target recommendation fields.",
         "verification_statement": f"{expected} expected responses were loaded from the attached completed benchmark.",
-        "slot_adjudications": {},
+        "slot_adjudications": target_name_adjudications(
+            target_google_place_id=target_id,
+            target_business_name=target_name,
+            confirmed=confirmed_target_names,
+        ),
         "non_business_prefixes": tuple(NON_BUSINESS_PREFIXES),
         "cohort": cohort,
         "website_audits": websites,
@@ -332,7 +346,18 @@ def assemble_generic_report_payload(
         "cohort_note": "The comparison set contains reviewer-approved, verified businesses found in the measured AI answers.",
         "gap_caveat": "Observed differences are evidence-backed opportunities, not proven causes of AI recommendations.",
         "action_caveat": "The actions strengthen public evidence; no AI visibility improvement is guaranteed.",
-        "methodology_validation": (f"{expected} saved response records loaded", f"{int(run['prompt_count'])} owner-reviewed questions", "Comparison businesses selected from measured AI responses"),
+        "methodology_validation": (
+            f"{expected} saved response records loaded",
+            f"{int(run['prompt_count'])} owner-reviewed questions",
+            "Comparison businesses selected from measured AI responses",
+            *(
+                (
+                    "Reviewer confirmed these AI answer names as this business: "
+                    + ", ".join(f"“{name}”" for name in confirmed_target_names),
+                )
+                if confirmed_target_names else ()
+            ),
+        ),
         "methodology_limitations": ("This is a model-memory benchmark, not a live web-search test.", "Results depend on the exact questions, models and audit date.", "Unavailable website or review evidence is disclosed rather than scored.", "Observed differences are not causal."),
         "non_causality": "No website, identity or review difference is presented as a proven ranking factor.",
         "revision": {"snapshot_revision": 1, "supersedes_snapshot_id": None, "revision_reason": "Reviewable generic report draft"},

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import Any
 
 import pandas as pd
@@ -11,12 +12,21 @@ from src.ai_recommendation_intelligence import (
     build_recommendation_records,
 )
 from src.database import get_engine
+from src.report_identity import confirmed_alias_frame
 
 
 def load_report_candidates(
-    *, run_id: str, target_google_place_id: str, engine: Engine | None = None
+    *,
+    run_id: str,
+    target_google_place_id: str,
+    engine: Engine | None = None,
+    confirmed_target_names: Iterable[str] = (),
 ) -> dict[str, list[dict[str, Any]]]:
-    """Return measured verified candidates and unresolved names for human review."""
+    """Return measured verified candidates and unresolved names for human review.
+
+    confirmed_target_names are raw AI names a reviewer has confirmed as the target
+    business. They are credited to it as reviewer-confirmed aliases.
+    """
 
     database = engine or get_engine()
     with database.connect() as connection:
@@ -76,6 +86,27 @@ def load_report_candidates(
         )
     if results.empty:
         return {"target": [], "verified": [], "unresolved": []}
+    confirmed = [str(name) for name in confirmed_target_names if str(name).strip()]
+    if confirmed:
+        target_row = next(
+            (
+                row for row in business_rows
+                if str(row["google_place_id"]) == str(target_google_place_id)
+            ),
+            None,
+        )
+        if target_row is not None:
+            aliases = pd.concat(
+                [
+                    aliases,
+                    confirmed_alias_frame(
+                        target_google_place_id=target_google_place_id,
+                        target_business_name=target_row["business_name"],
+                        confirmed=confirmed,
+                    ),
+                ],
+                ignore_index=True,
+            )
     records = build_recommendation_records(
         results=results,
         businesses=businesses,
