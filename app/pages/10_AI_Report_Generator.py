@@ -1504,12 +1504,68 @@ if ai_ready and definition is None:
             else:
                 st.cache_data.clear()
                 st.rerun()
-    if any(not item["reviews"] for item in comparison_evidence):
+    without_reviews = [item for item in comparison_evidence if not item["reviews"]]
+    if without_reviews:
+        st.markdown("**Collect Google reviews for the businesses that have none saved**")
         st.caption(
-            "Customer reviews are collected through the review tools, which can pull for several businesses at once "
-            "and apply the cost ceiling."
+            "This pays Outscraper for review text. It is used as supporting evidence for recommendations, never in the "
+            "AI visibility counts. Nothing is requested until you press the button."
         )
-        if st.button("Open review tools for these businesses", key="open_review_tools_for_comparison"):
+        review_key = secret_value("OUTSCRAPER_API_KEY")
+        if not review_key:
+            st.info("Outscraper is not connected. Ask an administrator to add the API key, or upload a review file in step 4.")
+        else:
+            chosen_for_reviews = st.multiselect(
+                "Businesses to collect reviews for",
+                options=[item["place_id"] for item in without_reviews],
+                default=[item["place_id"] for item in without_reviews],
+                format_func=lambda pid: next(i["name"] for i in without_reviews if i["place_id"] == pid),
+                key=f"collect_review_places_{selected_place_id}",
+            )
+            per_business_limit = st.selectbox(
+                "Maximum reviews per business", options=[50, 100, 200], index=1,
+                key=f"collect_review_limit_{selected_place_id}",
+            )
+            in_ceiling, projected = review_pull_within_cost_ceiling(
+                requested_reviews=len(chosen_for_reviews) * int(per_business_limit), ceiling_gbp=DEFAULT_APP_COST_CEILING_GBP
+            )
+            st.caption(
+                f"{len(chosen_for_reviews)} business(es) × up to {per_business_limit} reviews: conservative estimated maximum "
+                f"cost £{projected:.2f}. The app ceiling is £{DEFAULT_APP_COST_CEILING_GBP:.2f}."
+                + ("" if in_ceiling else " That is over the ceiling; choose fewer businesses or a lower limit.")
+            )
+            batch_key = f"report_outscraper_batch_{selected_place_id}"
+            if st.button(
+                "Request reviews from Outscraper", key=f"collect_reviews_go_{selected_place_id}",
+                disabled=not chosen_for_reviews or not in_ceiling, use_container_width=True,
+            ):
+                try:
+                    submitted = submit_google_reviews(
+                        api_key=review_key, place_ids=list(chosen_for_reviews), reviews_limit=int(per_business_limit)
+                    )
+                except OutscraperError as exc:
+                    st.error(f"Outscraper could not start the request: {exc}")
+                else:
+                    st.session_state[batch_key] = {"id": str(submitted.get("id") or ""), "places": list(chosen_for_reviews)}
+                    st.success("Review collection started. Use the check button below when it has finished.")
+            pending = st.session_state.get(batch_key) or {}
+            if pending.get("id") and st.button("Check and import collected reviews", key=f"collect_reviews_check_{selected_place_id}",
+                                              use_container_width=True):
+                try:
+                    response = get_request_result(api_key=review_key, request_id=pending["id"])
+                    frame = flatten_google_reviews_response(response.get("data"))
+                    frame = frame[frame["place_id"].fillna("").astype(str).isin(pending["places"])].copy() if not frame.empty else frame
+                    if frame.empty:
+                        st.info(f"The request is currently {response.get('status') or 'processing'}; no reviews are ready yet.")
+                    else:
+                        imported = import_reviews(frame, source_file_name=api_import_source_name(pending["id"]))
+                        st.session_state.pop(batch_key, None)
+                        st.success(f"Imported {int(imported['processed_rows']):,} review(s) for {frame['place_id'].nunique()} business(es).")
+                        st.cache_data.clear()
+                        st.rerun()
+                except (OutscraperError, ValueError) as exc:
+                    st.error(f"The review request could not be checked: {exc}")
+        if st.button("Open advanced review tools", key="open_review_tools_for_comparison"):
             st.session_state["active_diagnostic_cohort"] = {
                 "target_google_place_id": selected_place_id,
                 "target_business_name": str(business["business_name"]),

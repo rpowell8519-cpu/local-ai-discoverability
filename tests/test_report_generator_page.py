@@ -136,7 +136,7 @@ CANDIDATES = {
 }
 
 
-def run_page(audit, *, extra=()):
+def run_page(audit, *, extra=(), secrets=None):
     """Return an AppTest that has run the page against the stubbed data layer."""
     stack = ExitStack()
     saved = mock.Mock(return_value={"revision": 4})
@@ -151,6 +151,8 @@ def run_page(audit, *, extra=()):
         stack.enter_context(patch)
     at = AppTest.from_file(PAGE, default_timeout=60)
     at.secrets["TEST_ONLY_PLACEHOLDER"] = "unused"  # tests must not depend on a local secrets.toml
+    for key, value in (secrets or {}).items():
+        at.secrets[key] = value
     at.session_state["active_report_project_place_id"] = TARGET_ID
     at.run()
     return at, saved, stack
@@ -219,7 +221,7 @@ def test_comparison_evidence_panel_lists_every_business_and_offers_missing_websi
     with stack:
         assert not at.exception, [e.value for e in at.exception]
         labels = [b.label for b in at.button]
-        assert "Open review tools for these businesses" in labels
+        assert any(str(b.key) == "open_review_tools_for_comparison" for b in at.button)  # the advanced tools stay available
         # Only Runway East has a saved website, so only it gets a crawl button.
         crawl = [label for label in labels if label.startswith("Review the website of")]
         assert crawl == ["Review the website of Runway East Brighton | Office Space"]
@@ -733,3 +735,36 @@ def test_a_failed_comparison_is_said_plainly_and_does_not_break_the_page():
     with stack:
         assert not at.exception, [e.value for e in at.exception]
         assert any("could not be run" in w.value for w in at.warning) and not rec_radios(at)
+
+
+# ------------------------------------------------------------ collecting reviews in place
+def test_without_an_outscraper_key_the_review_collection_says_so_and_offers_no_request():
+    at, _, stack = run_page(revision())
+    with stack:
+        assert not at.exception, [e.value for e in at.exception]
+        assert any("Outscraper is not connected" in i.value for i in at.info)
+        assert not [b for b in at.button if str(b.key).startswith("collect_reviews_go_")]
+
+
+def test_businesses_with_no_review_text_can_be_collected_in_one_request_with_the_cost_shown():
+    submit = mock.Mock(return_value={"id": "req-1"})
+    at, _, stack = run_page(revision(), secrets={"OUTSCRAPER_API_KEY": "test-key"},
+                            extra=[mock.patch("src.outscraper_reviews.submit_google_reviews", submit)])
+    with stack:
+        assert not at.exception, [e.value for e in at.exception]
+        box = next(m for m in at.multiselect if str(m.key).startswith("collect_review_places_"))
+        assert TARGET_ID not in box.value and len(box.value) == 5  # the client already has reviews; every other business is offered
+        assert "conservative estimated maximum cost" in " ".join(c.value for c in at.caption)
+        next(b for b in at.button if str(b.key).startswith("collect_reviews_go_")).click().run()
+        assert not at.exception, [e.value for e in at.exception]
+        submit.assert_called_once()
+        assert set(submit.call_args.kwargs["place_ids"]) == set(box.value) and submit.call_args.kwargs["api_key"] == "test-key"
+        assert any("Review collection started" in s.value for s in at.success)
+
+
+def test_a_request_over_the_cost_ceiling_cannot_be_sent():
+    at, _, stack = run_page(revision(), secrets={"OUTSCRAPER_API_KEY": "test-key"},
+                            extra=[mock.patch("src.outscraper_reviews.review_pull_within_cost_ceiling", lambda **_: (False, 99.0))])
+    with stack:
+        assert next(b for b in at.button if str(b.key).startswith("collect_reviews_go_")).disabled
+        assert "over the ceiling" in " ".join(c.value for c in at.caption)
