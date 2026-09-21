@@ -142,3 +142,15 @@ def test_location_and_business_type_travel_with_the_report_for_the_summary():
 def test_the_google_listings_phone_and_postcode_travel_with_the_report():
     config, _ = assemble({"confirmed_target_names": ["WRAP"]})
     assert config["owner_report"]["listing_contact"] == {"phone": "01273 123456", "postal_code": "BN1 4EA", "address": "x"}
+
+
+def test_generated_reports_ask_for_findings_and_carry_the_site_check_they_were_given():
+    finding = {"id": "E1", "kind": "crawler_access", "gap": True, "observation": "x", "source": "y", "blocked_labels": ["Perplexity"]}
+    summary = {"target": [{"recommendations": 0}], "unresolved": UNRESOLVED, "verified": []}
+    with mock.patch("src.poc_audit_generic.load_report_candidates", return_value=summary), \
+         mock.patch("src.poc_audit_generic.assemble_poc_audit_payload", side_effect=lambda config, engine=None: config):
+        config = assemble_generic_report_payload(
+            revision({"confirmed_target_names": ["WRAP"]}), engine=_Engine(), site_findings=[finding]
+        )
+    assert config["owner_report"]["auto_findings"] is True
+    assert config["owner_report"]["site_findings"] == [finding]

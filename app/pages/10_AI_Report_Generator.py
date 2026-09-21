@@ -6,6 +6,7 @@ import sys
 import re
 import uuid
 from pathlib import Path
+from collections.abc import Mapping
 from typing import Any
 
 import pandas as pd
@@ -285,6 +286,14 @@ def has_configured_measurement_project(google_place_id: str) -> bool:
                 {"google_place_id": google_place_id},
             ).scalar_one()
         )
+
+
+def site_findings_for(business: Mapping[str, Any], audit: Mapping[str, Any] | None) -> tuple[str, list[dict[str, Any]]]:
+    """Read the client's robots.txt once (read-only) and return (website address, findings)."""
+
+    url = clean_text((audit or {}).get("manual_website_url")) or clean_text(business.get("source_website_url"))
+    finding = crawler_finding(check_ai_crawler_access(url)) if url else None
+    return url, [finding] if finding else []
 
 
 def clean_text(value: Any) -> str:
@@ -1578,20 +1587,15 @@ else:
     if generate and report_kind == "summary":
         try:
             with st.spinner("Assembling the saved evidence and laying out the client summary…"):
+                summary_site_url, summary_findings = site_findings_for(business, durable_audit)
                 summary_payload = (
                     definition.assembler()
                     if definition is not None
-                    else assemble_generic_report_payload(durable_audit)
-                )
-                summary_site_url = clean_text((durable_audit or {}).get("manual_website_url")) or clean_text(
-                    business.get("source_website_url")
-                )
-                summary_finding = (
-                    crawler_finding(check_ai_crawler_access(summary_site_url)) if summary_site_url else None
+                    else assemble_generic_report_payload(durable_audit, site_findings=summary_findings)
                 )
                 summary_data = build_client_summary_report(
                     summary_payload,
-                    site_findings=[summary_finding] if summary_finding else [],
+                    site_findings=summary_findings,
                     website_checked=bool(summary_site_url),
                     business_group=str(business.get("primary_group") or ""),
                     owner_questions=list((saved_brief or {}).get("desired_searches") or []),
@@ -1635,7 +1639,9 @@ else:
                 reviewable = (
                     build_reviewable_poc_audit(definition)
                     if definition is not None
-                    else build_reviewable_generic_audit(durable_audit)
+                    else build_reviewable_generic_audit(
+                        durable_audit, site_findings=site_findings_for(business, durable_audit)[1]
+                    )
                 )
         except Exception as exc:
             st.error(

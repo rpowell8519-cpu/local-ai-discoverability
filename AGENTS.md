@@ -81,7 +81,25 @@ give the summary its own counting or its own evidence.
   shows a different number and the listing's number appears on no page, and a page that reached
   the 8,000-character save cap never supports a difference, because the number could sit in the
   cut-off part. No data on either side means no finding. Gaps come first and findings are
-  numbered E1-E3. The full report (RP) does not use these findings yet.
+  numbered E1-E3.
+
+### The full report's content for a generated business
+
+A generated report sets `auto_findings` in its owner report, and `src/owner_report_findings.py`
+then builds the RP's sources, strengths, gaps and actions from the same findings the summary
+uses (`collect_findings` is the one shared function). Reports without that flag, such as the
+hand-built UDR, Cisco and Wild Flor ones, are never touched.
+
+- Every claim cites a source. Findings add three kinds: `site_check` (the robots.txt read),
+  `listing` (the saved Google record) and a normal `website` source for the contact check, whose
+  quoted text must appear in the saved page or the report refuses to build. New references never
+  reuse ones already in the report.
+- A verified finding becomes a gap and an action. The weakest topics become **one**
+  "Investigate" action, never a claimed defect, because a low appearance count does not show a
+  page is missing something. The full report stays stricter than the summary: it does not list
+  the summary's "suggested checks".
+- Effort is always "Not yet estimated". Do not add hour or cost figures without a real basis.
+- The page reads robots.txt once per generate and gives the finding to both report types.
 - The summary needs every planned answer, at least two questions and at most eight. When it
   cannot be produced the message says what to fix; the full report can still be produced.
 

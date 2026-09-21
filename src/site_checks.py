@@ -126,6 +126,8 @@ def crawler_finding(access: CrawlerAccess | None, finding_id: str = "E1") -> dic
         "observation": observation[:_OBSERVATION_LIMIT],
         "source": source,
         "blocked_labels": [label for _, label in access.blocked],
+        "url": access.robots_url,
+        "checked_on": access.checked_on,
     }
 
 
@@ -163,14 +165,26 @@ def _readable_phone(national: str) -> str:
     return f"{national[:5]} {national[5:]}"
 
 
-def extract_contact_details(text: str) -> tuple[set[str], set[str]]:
-    phones = {
-        n for n in (
-            normalise_uk_phone(re.split(r"[.,;]\s", m.group(0))[0]) for m in _PHONE.finditer(text or "")
-        ) if n
-    }
-    postcodes = {p for p in (normalise_postcode(m.group(0)) for m in _POSTCODE.finditer(text or "")) if p}
+def scan_contact_details(text: str) -> tuple[dict[str, str], dict[str, str]]:
+    """Phone numbers and postcodes in the text: normalised form -> exactly as written."""
+
+    phones: dict[str, str] = {}
+    for match in _PHONE.finditer(text or ""):
+        written = re.split(r"[.,;]\s", match.group(0))[0].strip()
+        number = normalise_uk_phone(written)
+        if number:
+            phones.setdefault(number, written)
+    postcodes: dict[str, str] = {}
+    for match in _POSTCODE.finditer(text or ""):
+        code = normalise_postcode(match.group(0))
+        if code:
+            postcodes.setdefault(code, match.group(0).strip())
     return phones, postcodes
+
+
+def extract_contact_details(text: str) -> tuple[set[str], set[str]]:
+    phones, postcodes = scan_contact_details(text)
+    return set(phones), set(postcodes)
 
 
 @dataclass(frozen=True)
@@ -180,6 +194,9 @@ class ContactCheck:
     matches: tuple[str, ...]         # fields confirmed on the site
     pages_read: tuple[str, ...]      # URLs of the pages the conclusion rests on
     checked_on: str
+    page_evidence: tuple[dict[str, str], ...] = ()  # page id, url and the exact text quoted
+    listing_phone: str = ""
+    listing_postcode: str = ""
 
 
 def check_contact_details(
@@ -195,50 +212,60 @@ def check_contact_details(
     listing_pc = normalise_postcode(listing_postcode or "")
     if not pages or not (listing_number or listing_pc):
         return None
-    seen_phones: set[str] = set()
-    seen_pcs: set[str] = set()
-    complete_phones: dict[str, str] = {}   # number -> first complete page showing it
-    complete_pcs: dict[str, str] = {}
+    where_phone: dict[str, dict[str, str]] = {}      # number -> first page showing it
+    where_pc: dict[str, dict[str, str]] = {}
+    complete_phone: dict[str, dict[str, str]] = {}   # the same, from pages saved in full
+    complete_pc: dict[str, dict[str, str]] = {}
     complete_urls: list[str] = []
     for page in pages:
         text = str(page.get("text_excerpt") or "")
-        phones, postcodes = extract_contact_details(text)
-        seen_phones |= phones
-        seen_pcs |= postcodes
+        phones, postcodes = scan_contact_details(text)
+        base = {"page_id": str(page.get("id") or ""), "url": str(page.get("url") or "")}
+        for number, written in phones.items():
+            where_phone.setdefault(number, {**base, "excerpt": written})
+        for code, written in postcodes.items():
+            where_pc.setdefault(code, {**base, "excerpt": written})
         if len(text) < SAVED_TEXT_CAP - 100:  # the whole page was saved
-            complete_urls.append(str(page.get("url") or ""))
-            for number in phones:
-                complete_phones.setdefault(number, str(page.get("url") or ""))
-            for code in postcodes:
-                complete_pcs.setdefault(code, str(page.get("url") or ""))
+            complete_urls.append(base["url"])
+            for number, written in phones.items():
+                complete_phone.setdefault(number, {**base, "excerpt": written})
+            for code, written in postcodes.items():
+                complete_pc.setdefault(code, {**base, "excerpt": written})
 
-    discrepancies, mismatched, matches, used = [], [], [], []
+    discrepancies, mismatched, matches, used, quoted = [], [], [], [], []
     if listing_number:
-        if listing_number in seen_phones:
+        if listing_number in where_phone:
             matches.append("phone number")
-        elif complete_phones:
-            others = sorted(complete_phones)[:2]
+            quoted.append(where_phone[listing_number])
+        elif complete_phone:
+            others = sorted(complete_phone)[:2]
             discrepancies.append(
                 f"the Google listing gives {_readable_phone(listing_number)}; the pages read show "
                 + " and ".join(_readable_phone(n) for n in others) + " but not that number"
             )
             mismatched.append("phone number")
-            used += [complete_phones[n] for n in others]
+            used += [complete_phone[n]["url"] for n in others]
+            quoted += [complete_phone[n] for n in others]
     if listing_pc:
-        if listing_pc in seen_pcs:
+        if listing_pc in where_pc:
             matches.append("postcode")
-        elif complete_pcs:
-            other = sorted(complete_pcs)[0]
+            quoted.append(where_pc[listing_pc])
+        elif complete_pc:
+            other = sorted(complete_pc)[0]
             discrepancies.append(
                 f"the Google listing has postcode {listing_pc[:-3]} {listing_pc[-3:]}; the pages read show "
                 f"{other[:-3]} {other[-3:]} but not that postcode"
             )
             mismatched.append("postcode")
-            used.append(complete_pcs[other])
+            used.append(complete_pc[other]["url"])
+            quoted.append(complete_pc[other])
     if not discrepancies and not matches:
         return None
     pages_read = tuple(dict.fromkeys(url for url in (used or complete_urls) if url))[:3]
-    return ContactCheck(tuple(discrepancies), tuple(mismatched), tuple(matches), pages_read, checked_on)
+    return ContactCheck(
+        tuple(discrepancies), tuple(mismatched), tuple(matches), pages_read, checked_on,
+        tuple(quoted), str(listing_phone or "").strip(), str(listing_postcode or "").strip(),
+    )
 
 
 def contact_finding(check: ContactCheck | None, finding_id: str = "E2") -> dict[str, Any] | None:
@@ -260,4 +287,7 @@ def contact_finding(check: ContactCheck | None, finding_id: str = "E2") -> dict[
         "observation": observation[:_OBSERVATION_LIMIT], "source": source,
         "fields": list(check.mismatched),
         "matches": list(check.matches),
+        "page_sources": [dict(item) for item in check.page_evidence if item.get("page_id")],
+        "listing": {"phone": check.listing_phone, "postcode": check.listing_postcode},
+        "checked_on": check.checked_on,
     }

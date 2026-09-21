@@ -369,3 +369,25 @@ def test_the_console_clears_a_leftover_search_when_a_report_is_opened_or_started
     source = (Path(PAGE).parents[1] / "streamlit_app.py").read_text()
     assert source.count("clear_business_search()") == 3  # definition call sites: open_report and the new-report button
     assert '"report_business_search_box"' in source
+
+
+def test_the_full_report_is_given_the_same_robots_finding_as_the_summary():
+    from types import SimpleNamespace
+
+    reviewable = SimpleNamespace(
+        definition=SimpleNamespace(key="generic_rev-uuid", pdf_filename="wrap.pdf"),
+        pdf_bytes=b"%PDF-1.4", payload={"report": {}},
+    )
+    builder = mock.Mock(return_value=reviewable)
+    extra = [
+        mock.patch("src.poc_audit_generic.build_reviewable_generic_audit", builder),
+        mock.patch("src.site_checks.check_ai_crawler_access", return_value=_closed("blocked")),
+    ]
+    at, _, stack = run_page(revision(COMPLETE, complete=True), extra=extra)
+    with stack:
+        button(at, "Generate report from saved evidence").click().run()
+        assert not at.exception, [e.value for e in at.exception]
+        builder.assert_called_once()
+        findings = builder.call_args.kwargs["site_findings"]
+        assert [f["kind"] for f in findings] == ["crawler_access"] and findings[0]["gap"] is True
+        assert any("The reviewable PDF is ready." in s.value for s in at.success)

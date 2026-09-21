@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from typing import Any
 
 from sqlalchemy import text
@@ -87,7 +87,8 @@ def _evidence_definitions(
 
 
 def assemble_generic_report_payload(
-    audit_revision: Mapping[str, Any], *, engine: Engine | None = None
+    audit_revision: Mapping[str, Any], *, engine: Engine | None = None,
+    site_findings: Iterable[Mapping[str, Any]] = (),
 ) -> dict[str, Any]:
     """Assemble the accessible report from a completed generic review revision."""
 
@@ -326,6 +327,9 @@ def assemble_generic_report_payload(
             "services": service_groups,
             "location": location,
             "primary_group": str(run.get("primary_group") or "generic"),
+            # Ask the report to build its strengths, gaps and actions from the findings.
+            "auto_findings": True,
+            "site_findings": [dict(finding) for finding in site_findings],
             "listing_contact": {
                 "phone": details_by_id.get(target_id, {}).get("phone"),
                 "postal_code": details_by_id.get(target_id, {}).get("postal_code"),
@@ -388,7 +392,8 @@ def assemble_generic_report_payload(
 
 
 def build_reviewable_generic_audit(
-    audit_revision: Mapping[str, Any], *, engine: Engine | None = None
+    audit_revision: Mapping[str, Any], *, engine: Engine | None = None,
+    site_findings: Iterable[Mapping[str, Any]] = (),
 ) -> ReviewablePocAudit:
     definition = PocAuditDefinition(
         key=f"generic_{audit_revision['id']}",
@@ -396,7 +401,7 @@ def build_reviewable_generic_audit(
         target_google_place_id=str(audit_revision["target_google_place_id"]),
         client_name=str(audit_revision["target_business_name"]),
         pdf_filename=(str(audit_revision["target_business_name"]).lower().replace(" ", "-") + "-ai-visibility-report.pdf"),
-        assembler=lambda: assemble_generic_report_payload(audit_revision, engine=engine),
+        assembler=lambda: assemble_generic_report_payload(audit_revision, engine=engine, site_findings=site_findings),
         report_template="accessible_owner_services_v1",
     )
     return build_reviewable_poc_audit(definition)

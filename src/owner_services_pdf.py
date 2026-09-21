@@ -207,10 +207,13 @@ def render_owner_services_pdf(payload) -> bytes:
         group = [p(title, "h2", True), p(f"{source['business']} · {str(source.get('date') or 'Date unavailable')[:10]}", "small")]
         if source.get("excerpt"):
             group.append(p('“' + source["excerpt"] + '”'))
+        if source["kind"] in ("site_check", "listing") and source.get("text"):
+            group.append(p(source["text"]))
         for excerpt in source.get("additional_excerpts", []):
             group.append(p('“' + excerpt + '”'))
         if url:
-            group.append(p(f'<link href="{e(url)}" color="#194db0">Open original {"review" if source["kind"] == "review" else "website page"}</link>', "small", True))
+            what = {"review": "review", "site_check": "robots.txt file"}.get(source["kind"], "website page")
+            group.append(p(f'<link href="{e(url)}" color="#194db0">Open original {what}</link>', "small", True))
         group.append(p(f"Record: {source['record_id']} · Collection: {source.get('collection_id', 'Not recorded')}", "small"))
         if source["kind"] == "review":
             group.append(p(f"Source: {source.get('source', 'Not recorded')} · imported {str(source.get('imported_at') or 'Not recorded')[:10]}. Quotation verified against saved text; date is the review date, not today's evidence.", "small"))

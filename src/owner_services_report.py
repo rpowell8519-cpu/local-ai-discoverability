@@ -12,6 +12,8 @@ from html import escape
 import re
 from typing import Any, Mapping
 
+from src.owner_report_findings import derive_owner_content
+
 FORMAT = "accessible_owner_services_v4"
 VERSION = "owner_services_v4.0"
 
@@ -60,7 +62,12 @@ def _sources(payload, config):
     sources = {}
     for item in config.get("sources", []):
         source = dict(item)
-        if item["kind"] == "website":
+        if item["kind"] in ("site_check", "listing"):
+            # Observations the audit made itself, not saved pages or reviews: shown with their own source and date.
+            source.update(url=item.get("url"), date=item.get("date"), collection_id=None,
+                          business=payload["audit"]["target_business_name"], text=item.get("observation", ""),
+                          record_id=item.get("record_id") or item.get("url") or "")
+        elif item["kind"] == "website":
             if item["record_id"] not in pages:
                 raise ValueError(f"Missing website evidence for {item['ref']}")
             audit, record = pages[item["record_id"]]
@@ -173,6 +180,9 @@ def build_owner_report(payload: Mapping[str, Any]) -> dict[str, Any]:
                         "appearances": sum(provider_name(r["provider"]) == p and r["response_id"] in target_ids for r in valid)} for p in providers]
     repetitions = sorted({int(r["repetition"]) for r in responses})
     repetition_counts = sorted({len({r["repetition"] for r in responses if int(r["base_prompt_order"]) == q["order"] and provider_name(r["provider"]) == provider}) for q in questions for provider in providers})
+    if config.get("auto_findings"):
+        derive_owner_content(config=config, payload=payload, questions=questions, services=services,
+                             target_id=target, target_name=name)
     sources = _sources(payload, config)
     allowed_refs = set(sources) | {f"Q{q['order']}" for q in questions} | {"TEST", "INVENTORY"}
     for section in ("strengths", "gaps", "actions", "comparisons"):
@@ -242,6 +252,12 @@ def evidence_index_html(payload: Mapping[str, Any]) -> str:
         parts.append(f"<h3>{e(audit['business_name'])}</h3><p>Audit {e(audit['id'])}; {len(audit.get('pages', []))} saved page records.</p>")
         for page in audit.get("pages", []):
             parts.append(f"<section id='{e(page['id'])}'><h4><a href='{e(page.get('url'))}'>{e(page.get('page_title') or page.get('url'))}</a></h4><small>Record {e(page['id'])}; collected {e(page.get('crawled_at'))}</small><pre>{e(page.get('text_excerpt'))}</pre></section>")
+    checks = [(ref, s) for ref, s in report["sources"].items() if s["kind"] in ("site_check", "listing")]
+    if checks:
+        parts.append("<h2>Checks made by this audit</h2><p>Observations made from saved records or by reading the site's robots.txt on the date shown. They describe what was seen, not why.</p>")
+        for ref, source in checks:
+            link = f"<p><a href='{e(source['url'])}'>{e(source['url'])}</a></p>" if source.get("url") else ""
+            parts.append(f"<section id='{ref}'><h3>{ref} · {e(source['title'])}</h3><p>{e(source['text'])}</p>{link}<small>Date: {e(str(source.get('date') or 'Not recorded')[:10])}</small></section>")
     parts.append("<h2>Selected customer-review sources</h2>")
     for ref, source in report["sources"].items():
         if source["kind"] == "review":
