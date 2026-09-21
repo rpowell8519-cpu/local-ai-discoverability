@@ -281,3 +281,8 @@ def test_a_verified_action_is_justified_by_its_observation_not_by_a_topic_count(
     assert "Why: The website and the Google listing disagree" in page_five
     # the topic count is still the reason for the suggested check
     assert "Why: you appeared in" in page_five
+
+
+def test_the_adapter_produces_drafts_unless_told_not_to(payload):
+    assert summary(payload)["draft"] is True
+    assert summary(payload, draft=False)["draft"] is False

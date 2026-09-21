@@ -110,7 +110,8 @@ class Page:
         c.setFillColor(GREY)
         c.drawString(LEFT, H - 41, d['business_name'].upper())
         c.setFont('Helvetica', 8)
-        c.drawRightString(RIGHT, H - 41, f"CLIENT SUMMARY | {long_date(d['audit_date']).upper()}")
+        label = 'CLIENT SUMMARY DRAFT' if d.get('draft', True) else 'CLIENT SUMMARY'
+        c.drawRightString(RIGHT, H - 41, f"{label} | {long_date(d['audit_date']).upper()}")
         c.setStrokeColor(RULE)
         c.setLineWidth(1)
         c.line(LEFT, H - 793, RIGHT, H - 793)
@@ -217,7 +218,7 @@ def render_pdf(payload):
     m = metrics(d)
     out = BytesIO()
     canvas = Canvas(out, pagesize=(W, H))
-    canvas.setTitle(f"{d['business_name']} - AI visibility summary")
+    canvas.setTitle(f"{d['business_name']} - AI visibility summary" + (' (draft)' if d.get('draft', True) else ''))
     canvas.setAuthor('AI visibility report')
     page = Page(canvas, d)
 
