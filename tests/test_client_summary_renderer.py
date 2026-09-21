@@ -147,6 +147,34 @@ class RestyledSummaryTests(unittest.TestCase):
         self.d['questions'][0]['label'] = ('A very long customer topic name that goes on ' * 2)[:65].rstrip()
         self.assertEqual(len(self.pages()), 6)
 
+    def test_long_workspace_names_and_sourced_findings_fit_page_four(self):
+        self.d['business_name'] = 'WRAP- Coworking, Meeting Rooms & Offices'
+        self.d['short_name'] = 'WRAP'
+        names = ['Plus X Innovation Brighton', 'Runway East Brighton | Office Space',
+                 'PLATF9RM Brighton - Coworking, Offices & Events', self.d['business_name']]
+        for business, name in zip(self.d['businesses'], names):
+            business['name'] = name
+        # Synthetic observations reproduce the size of WRAP's two sourced findings.
+        self.d['evidence'] = [
+            {'id': 'E1', 'observation': 'robots.txt does not block the main AI search crawlers '
+             '(ChatGPT search, Claude search, Perplexity, Google Search, Bing and Copilot).',
+             'source': 'https://example.com/robots.txt, read on 21 September 2026'},
+            {'id': 'E2', 'observation': 'The website shows the same postcode as the Google listing.',
+             'source': 'https://example.com/contact-form, https://example.com/contactus-meetings, '
+             'https://example.com/contactus-meetings-thankyou, saved 13 September 2026'},
+        ]
+        before = deepcopy(self.d)
+        pages = self.pages()
+        self.assertEqual(len(pages), 6)
+        for name in names:
+            self.assertIn(name, pages[3])
+        for evidence in self.d['evidence']:
+            self.assertIn(evidence['observation'], pages[3])
+            self.assertIn(evidence['source'], pages[3])
+        for provider in self.d['providers']:
+            self.assertIn(f"{provider['name']}: {provider['appearances']} of {provider['complete']}", pages[3])
+        self.assertEqual(self.d, before)
+
     def test_every_page_carries_the_draft_header_and_footer(self):
         for number, text in enumerate(self.pages(), 1):
             self.assertIn('CLIENT SUMMARY DRAFT | 18 SEPTEMBER 2026', text)
