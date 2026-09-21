@@ -257,7 +257,7 @@ def evidence_index_html(payload: Mapping[str, Any]) -> str:
         parts.append("<h2>Checks made by this audit</h2><p>Observations made from saved records or by reading the site's robots.txt on the date shown. They describe what was seen, not why.</p>")
         for ref, source in checks:
             link = f"<p><a href='{e(source['url'])}'>{e(source['url'])}</a></p>" if source.get("url") else ""
-            parts.append(f"<section id='{ref}'><h3>{ref} · {e(source['title'])}</h3><p>{e(source['text'])}</p>{link}<small>Date: {e(str(source.get('date') or 'Not recorded')[:10])}</small></section>")
+            parts.append(f"<section id='{ref}'><h3>{ref} · {e(source['title'])}</h3><p>{e(source['text'])}</p>{link}<small>Date: {e(str(source['date'])[:10] if source.get('date') else 'Not recorded')}</small></section>")
     parts.append("<h2>Selected customer-review sources</h2>")
     for ref, source in report["sources"].items():
         if source["kind"] == "review":

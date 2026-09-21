@@ -42,7 +42,9 @@ def test_renders_six_pages_with_the_measured_result(payload):
 
 def test_question_labels_use_the_owner_priority_they_test(payload):
     labels = [q["label"] for q in summary(payload)["questions"]]
-    assert labels == ["Colour / balayage (Q1)", "Colour / balayage (Q2)", "Curly cuts", "Bridal hair"]
+    # Q1 and Q2 both test "Colour / balayage": each is shown by its own wording so neither is hidden.
+    assert labels[2:] == ["Curly cuts", "Bridal hair"]
+    assert all("Colour / balayage" not in label for label in labels[:2]) and len(set(labels)) == 4
 
 
 def test_unlinked_questions_fall_back_to_their_own_wording(payload):
@@ -286,3 +288,26 @@ def test_a_verified_action_is_justified_by_its_observation_not_by_a_topic_count(
 def test_the_adapter_produces_drafts_unless_told_not_to(payload):
     assert summary(payload)["draft"] is True
     assert summary(payload, draft=False)["draft"] is False
+
+
+from src.client_summary.adapter import _topic_wording  # noqa: E402
+
+
+@pytest.mark.parametrize("prompt,expected", [
+    ("Recommend places in Brighton for coworking.", "coworking."),
+    ("Recommend places for co working near Brighton station", "co working near Brighton station"),
+    ("Best co working hub in Brighton", "co working hub in Brighton"),
+    ("Where can i arrange a team away day in Brighton?", "team away day in Brighton?"),
+    # unchanged: no boilerplate opener, or nothing would be left
+    ("Sustainable working offices in Brighton", "Sustainable working offices in Brighton"),
+    ("Which salons offer hair colouring in Exampletown?", "Which salons offer hair colouring in Exampletown?"),
+    ("Recommend places", "Recommend places"),
+])
+def test_only_boilerplate_openers_are_removed_from_question_labels(prompt, expected):
+    assert _topic_wording(prompt) == expected
+
+
+def test_a_label_reads_as_a_topic_and_the_exact_question_is_kept_in_full(payload):
+    data = summary(payload)
+    assert data["questions"][0]["text"] == build_owner_report(payload)["questions"][0]["prompt"]  # never altered
+    assert all(q["label"][0].isupper() for q in data["questions"])

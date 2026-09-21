@@ -496,3 +496,16 @@ def test_a_review_that_slips_through_gives_a_plain_message_not_a_traceback():
         assert not at.exception, [e.value for e in at.exception]
         assert "“WRAP” (12 answer(s))" in warnings_text(at)
         assert not at.error
+
+
+def test_suggested_links_are_labelled_as_suggestions_and_saved_ones_are_not():
+    at, _, stack = run_page(revision())
+    with stack:
+        box = next(s for s in at.selectbox if s.key == f"question_priority_{TARGET_ID}_1")
+        assert "(suggested from the wording: please check)" in box.label
+        unsuggested = next(s for s in at.selectbox if s.key == f"question_priority_{TARGET_ID}_5")
+        assert "suggested" not in unsuggested.label  # nothing was suggested for the ambiguous question
+    at, _, stack = run_page(revision({"question_priority_map": {"1": "Co-working"}}))
+    with stack:
+        box = next(s for s in at.selectbox if s.key == f"question_priority_{TARGET_ID}_1")
+        assert "suggested" not in box.label  # a reviewer's saved choice is not a suggestion

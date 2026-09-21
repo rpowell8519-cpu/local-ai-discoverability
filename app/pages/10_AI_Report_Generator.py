@@ -1477,8 +1477,9 @@ if ai_ready and definition is None:
             for question in review_questions:
                 order = str(int(question["base_prompt_order"]))
                 preselected = stored_links.get(order) or suggested_links.get(order) or ""
+                suggestion_note = "" if stored_links.get(order) or not preselected else "  (suggested from the wording: please check)"
                 question_choices[order] = st.selectbox(
-                    f"Q{order}: {question['prompt_text']}",
+                    f"Q{order}: {question['prompt_text']}{suggestion_note}",
                     options=link_options,
                     index=link_options.index(preselected) if preselected in link_options else 0,
                     format_func=lambda value: "Choose…" if value == "" else value,

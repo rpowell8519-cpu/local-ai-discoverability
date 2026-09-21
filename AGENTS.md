@@ -193,6 +193,26 @@ silently skews every result, and the page once defaulted to "Brighton and Hove" 
 business. Do not reintroduce a default. `src/llm_providers/` still contains that fallback for
 callers that pass no location; the report generator never does.
 
+### Lessons from the first real WRAP run
+
+The first live run failed and showed three things that stub-data tests had hidden. Keep them true.
+
+- **The summary condenses before it refuses.** `render_pdf` tries four levels: single-line names
+  (the target keeps its short name), tighter spacing, inline sources, and dropping one optional
+  explanatory paragraph. Type is never made smaller and nothing is clipped; it stops only if every
+  level fails. Real data is wordier than demonstration data, so `tests/wrap_fixture.py` holds that
+  run's numbers and `tests/test_client_summary_fit.py` checks every business type against every
+  finding combination with long labels. Tile and label fitting must be measured, never estimated.
+- **A suggested link must be conservative.** `suggest_priority` scores each owner priority on the
+  words no other priority uses, treats "co working" as "coworking", and returns nothing unless one
+  priority clearly wins. A word shared between priorities ("working", "space") once linked two of
+  WRAP's questions to the wrong priority, which hid a 9-of-9 result from Coworking in a client
+  report. Suggestions are labelled as suggestions on the page. Wrong links are worse than none.
+- **Every question is shown on its own.** Grouping by priority is a summary, never a replacement:
+  the full report has an "Each question on its own" table, and the summary shows one bar per
+  question, using the question's own wording unless a priority is tested by exactly one question.
+  Wording must not overstate: a tie is "level with", never "the most".
+
 ### Reviews completed before these checks existed
 
 A review saved before names and priorities were confirmed is flagged at the top of step 5 with

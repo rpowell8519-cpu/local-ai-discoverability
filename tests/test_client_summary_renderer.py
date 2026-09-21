@@ -180,3 +180,37 @@ class DraftLabelTests(unittest.TestCase):
         self.assertIn('(draft)', PdfReader(BytesIO(render_pdf(self.d))).metadata.title)
         self.d['draft'] = False
         self.assertNotIn('(draft)', PdfReader(BytesIO(render_pdf(self.d))).metadata.title)
+
+
+class TiedResultTests(unittest.TestCase):
+    """A tie must never be described as being ahead."""
+
+    def setUp(self):
+        self.d = json.loads((BASE / 'client_summary_example.json').read_text())
+
+    def page_four(self):
+        return ' '.join(PdfReader(BytesIO(render_pdf(self.d))).pages[3].extract_text().split())
+
+    def test_a_tie_for_the_lead_is_described_as_level_not_as_the_most(self):
+        # Regression: the first WRAP report said "had the most appearances" while level with Plus X at 30.
+        self.d['businesses'][-1]['appearances'] = 35   # level with the top competitor, who has 35
+        for q, value in zip(self.d['questions'], [9, 8, 6, 4, 3, 2, 2, 1]):
+            q['appearances'] = value
+        self.d['providers'] = [{**p, 'appearances': v} for p, v in zip(self.d['providers'], [12, 12, 11])]
+        self.d['businesses'][-1]['appearances'] = 35
+        self.d['businesses'][-1]['appearances'] = sum(q['appearances'] for q in self.d['questions'])
+        top = self.d['businesses'][-1]['appearances']
+        self.d['businesses'][0]['appearances'] = top
+        text = self.page_four()
+        self.assertIn('was level with', text)
+        self.assertNotIn('had the most appearances', text)
+
+    def test_only_a_clear_lead_is_described_as_the_most(self):
+        for q, value in zip(self.d['questions'], [9, 8, 6, 4, 3, 2, 2, 1]):
+            q['appearances'] = value
+        self.d['providers'] = [{**p, 'appearances': v} for p, v in zip(self.d['providers'], [12, 12, 11])]
+        total = sum(q['appearances'] for q in self.d['questions'])
+        self.d['businesses'][-1]['appearances'] = total
+        for b in self.d['businesses'][:-1]:
+            b['appearances'] = total - 5
+        self.assertIn('had the most appearances of the businesses shown', self.page_four())

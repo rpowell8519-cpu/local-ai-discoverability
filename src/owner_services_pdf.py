@@ -87,6 +87,11 @@ def render_owner_services_pdf(payload) -> bytes:
     table(["Priority service", "Questions", "Result"], [[s["name"], ", ".join(f"Q{o}" for o in s["questions"]) or "—",
         f"{s['appearances']} of {s['answers']} answers" if s["answers"] else s["status"]] for s in report["services"]], [235, 105, 165])
     add(cfg.get("coverage_note", "A service-to-question mapping is included only where confirmed. Unmapped priorities need reviewer attention; they are not automatically classified as untested."))
+    add("Each question on its own", "h2")
+    tests = {int(order): s["name"] for s in report["services"] if not s["name"].startswith("Question ") for order in s["questions"]}
+    table(["Question", "Tests", "Result"], [
+        [f"Q{q['order']}: {q['prompt']}", tests.get(int(q["order"]), "Priority not confirmed"),
+         f"{q['appearances']} of {q['answers']} answers" if q["answers"] else "No complete answers"] for q in report["questions"]], [235, 140, 130])
     add("The overall result depends on this question mix. More questions about one service give it more weight. These counts are not the probability that a customer will see the business.")
     story.append(refs([f"Q{q['order']}" for q in report["questions"]]))
 
@@ -100,7 +105,7 @@ def render_owner_services_pdf(payload) -> bytes:
         observation(item)
     for ref, source in list((k, s) for k, s in report["sources"].items() if s["kind"] == "review" and s["business"] == report["name"])[:2]:
         review_source = "Google review (saved copy)" if source.get("source") == "outscraper_google_reviews" else source.get("source", "Source unavailable")
-        story.append(KeepTogether([p('“' + source["excerpt"] + '”'), p(f"{review_source} · {str(source.get('date') or 'Date unavailable')[:10]}", "small"), refs([ref])]))
+        story.append(KeepTogether([p('“' + source["excerpt"] + '”'), p(f"{review_source} · {str(source['date'])[:10] if source.get('date') else 'Date unavailable'}", "small"), refs([ref])]))
 
     if report["cohort"]:
         start("comparison", "Useful comparisons—not an overall league table", "Relevant businesses")
@@ -204,7 +209,7 @@ def render_owner_services_pdf(payload) -> bytes:
     for ref, source in report["sources"].items():
         url = source.get("url")
         title = f'<a name="{e(ref)}"/>{e(ref)} · {e(source["title"])}'
-        group = [p(title, "h2", True), p(f"{source['business']} · {str(source.get('date') or 'Date unavailable')[:10]}", "small")]
+        group = [p(title, "h2", True), p(f"{source['business']} · {str(source['date'])[:10] if source.get('date') else 'Date unavailable'}", "small")]
         if source.get("excerpt"):
             group.append(p('“' + source["excerpt"] + '”'))
         if source["kind"] in ("site_check", "listing") and source.get("text"):
@@ -214,7 +219,7 @@ def render_owner_services_pdf(payload) -> bytes:
         if url:
             what = {"review": "review", "site_check": "robots.txt file"}.get(source["kind"], "website page")
             group.append(p(f'<link href="{e(url)}" color="#194db0">Open original {what}</link>', "small", True))
-        group.append(p(f"Record: {source['record_id']} · Collection: {source.get('collection_id', 'Not recorded')}", "small"))
+        group.append(p(f"Record: {source['record_id']} · Collection: {source.get('collection_id') or 'Not recorded'}", "small"))
         if source["kind"] == "review":
             group.append(p(f"Source: {source.get('source', 'Not recorded')} · imported {str(source.get('imported_at') or 'Not recorded')[:10]}. Quotation verified against saved text; date is the review date, not today's evidence.", "small"))
         story.append(KeepTogether(group))

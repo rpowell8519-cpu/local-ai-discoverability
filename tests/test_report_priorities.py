@@ -83,3 +83,44 @@ def test_a_question_linked_to_two_priorities_cannot_exist_in_the_groups():
     orders = [order for group in groups for order in group["questions"]]
     assert len(orders) == len(set(orders))
     assert all(isinstance(order, int) for order in orders)
+
+
+# ---------------------------------------------------------------- the first real WRAP run
+WRAP_PRIORITIES = ["Coworking", "Private offices", "Meeting rooms", "Event spaces", "Team away days",
+                   "Sustainable working space", "Flexible membership"]
+WRAP_QUESTIONS = [
+    "Recommend places in Brighton for coworking.", "Recommend places in Brighton for private offices.",
+    "Recommend places in Brighton for meeting rooms.", "Recommend places in Brighton for event spaces.",
+    "Recommend places in Brighton for team away days.", "Recommend places for co working near Brighton station",
+    "Sustainable working offices in Brighton", "Flexible working spaces in Brighton",
+]
+
+
+def wrap_suggestions():
+    return suggest_priority_map(
+        [{"base_prompt_order": i, "prompt_text": q} for i, q in enumerate(WRAP_QUESTIONS, 1)], WRAP_PRIORITIES
+    )
+
+
+def test_wrap_questions_are_linked_to_the_right_priorities():
+    # Regression: Q6 ("co working") and Q8 ("flexible working spaces") were both suggested as
+    # "Sustainable working space" because they share the generic word "working", which hid Q6's 9 of 9
+    # from Coworking in the first client report.
+    got = wrap_suggestions()
+    assert [got.get(str(i)) for i in range(1, 8)] == [
+        "Coworking", "Private offices", "Meeting rooms", "Event spaces", "Team away days", "Coworking",
+        "Sustainable working space",
+    ]
+
+
+def test_an_ambiguous_question_gets_no_suggestion_so_a_person_decides():
+    assert "8" not in wrap_suggestions()  # "Flexible working spaces" fits three priorities equally badly
+
+
+def test_a_word_shared_between_priorities_cannot_decide_on_its_own():
+    assert suggest_priority("Best working area in Leeds", ["Coworking hub", "Sustainable working space"]) is None
+
+
+def test_co_working_and_coworking_are_the_same_word():
+    assert suggest_priority("Where is a good co working place", ["Coworking", "Meeting rooms"]) == "Coworking"
+    assert suggest_priority("Best coworking near me", ["Co-working", "Meeting rooms"]) == "Co-working"

@@ -97,7 +97,8 @@ def test_a_contact_difference_cites_the_listing_and_quotes_the_saved_page_exactl
 
 def test_matching_contact_details_are_a_strength():
     titles = [s["title"] for s in build(contact_phone="01273 123456")["strengths"]]
-    assert "The website and Google listing agree on contact details" in titles
+    assert "The website and Google listing agree on the phone number" in titles
+    assert "The website and Google listing agree on contact details" not in titles  # never broader than what was checked
 
 
 def test_derived_references_never_reuse_ones_the_report_already_has():
@@ -148,3 +149,28 @@ def test_collect_findings_orders_gaps_first_and_keeps_one_per_kind():
     found = collect_findings(payload, payload["report"]["owner_report"], "synthetic-target", extra=[CRAWLER_GAP])
     assert [f["kind"] for f in found] == ["contact_details", "crawler_access"]
     assert found[1]["gap"] is False  # the finding already in the report wins over a duplicate kind
+
+
+def rendered_text(payload):
+    reader = PdfReader(BytesIO(render_poc_audit_pdf(payload)))
+    return " ".join(" ".join(page.extract_text().split()) for page in reader.pages)
+
+
+def test_the_full_report_shows_every_question_on_its_own_not_only_inside_a_priority_group():
+    payload = generated()
+    text = rendered_text(payload)
+    assert "Each question on its own" in text
+    for question in build_owner_report(payload)["questions"]:
+        assert f"Q{question['order']}: {question['prompt']}" in text
+
+
+def test_a_source_with_no_date_says_so_in_full_instead_of_being_cut_short():
+    # Regression: the fallback text was sliced to ten characters and printed as "Date unava".
+    text = rendered_text(generated(contact_phone="01273 654321"))
+    assert "Date unavailable" in text and "Date unava " not in text and "Date unava\n" not in text
+    assert "Collection: None" not in text
+
+
+def test_a_source_with_no_collection_says_not_recorded():
+    text = rendered_text(generated(site_findings=[CRAWLER_GAP]))
+    assert "Collection: Not recorded" in text

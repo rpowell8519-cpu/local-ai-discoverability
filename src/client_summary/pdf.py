@@ -57,8 +57,8 @@ class ReportLayoutError(ReportValidationError):
 class Page:
     """Top-down layout cursor in points from the top edge, matching the draft's spacing."""
 
-    def __init__(self, canvas, data):
-        self.c, self.data = canvas, data
+    def __init__(self, canvas, data, level=0):
+        self.c, self.data, self.level = canvas, data, level
         self.top, self.number = 0, 0
 
         def style(name, font, size, leading, color=NAVY):
@@ -80,6 +80,8 @@ class Page:
                 'clipping or an unreadable font size.')
 
     def para(self, markup, kind='body', gap=10, x=LEFT, width=WIDTH, draw=True):
+        if self.level >= 2 and gap >= 8:
+            gap -= 3  # tighter spacing between paragraphs; type size is never reduced
         paragraph = Paragraph(markup, self.styles[kind])
         _, height = paragraph.wrap(width, 800)
         self.need(height + gap)
@@ -186,6 +188,8 @@ class Page:
 
     def scaled_bar(self, label, value, maximum, target):
         """Page-4 style: label left, bar scaled to the largest business, count at the right."""
+        if self.level >= 1:
+            label = one_line(label, 'Helvetica-Bold' if target else 'Helvetica', 12, 186)
         paragraph = Paragraph(safe(label), self.styles['label12b' if target else 'label12'])
         _, height = paragraph.wrap(190, 100)
         pitch = max(36, height + 20)
@@ -200,27 +204,71 @@ class Page:
         self.top += pitch
 
 
-def fit_label(label, prefix, limit=135, lines=2, font='Helvetica', size=11):
-    """Shorten a topic label at a word boundary until "prefix + label" fits a tile."""
-    budget = limit * lines * 0.85
-    words = label.split()
-    while words and stringWidth(prefix + ' '.join(words), font, size) > budget:
+def one_line(text, font, size, width):
+    """The text on one line, ending in an ellipsis if it has to be cut at a word boundary."""
+    text = ' '.join(str(text).split())
+    if stringWidth(text, font, size) <= width:
+        return text
+    words = text.split()
+    while len(words) > 1:
         words.pop()
-        ellipsis = '\u2026'
-        if words and stringWidth(prefix + ' '.join(words) + ellipsis, font, size) <= budget:
-            return prefix + ' '.join(words) + ellipsis
-    return prefix + ' '.join(words) if words else prefix.strip()
+        candidate = ' '.join(words).rstrip(' ,;:-|&') + '\u2026'
+        if stringWidth(candidate, font, size) <= width:
+            return candidate
+    while text and stringWidth(text + '\u2026', font, size) > width:
+        text = text[:-1]
+    return text.rstrip() + '\u2026'
+
+
+def compact_source(source):
+    """Drop the scheme and a leading www. so a source line fits on one line."""
+    for prefix in ('https://www.', 'http://www.', 'https://', 'http://'):
+        source = source.replace(prefix, '')
+    return source
+
+
+def tile_label(label, prefix='Answers about '):
+    """Tile text that measurably fits two lines: shortened at a word boundary, ending in an ellipsis."""
+    style = ParagraphStyle('tile', fontName='Helvetica', fontSize=11, leading=16)
+    words = str(label).split()
+    trimmed = False
+    while True:
+        text = prefix + ' '.join(words) + ('\u2026' if trimmed else '')
+        _, height = Paragraph(safe(text), style).wrap(135, 200)
+        if height <= 34 or not words:
+            return text
+        words.pop()
+        trimmed = True
+
+
+LAST_LEVEL = 3
 
 
 def render_pdf(payload):
-    """Return PDF bytes after validation; never write client data to disk."""
+    """Return PDF bytes after validation; never write client data to disk.
+
+    Content that does not fit is first condensed, step by step: single-line names, tighter spacing,
+    inline sources, then dropping one optional explanatory paragraph. Type is never made smaller and
+    nothing is clipped. Only if every step fails does the export stop with the layout error.
+    """
+    validated = validate_report(payload)
+    error = None
+    for level in range(LAST_LEVEL + 1):
+        try:
+            return _render(validated, level)
+        except ReportLayoutError as exc:
+            error = exc
+    raise error
+
+
+def _render(payload, level):
     d = validate_report(payload)
     m = metrics(d)
     out = BytesIO()
     canvas = Canvas(out, pagesize=(W, H))
     canvas.setTitle(f"{d['business_name']} - AI visibility summary" + (' (draft)' if d.get('draft', True) else ''))
     canvas.setAuthor('AI visibility report')
-    page = Page(canvas, d)
+    page = Page(canvas, d, level)
 
     name = d.get('short_name') or d['business_name']
     total, appearances = m['complete'], m['appearances']
@@ -252,8 +300,8 @@ def render_pdf(payload):
                  (str(len(providers)), 'AI providers used')]
     else:
         tiles = [(f'{appearances} of {total}', 'Test answers included you'),
-                 (f'{best["appearances"]} of {best["complete"]}', fit_label(best['label'], 'Answers about ')),
-                 (f'{weakest["appearances"]} of {weakest["complete"]}', fit_label(weakest['label'], 'Answers about '))]
+                 (f'{best["appearances"]} of {best["complete"]}', tile_label(best['label'])),
+                 (f'{weakest["appearances"]} of {weakest["complete"]}', tile_label(weakest['label']))]
     page.tiles(tiles)
     page.heading('What we found')
     if appearances == 0:
@@ -351,18 +399,25 @@ def render_pdf(payload):
     page.eyebrow_row('Comparison businesses | appearances in the test')
     top_value = max(b['appearances'] for b in m['businesses'])
     for b in m['businesses']:
-        page.scaled_bar(b['name'], b['appearances'], top_value, target=b['id'] == d['target_id'])
+        is_target = b['id'] == d['target_id']
+        shown = d.get('short_name') if is_target and level >= 1 and d.get('short_name') else b['name']
+        page.scaled_bar(shown, b['appearances'], top_value, target=is_target)
     target_count = next(b['appearances'] for b in m['businesses'] if b['id'] == d['target_id'])
     ahead = sorted((b for b in others if b['appearances'] > target_count), key=lambda b: b['appearances'])
     if others and ahead:
         gap_sentence = (f' The nearest business above {safe(name)} in this list was {safe(ahead[0]["name"])}, '
                         f'{ahead[0]["appearances"] - target_count} appearance{"s" if ahead[0]["appearances"] - target_count != 1 else ""} ahead.')
+    elif others and (level_with := [b for b in others if b['appearances'] == target_count]):
+        gap_sentence = (f' {safe(name)} was level with {safe(join_names(b["name"] for b in level_with))}, '
+                        f'at {target_count} appearance{"s" if target_count != 1 else ""} each.')
     elif others:
         gap_sentence = f' {safe(name)} had the most appearances of the businesses shown.'
     else:
         gap_sentence = ''
     page.para('An answer can include several businesses. These figures describe the selected test, not local market '
-              'share, business quality or actual booking performance.' + gap_sentence)
+              'share, business quality or actual booking performance.' + gap_sentence
+              + (' This report does not show that any page, review or listing caused another business\'s higher visibility.'
+                 if level >= 3 else ''))
     page.heading('Your results differed by provider')
     counts = [p['appearances'] for p in providers]
     if all(c == counts[0] for c in counts):
@@ -377,13 +432,16 @@ def render_pdf(payload):
         ('<b>' + ('&nbsp;' * 4).join(f'{safe(p["name"])}: {p["appearances"]} of {p["complete"]}' for p in providers) + '</b>', 'body'),
         (provider_note, 'body'),
     ])
-    page.heading('What we can learn from competitors')
-    page.para('The other businesses give useful examples to investigate. This report does not show that a particular '
-              'page, review or listing caused their higher visibility.')
+    if level < 3:
+        page.heading('What we can learn from competitors')
+        page.para('The other businesses give useful examples to investigate. This report does not show that a particular '
+                  'page, review or listing caused their higher visibility.')
     if d.get('evidence'):
         page.heading('What we checked on your website')
         for e in d['evidence']:
-            page.para('<b>' + safe(e['id']) + ':</b> ' + safe(e['observation']) + '<br/><b>Source:</b> ' + safe(e['source']), 'small', 7)
+            joiner = ' ' if level >= 2 else '<br/>'
+            source = safe(compact_source(e['source'])) if level >= 2 else safe(e['source'])
+            page.para('<b>' + safe(e['id']) + ':</b> ' + safe(e['observation']) + joiner + '<b>Source:</b> ' + source, 'small', 7)
         page.para('These observations do not establish why an AI provider included a business.', 'small')
     else:
         page.para('No sourced website or review observations were supplied for this summary. Compare relevant pages and '

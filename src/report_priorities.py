@@ -8,6 +8,7 @@ that confirmation.
 """
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Iterable, Mapping
 from typing import Any
 
@@ -33,27 +34,55 @@ def _stem(word: str) -> str:
     return word
 
 
-def _tokens(value: str) -> set[str]:
-    return {
+def _token_list(value: str) -> list[str]:
+    """Meaningful words in order, lightly stemmed."""
+
+    return [
         _stem(word)
         for word in normalise_name(value).split()
         if word not in _FILLER_WORDS and len(word) > 1
-    }
+    ]
+
+
+def _covers(question: set[str], joined: set[str], priority_tokens: list[str], token: str) -> bool:
+    """Whether the question contains this word of a priority, allowing "co working" for "coworking"."""
+
+    if token in question or token in joined:
+        return True
+    # A priority written "Co-working" is satisfied by "coworking" in the question.
+    return any(
+        token in (first, second) and first + second in question
+        for first, second in zip(priority_tokens, priority_tokens[1:])
+    )
+
+
+_MIN_COVERAGE = 0.5
 
 
 def suggest_priority(question: str, priorities: Iterable[str]) -> str | None:
-    """Return the one priority sharing the most wording with the question, if clear."""
+    """The one priority the question clearly tests, judged on words distinctive to that priority.
 
-    question_words = _tokens(question)
-    scored = sorted(
-        (
-            (len(question_words & _tokens(priority)), str(priority))
-            for priority in priorities
-            if str(priority).strip()
-        ),
-        key=lambda item: (-item[0], item[1]),
-    )
-    if not scored or scored[0][0] == 0:
+    A word shared by several priorities ("working", "space") says little about which one a question
+    is for, so a priority is scored on the words no other priority uses. It needs at least half of
+    them, and it must beat every other priority. When it is not clear the answer is None and a
+    reviewer decides: a wrong suggestion that gets accepted misgroups a client's results.
+    """
+
+    listed = [str(p) for p in priorities if str(p).strip()]
+    tokens = {priority: _token_list(priority) for priority in listed}
+    frequency = Counter(word for words in tokens.values() for word in set(words))
+    question_words = _token_list(question)
+    known = set(question_words)
+    joined = {a + b for a, b in zip(question_words, question_words[1:])}
+    scored = []
+    for priority, words in tokens.items():
+        if not words:
+            continue
+        distinctive = [word for word in words if frequency[word] == 1] or words
+        covered = sum(_covers(known, joined, words, word) for word in distinctive)
+        scored.append((covered / len(distinctive), priority))
+    scored.sort(key=lambda item: (-item[0], item[1]))
+    if not scored or scored[0][0] < _MIN_COVERAGE:
         return None
     if len(scored) > 1 and scored[1][0] == scored[0][0]:
         return None

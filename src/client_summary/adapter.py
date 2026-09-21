@@ -8,6 +8,7 @@ report it cannot stand behind.
 """
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable, Mapping
 from typing import Any
 
@@ -29,6 +30,26 @@ class ClientSummaryError(ValueError):
     """The saved evidence cannot support a client summary; the message says what to fix."""
 
 
+# Openers that say "this is a question" rather than what it is about. Only these are removed; the
+# rest of the wording is untouched, and the exact question is still quoted in full on page 2.
+_OPENERS = (
+    re.compile(r"^recommend (?:me )?(?:some )?(?:the best )?(?:places?|venues?|options?) (?:in [\w' -]+? )?(?:for|to) ", re.I),
+    re.compile(r"^where can i (?:find|get|book|host|arrange|rent|hire) (?:a |an |the |some )?", re.I),
+    re.compile(r"^(?:best|good|top) (?:places? (?:to|for) )?", re.I),
+)
+
+
+def _topic_wording(prompt: str) -> str:
+    """The question without its opening boilerplate, unless that would leave nothing."""
+
+    text = " ".join(str(prompt).split())
+    for opener in _OPENERS:
+        stripped = opener.sub("", text, count=1)
+        if stripped.strip(" .?!") and stripped != text:
+            return stripped
+    return text
+
+
 def _shorten(text: str, limit: int = _LABEL_LIMIT) -> str:
     text = " ".join(str(text).split()).rstrip("?.! ")
     text = text[:1].upper() + text[1:]
@@ -39,19 +60,17 @@ def _shorten(text: str, limit: int = _LABEL_LIMIT) -> str:
 
 
 def _question_labels(report: Mapping[str, Any]) -> dict[int, str]:
-    """Short label per question: the owner priority it tests, else its own wording."""
+    """Short label per question: its priority when it is the only question testing it, else its own wording."""
 
     linked: dict[int, str] = {}
     for service in report["services"]:
         if str(service["name"]).startswith(_GROUP_LABEL_SKIP):
             continue
         orders = list(service.get("questions") or [])
-        for order in orders:
-            linked[int(order)] = (
-                str(service["name"]) if len(orders) == 1 else f"{service['name']} (Q{int(order)})"
-            )
+        if len(orders) == 1:  # several questions under one name would be shown as one; use each one's own wording
+            linked[int(orders[0])] = str(service["name"])
     return {
-        int(q["order"]): _shorten(linked.get(int(q["order"])) or q["prompt"])
+        int(q["order"]): _shorten(linked.get(int(q["order"])) or _topic_wording(q["prompt"]))
         for q in report["questions"]
     }
 

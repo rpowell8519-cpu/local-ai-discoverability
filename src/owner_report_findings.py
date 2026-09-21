@@ -218,7 +218,7 @@ def derive_owner_content(
             continue
         strengths.append({
             "title": "AI search crawlers are not blocked by robots.txt" if finding["kind"] == "crawler_access"
-                     else "The website and Google listing agree on contact details",
+                     else "The website and Google listing agree on the " + " and ".join(finding.get("matches") or ["contact details"]),
             "body": finding["observation"],
             "refs": list(finding["refs"]),
         })
