@@ -58,8 +58,12 @@ summary (LS)**. Both read the same assembled payload, so their counts cannot dis
 give the summary its own counting or its own evidence.
 
 - `src/client_summary/model.py` and `pdf.py` are the summary's validator and six-page renderer,
-  vendored from the colleague's `streamlit-client-report` package. They refuse to export
-  rather than clip text or guess (incomplete tests, unbalanced runs, layout overflow).
+  vendored from the colleague's `streamlit-client-report` package. The layout was then rebuilt
+  to match the approved Garden Bar draft (palette, stat tiles, callouts, bar scaling), measured
+  from that PDF's own geometry, and its wording is the draft's, parameterised. Every sentence
+  has a variant that stays true for all-zero, all-equal and tied results; keep that when
+  editing. They refuse to export rather than clip text or guess (incomplete tests, unbalanced
+  runs, layout overflow).
 - `src/client_summary/adapter.py` maps the saved answers onto that contract, labels each
   question with the owner priority it tests, and picks the comparison businesses to show.
 - `src/client_summary/actions.py` chooses exactly three actions, all `suggested_check`, from the

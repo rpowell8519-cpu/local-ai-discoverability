@@ -12,6 +12,7 @@ from collections.abc import Iterable, Mapping
 from typing import Any
 
 from src.owner_services_report import build_owner_report, provider_name
+from src.report_identity import display_name
 from src.client_summary.actions import build_actions
 from src.client_summary.model import from_records
 from src.client_summary.pdf import render_pdf
@@ -150,11 +151,7 @@ def build_client_summary_report(
     ]
 
     owner_searches = {" ".join(str(item).split()).casefold() for item in owner_questions}
-    limitations = [
-        "The comparison businesses are a selected set of verified local businesses found in the answers. "
-        "This is not a ranking of the whole market.",
-        "No website or review evidence has been used to judge these results, so the actions are suggested checks.",
-    ]
+    limitations: list[str] = []
     unresolved = [row for row in report["market"] if not row["verified"]]
     if unresolved:
         limitations.append(
@@ -172,6 +169,7 @@ def build_client_summary_report(
     metadata = {
         "schema_version": 1,
         "business_name": target_name,
+        "short_name": display_name(target_name)[:60],
         "location": str(location or owner_config.get("location") or "Local area"),
         "audit_date": str(audit["audit_date"]),
         "target_id": target_id,

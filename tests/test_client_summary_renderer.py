@@ -35,7 +35,7 @@ class ReportTests(unittest.TestCase):
     def test_pdf_six_pages_and_correct_content(self):
         reader=PdfReader(BytesIO(render_pdf(self.d)));self.assertEqual(len(reader.pages),6)
         text='\n'.join(p.extract_text() for p in reader.pages)
-        self.assertIn('22 of 72',text);self.assertIn('Suggested check:',text)
+        self.assertIn('22 of 72',text);self.assertIn('Check and improve:',text)
         self.assertIn('No sourced website or review observations',text)
     def test_markup_is_literal(self):
         self.d['business_name']='Garden <b>Bar</b> & Rest';self.d['businesses'][-1]['name']=self.d['business_name']
@@ -71,3 +71,83 @@ class ReportTests(unittest.TestCase):
         with self.assertRaises(ReportValidationError):validate_report(self.d)
         self.d=json.loads((BASE/'client_summary_example.json').read_text());self.d['audit_date']='yesterday'
         with self.assertRaises(ReportValidationError):validate_report(self.d)
+
+
+class RestyledSummaryTests(unittest.TestCase):
+    """The draft's wording must stay true whatever the results are."""
+
+    def setUp(self):
+        self.d = json.loads((BASE / 'client_summary_example.json').read_text())
+
+    def pages(self, data=None):
+        reader = PdfReader(BytesIO(render_pdf(data or self.d)))
+        return [' '.join(page.extract_text().split()) for page in reader.pages]
+
+    def make_all(self, value):
+        for key in ('questions', 'providers', 'businesses'):
+            for item in self.d[key]:
+                item['appearances'] = value(item) if callable(value) else value
+
+    def test_all_zero_says_so_and_claims_no_strength(self):
+        self.make_all(0)
+        first = self.pages()[0]
+        self.assertIn('did not appear in any of the 72 test answers', first)
+        self.assertIn('no strongest or weakest', first)
+        self.assertNotIn('clear strength', ' '.join(self.pages()))
+
+    def test_all_equal_claims_no_strength_or_weakness(self):
+        for q in self.d['questions']:
+            q['appearances'] = 3
+        self.d['providers'][0]['appearances'] = 8
+        self.d['providers'][1]['appearances'] = 8
+        self.d['providers'][2]['appearances'] = 8
+        self.d['businesses'][-1]['appearances'] = 24
+        text = ' '.join(self.pages())
+        self.assertIn('no strongest or weakest', text)
+        self.assertNotIn('clear strength', text)
+        self.assertNotIn('Build on', text)
+
+    def test_a_modest_best_result_is_not_called_a_strength(self):
+        for q, value in zip(self.d['questions'], [3, 2, 2, 1, 1, 1, 1, 1]):
+            q['appearances'] = value
+        self.d['providers'] = [{**p, 'appearances': v} for p, v in zip(self.d['providers'], [4, 4, 4])]
+        self.d['businesses'][-1]['appearances'] = 12
+        first = self.pages()[0]
+        self.assertNotIn('clear strength', first)
+        self.assertIn('where you appeared most often', first)
+
+    def test_target_in_front_is_not_told_a_competitor_is_ahead(self):
+        self.d['businesses'][-1]['appearances'] = 40
+        for q, value in zip(self.d['questions'], [8, 6, 6, 5, 5, 4, 3, 3]):
+            q['appearances'] = value
+        self.d['providers'] = [{**p, 'appearances': v} for p, v in zip(self.d['providers'], [14, 13, 13])]
+        text = self.pages()[3]
+        self.assertIn('had the most appearances of the businesses shown', text)
+        self.assertNotIn('nearest business above', text)
+
+    def test_a_provider_with_no_appearances_is_named(self):
+        for q, value in zip(self.d['questions'], [4, 3, 3, 3, 3, 3, 3, 3]):
+            q['appearances'] = value
+        self.d['providers'] = [{**p, 'appearances': v} for p, v in zip(self.d['providers'], [13, 12, 0])]
+        self.d['businesses'][-1]['appearances'] = 25
+        self.assertIn('did not appear in any answer from Gemini', self.pages()[3])
+
+    def test_actions_do_not_end_with_doubled_full_stops(self):
+        self.assertNotIn('..', self.pages()[4])
+
+    def test_short_name_is_used_in_headlines_and_full_name_in_the_header(self):
+        self.d['business_name'] = 'WRAP- Coworking, Meeting Rooms & Offices'
+        self.d['short_name'] = 'WRAP'
+        self.d['businesses'][-1]['name'] = self.d['business_name']
+        first = self.pages()[0]
+        self.assertIn('How often does AI recommend WRAP?', first)
+        self.assertIn('WRAP- COWORKING, MEETING ROOMS & OFFICES', first)
+
+    def test_long_topic_label_still_fits_the_tiles(self):
+        self.d['questions'][0]['label'] = ('A very long customer topic name that goes on ' * 2)[:65].rstrip()
+        self.assertEqual(len(self.pages()), 6)
+
+    def test_every_page_carries_the_draft_header_and_footer(self):
+        for number, text in enumerate(self.pages(), 1):
+            self.assertIn('CLIENT SUMMARY | 18 SEPTEMBER 2026', text)
+            self.assertIn(f'{number} / 6', text)

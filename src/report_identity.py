@@ -181,3 +181,12 @@ def confirmed_alias_frame(
             "alias_type", "source_note", "source_url",
         ],
     )
+
+
+def display_name(business_name: str) -> str:
+    """The name to use in a headline: the brand before any descriptor, else the full name."""
+
+    segments = [segment.strip() for segment in _SEPARATOR.split(str(business_name or "")) if segment.strip()]
+    if len(segments) > 1 and _usable_core(normalise_name(segments[0])):
+        return segments[0]
+    return str(business_name or "").strip()
