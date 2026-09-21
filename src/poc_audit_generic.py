@@ -347,6 +347,7 @@ def assemble_generic_report_payload(
             "auto_findings": True,
             "evidence_recommendations": [dict(item) for item in decisions_input.get("approved_recommendations") or []],
             "recommendation_basis": dict(decisions_input.get("recommendation_basis") or {}),
+            "type_wording": dict(decisions_input.get("type_wording") or {}),
             "site_findings": [dict(finding) for finding in site_findings],
             "listing_reviews": {
                 place_id: {"reviews": _whole_number(row.get("reviews")), "rating": _number(row.get("rating"))}
@@ -394,6 +395,11 @@ def assemble_generic_report_payload(
             f"{int(run['prompt_count'])} owner-reviewed questions",
             "Comparison businesses chosen from the most visible in the AI answers and the businesses the owner named",
             *disclosure_lines(subjects, decisions_input),
+            *(
+                ("Wording for this kind of business (" + str(decisions_input["type_wording"].get("label") or "custom") +
+                 ") was drafted by an AI from the owner's brief and approved by the reviewer; it shapes how actions are phrased, not what was measured.",)
+                if decisions_input.get("type_wording") else ()
+            ),
             *(
                 (f"{len(decisions_input['approved_recommendations'])} recommendation(s) from the evidence were reviewed and approved: "
                  "each compares what was detected on the client's saved website or in its reviews with the businesses the AI recommended most.",)

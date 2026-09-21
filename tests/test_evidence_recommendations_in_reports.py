@@ -175,3 +175,12 @@ def test_hand_built_reports_never_gain_recommendations():
     before = copy.deepcopy(payload["report"]["owner_report"])
     build_owner_report(payload)
     assert payload["report"]["owner_report"] == before and "evidence_recommendations" not in before
+
+
+def test_the_summary_uses_approved_business_type_wording_for_its_topic_checks():
+    payload = payload_with(())
+    wording = {"label": "sauna", "booking": "book a session", "pricing": "session prices", "questions": "what to bring",
+               "details": "opening times, session types and capacity", "review_themes": []}
+    payload["report"]["owner_report"].update(type_wording=wording, primary_group="wellness")
+    tasks = " ".join(a["task"] for a in summary_for(payload)["actions"])
+    assert "opening times, session types and capacity" in tasks

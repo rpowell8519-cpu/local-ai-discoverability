@@ -429,7 +429,7 @@ def test_the_build_label_changes_so_the_team_can_tell_which_version_is_live():
     at, _, stack = run_page(revision())
     with stack:
         captions = " ".join(c.value for c in at.caption)
-        assert "Build: Accessible AI Report Generator v3.4.0" in captions
+        assert "Build: Accessible AI Report Generator v3.5.0" in captions
 
 
 # ---------------------------------------------------------------- reviews saved before the new checks
@@ -779,3 +779,63 @@ def test_a_common_ai_name_that_is_a_listed_business_outside_the_comparison_is_pu
         assert "“PLATF9RM” (named in 20 answers)" in text and "Generating is paused" in text
         assert any("Is a name in the answers really PLATF9RM Brighton" in m.value for m in at.markdown)
         assert any("is in the database but is not in this comparison" in c.value for c in at.caption)
+
+
+# ------------------------------------------------------------ wording for a kind of business with none of its own
+SAUNA_WORDING = {
+    "label": "sauna", "booking": "book a session or a private hire", "pricing": "session and group prices",
+    "questions": "what to bring and age limits", "details": "opening times, session types and capacity",
+    "review_themes": [{"label": "Heat", "category": "Experience", "terms": ["too hot", "lovely heat", "steam"]}],
+}
+
+
+def test_a_business_type_with_no_built_in_wording_offers_a_draft_and_never_calls_the_ai_unprompted():
+    call = mock.Mock()
+    at, _, stack = run_page(revision(), secrets={"ANTHROPIC_API_KEY": "k"}, extra=[mock.patch("src.type_wording.call_claude", call)])
+    with stack:
+        assert not at.exception, [e.value for e in at.exception]
+        # The stub business is coworking, which has its own wording, so nothing is offered.
+        assert not [b for b in at.button if str(b.key).startswith("type_wording_go_")]
+        call.assert_not_called()
+
+
+def test_a_reviewer_can_draft_check_and_save_wording_for_an_unknown_type():
+    fake = mock.Mock(return_value=lambda system, prompt: __import__("json").dumps(SAUNA_WORDING))
+    with mock.patch("src.client_summary.actions._GROUPS", {}):  # no type has built-in wording
+        at, saved, stack = run_page(revision(), secrets={"ANTHROPIC_API_KEY": "k"}, extra=[mock.patch("src.type_wording.call_claude", fake)])
+        with stack:
+            assert not at.exception, [e.value for e in at.exception]
+            next(b for b in at.button if str(b.key).startswith("type_wording_go_")).click().run()
+            assert not at.exception, [e.value for e in at.exception]
+            fake.assert_called_once()
+            assert next(t for t in at.text_input if str(t.key).startswith("tw_booking_")).value == "book a session or a private hire"
+            saved.assert_not_called()  # a draft is not used until the reviewer saves it
+            next(b for b in at.button if str(b.key).startswith("type_wording_save_")).click().run()
+            assert not at.exception, [e.value for e in at.exception]
+            decisions = saved.call_args.kwargs["reviewer_decisions"]
+            assert decisions["type_wording"]["booking"] == "book a session or a private hire" and saved.call_args.kwargs["complete"] is False
+
+
+def test_wording_that_breaks_the_rules_is_not_saved_and_the_reason_is_shown():
+    with mock.patch("src.client_summary.actions._GROUPS", {}):
+        at, saved, stack = run_page(revision(), secrets={"ANTHROPIC_API_KEY": "k"})
+        with stack:
+            next(t for t in at.text_input if str(t.key).startswith("tw_label_")).set_value("sauna")
+            for prefix, value in (("tw_booking_", "book for £15"), ("tw_pricing_", "prices"), ("tw_questions_", "what to bring"), ("tw_details_", "opening times")):
+                next(t for t in at.text_input if str(t.key).startswith(prefix)).set_value(value)
+            next(b for b in at.button if str(b.key).startswith("type_wording_save_")).click().run()
+            saved.assert_not_called()
+            assert any("Not saved" in e.value and "£" in e.value for e in at.error)
+
+
+def test_completing_the_review_keeps_saved_wording():
+    with mock.patch("src.client_summary.actions._GROUPS", {}):
+        at, saved, stack = run_page(revision({**COMPLETE, "type_wording": SAUNA_WORDING}, complete=False))
+        with stack:
+            decide_everything(at)
+            button(at, "Complete report review").click().run()
+            for radio in [r for r in at.radio if str(r.key).startswith("rec_choice_")]:
+                radio.set_value("leave_out")
+            at.run()
+            button(at, "Complete report review").click().run()
+            assert saved.call_args.kwargs["reviewer_decisions"]["type_wording"]["label"] == "sauna"

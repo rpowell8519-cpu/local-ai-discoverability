@@ -246,3 +246,14 @@ def test_googles_own_review_count_and_rating_travel_with_the_report():
     listing = config["owner_report"]["listing_reviews"]
     assert listing[TARGET_ID] == {"reviews": 2431, "rating": 4.6}
     assert listing["place-plusx"] == {"reviews": None, "rating": None}   # unreadable text becomes "not recorded", never an error
+
+
+def test_approved_wording_for_the_business_type_travels_with_the_report_and_is_disclosed():
+    wording = {"label": "sauna", "booking": "book a session", "pricing": "session prices", "questions": "what to bring",
+               "details": "opening times", "review_themes": []}
+    config, _ = assemble({"confirmed_target_names": ["WRAP"], "type_wording": wording})
+    assert config["owner_report"]["type_wording"]["booking"] == "book a session"
+    assert any("drafted by an AI" in line and "sauna" in line for line in config["methodology_validation"])
+    plain, _ = assemble({"confirmed_target_names": ["WRAP"]})
+    assert plain["owner_report"]["type_wording"] == {}
+    assert not any("drafted by an AI" in line for line in plain["methodology_validation"])

@@ -16,6 +16,7 @@ from src.owner_services_report import build_owner_report, provider_name
 from src.report_identity import display_name
 from src.owner_report_findings import collect_findings
 from src.report_competitors import MAX_COMPARISON_BUSINESSES
+from src.type_wording import to_profile
 from src.client_summary.actions import build_actions
 from src.client_summary.model import from_records
 from src.client_summary.pdf import render_pdf
@@ -168,6 +169,7 @@ def build_client_summary_report(
     actions = build_actions(
         measured, business_group=group, reviewer_titles=reviewer_action_titles, findings=findings,
         evidence_actions=approved,
+        profile=to_profile(owner_config.get("type_wording"), group) if owner_config.get("type_wording") else None,
     )
 
     models = _provider_models(report["responses"])

@@ -116,6 +116,18 @@ in `name_links`, gate the review, credited by place ID); the page and the genera
 same database list or the two would disagree. A confirmed business can be added to the
 comparison after saving.
 
+### Wording for a business type with none of its own (AI-drafted, reviewer-approved)
+
+`src/type_wording.py`. Built-in wording exists only for the groups in `client_summary/actions.py`
+(`has_builtin_profile`). For any other type the review step can draft wording (booking phrase, price
+name, customer questions, listing details, review themes) with one short Claude request, only when
+someone presses the button. The draft is validated (no numbers, prices, links or claims; length
+limits) and used only after the reviewer edits/saves it (`reviewer_decisions["type_wording"]`, no
+schema change; saving asks for the review to be completed again). It shapes how actions are phrased
+and adds review themes; it never changes measurements. The report discloses it. Tests inject the
+AI call, so none pay. Platforms/directories are deliberately not drafted (a model could invent them).
+Website audit profiles used at crawl time are still generic per group.
+
 ### Recommendations from the evidence (reviewer-approved)
 
 Recommendations are grounded in what was saved for the client and for the businesses the AI actually

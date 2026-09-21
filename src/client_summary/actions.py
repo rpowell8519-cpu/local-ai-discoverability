@@ -84,6 +84,13 @@ def _cut(text: str, limit: int) -> str:
     return text[: limit - 1].rsplit(" ", 1)[0].rstrip(",;:- ") + "\u2026"
 
 
+def has_builtin_profile(business_group: str | None) -> bool:
+    """Whether someone has written specific wording for this type of business."""
+
+    key = str(business_group or "").strip().casefold().replace(" ", "_")
+    return _GROUPS.get(key, "") in _PROFILES
+
+
 def profile_for(business_group: str | None) -> BusinessProfile:
     key = str(business_group or "").strip().casefold().replace(" ", "_")
     return _PROFILES.get(_GROUPS.get(key, ""), _DEFAULT)
@@ -107,6 +114,7 @@ def build_actions(
     reviewer_titles: Iterable[str] = (),
     findings: Sequence[Mapping[str, Any]] = (),
     evidence_actions: Sequence[Mapping[str, Any]] = (),
+    profile: BusinessProfile | None = None,
 ) -> list[dict[str, Any]]:
     """Return exactly three actions.
 
@@ -118,7 +126,7 @@ def build_actions(
 
     if len(questions) < 2:
         raise ValueError("The client summary needs at least two tested questions to choose actions.")
-    profile = profile_for(business_group)
+    profile = profile or profile_for(business_group)
     weakest_first = sorted(questions, key=lambda q: (_rate(q), str(q["id"])))
     strongest = max(questions, key=lambda q: (_rate(q), -questions.index(q)))
     actions = []

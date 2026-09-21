@@ -30,6 +30,7 @@ from src.client_summary.actions import profile_for
 from src.recommendation_synthesis import build_recommendation_synthesis
 from src.review_analysis import build_review_benchmark
 from src.review_profiles import get_review_profile
+from src.type_wording import to_profile, to_review_themes
 from src.vertical_audit_profiles import get_audit_profile
 from src.website_benchmark import USABLE_AUDIT_STATUSES, build_website_benchmark, evaluate_business
 
@@ -212,6 +213,14 @@ def _review_findings(*, rb: dict[str, Any], target_name: str, leader_ids: list[s
     return findings
 
 
+def _review_profile(primary_group: str, type_wording: Mapping[str, Any] | None) -> dict[str, Any]:
+    """The review themes for the type, plus any a reviewer approved for a type with none of its own."""
+
+    profile = get_review_profile(primary_group)
+    extra = to_review_themes(type_wording)
+    return {**profile, "themes": [*profile["themes"], *extra]} if extra else profile
+
+
 def analyse_evidence(
     *,
     target_id: str,
@@ -222,6 +231,7 @@ def analyse_evidence(
     pages_by_run: Mapping[str, pd.DataFrame],
     propositions: list[str],
     reviews: pd.DataFrame,
+    type_wording: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run the engines on the client and its leaders and return candidate recommendations.
 
@@ -231,7 +241,7 @@ def analyse_evidence(
     target_id = str(target_id)
     leader_ids = [str(item["google_place_id"]) for item in leaders]
     names = {target_id: target_name, **{str(item["google_place_id"]): str(item["business_name"]) for item in leaders}}
-    profile = profile_for(primary_group)
+    profile = to_profile(type_wording, primary_group)
     layers: dict[str, dict[str, Any]] = {}
     candidates: list[dict[str, Any]] = []
     strengths: list[dict[str, Any]] = []
@@ -306,7 +316,7 @@ def analyse_evidence(
             else:
                 try:
                     rb = build_review_benchmark(target_google_place_id=target_id, reviews=rev[rev["google_place_id"].astype(str).isin([target_id, *leader_ids])],
-                                                business_names=names, profile=get_review_profile(primary_group))
+                                                business_names=names, profile=_review_profile(primary_group, type_wording))
                     syn_r = build_recommendation_synthesis(primary_group=primary_group, target_name=target_name, website_result=None,
                                                            proposition_benchmark=pd.DataFrame(), review_result=rb, results=None, max_actions=12)
                     candidates += _review_findings(rb=rb, target_name=target_name, leader_ids=leader_ids, names=names, obs=syn_r["observations"])

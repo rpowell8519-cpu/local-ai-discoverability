@@ -52,6 +52,8 @@ from src.website_audit_repository import (  # noqa: E402
 )
 from src.review_repository import get_reviews  # noqa: E402
 from src.evidence_analysis import analyse_evidence, select_leaders  # noqa: E402
+from src.client_summary.actions import has_builtin_profile  # noqa: E402
+from src import type_wording as type_wording_tools  # noqa: E402
 from src.review_ingestion import (  # noqa: E402
     import_reviews,
     normalise_review_frame,
@@ -125,7 +127,7 @@ from src.report_generator_readiness import (  # noqa: E402
 )
 
 
-BUILD_VERSION = "Accessible AI Report Generator v3.4.0 (unmatched AI names)"
+BUILD_VERSION = "Accessible AI Report Generator v3.5.0 (wording for new business types)"
 REPORT_STATE_KEY = "accessible_ai_report_generator_result"
 SUMMARY_STATE_KEY = "accessible_ai_client_summary_result"
 AI_VISIBILITY_HANDOFF_KEY = "ai_visibility_report_handoff_target"
@@ -1345,6 +1347,7 @@ if ai_ready and definition is None:
             target_id=selected_place_id, target_name=str(business["business_name"]),
             primary_group=str(business.get("primary_group") or "generic"), leaders=leaders_now,
             audits=audits_frame, pages_by_run=pages_frames, propositions=owner_priorities_now, reviews=reviews_frame,
+            type_wording=dict(existing_decisions.get("type_wording") or {}) or None,
         )
     except Exception as exc:
         evidence_analysis = None
@@ -1607,6 +1610,85 @@ if ai_ready and definition is None:
                 "A layer that is not available can be added by collecting the missing website pages or review text in the "
                 "evidence panel above. The report says which layers it used."
             )
+    # Wording for a kind of business nobody has written specific wording for.
+    type_group = str(business.get("primary_group") or "generic")
+    saved_type_wording = dict(existing_decisions.get("type_wording") or {})
+    if saved_type_wording or not has_builtin_profile(type_group):
+        st.markdown("**Wording for this kind of business**")
+        st.caption(
+            "There is no built-in wording for this kind of business, so reports use general wording (“enquire or book”, "
+            "“prices or price guidance”). An AI can draft wording that fits it (how customers book, what prices are called, "
+            "what reviewers of this kind of business talk about). It is only a draft: it is used in the report only after you "
+            "have read it and pressed save. Saving asks for the review to be completed again."
+        )
+        draft_key = f"type_wording_draft_{selected_place_id}"
+        working = st.session_state.get(draft_key) or saved_type_wording
+        claude_key = secret_value("ANTHROPIC_API_KEY")
+        if not claude_key:
+            st.info("The AI service is not connected, so wording can only be typed in by hand.")
+        elif st.button("Draft wording with AI (one short paid request)", key=f"type_wording_go_{selected_place_id}"):
+            try:
+                with st.spinner("Drafting wording…"):
+                    st.session_state[draft_key] = type_wording_tools.draft_type_wording(
+                        type_wording_tools.call_claude(claude_key, DEFAULT_MODELS["Claude"]),
+                        business_type=str(business.get("raw_category") or type_group).replace("_", " "),
+                        known_for=str(saved_brief.get("known_for") or ""),
+                        priorities=owner_priorities_now,
+                        questions=[str(q) for q in saved_brief.get("desired_searches") or []],
+                    )
+            except type_wording_tools.InvalidWordingError as exc:
+                st.error(f"The draft could not be used: {exc} Try again, or type the wording in by hand.")
+            except Exception as exc:
+                st.error(f"The AI service could not be reached ({type(exc).__name__}). Nothing was changed.")
+            else:
+                st.rerun()
+        version = abs(hash(str(working))) % 100000
+        tw_label = st.text_input("Kind of business", value=str(working.get("label") or ""), key=f"tw_label_{selected_place_id}_{version}")
+        tw_booking = st.text_input("How customers book (completes “Make it obvious how to …”)", value=str(working.get("booking") or ""), key=f"tw_booking_{selected_place_id}_{version}")
+        tw_pricing = st.text_input("What prices are called", value=str(working.get("pricing") or ""), key=f"tw_pricing_{selected_place_id}_{version}")
+        tw_questions = st.text_input("What customers ask before they enquire", value=str(working.get("questions") or ""), key=f"tw_questions_{selected_place_id}_{version}")
+        tw_details = st.text_input("What a listing or website should show", value=str(working.get("details") or ""), key=f"tw_details_{selected_place_id}_{version}")
+        tw_themes = st.text_area(
+            "What reviewers of this kind of business talk about (one per line: label | category | phrase; phrase; phrase)",
+            value=type_wording_tools.themes_to_text(working.get("review_themes") or []), key=f"tw_themes_{selected_place_id}_{version}",
+        )
+        save_col, clear_col = st.columns(2)
+        with save_col:
+            if st.button("Save this wording for the report", key=f"type_wording_save_{selected_place_id}"):
+                try:
+                    wording = type_wording_tools.validate_wording({
+                        "label": tw_label, "booking": tw_booking, "pricing": tw_pricing, "questions": tw_questions,
+                        "details": tw_details, "review_themes": type_wording_tools.themes_from_text(tw_themes),
+                    })
+                except type_wording_tools.InvalidWordingError as exc:
+                    st.error(f"Not saved: {exc}")
+                else:
+                    try:
+                        save_reviewer_decisions_revision(
+                            target_google_place_id=selected_place_id,
+                            reviewer_decisions={**existing_decisions, "type_wording": wording}, complete=False,
+                        )
+                    except Exception as exc:
+                        st.error("The wording could not be saved.")
+                        st.exception(exc)
+                    else:
+                        st.session_state.pop(draft_key, None)
+                        st.cache_data.clear()
+                        st.rerun()
+        with clear_col:
+            if saved_type_wording and st.button("Go back to the general wording", key=f"type_wording_clear_{selected_place_id}"):
+                try:
+                    save_reviewer_decisions_revision(
+                        target_google_place_id=selected_place_id,
+                        reviewer_decisions={k: v for k, v in existing_decisions.items() if k != "type_wording"}, complete=False,
+                    )
+                except Exception as exc:
+                    st.error("The change could not be saved.")
+                    st.exception(exc)
+                else:
+                    st.session_state.pop(draft_key, None)
+                    st.cache_data.clear()
+                    st.rerun()
     with st.form(f"report_review_{selected_place_id}"):
         with st.expander("Optional: override the AI-selected businesses"):
             selected_cohort = st.multiselect(
@@ -1861,6 +1943,7 @@ if ai_ready and definition is None:
             "rejected_target_names": [i["name"] for i in target_items if i["choice"] == "no"],
             "owner_competitor_places": chosen_places,
             "name_links": links,
+            "type_wording": dict(existing_decisions.get("type_wording") or {}),
             "recommendation_decisions": {cid: choice for cid, choice in recommendation_choices.items() if choice != "undecided"},
             "approved_recommendations": [
                 {**candidate, "action": (recommendation_wording.get(candidate["id"]) or candidate["action"]).strip()[:380]}
