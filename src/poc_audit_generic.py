@@ -322,6 +322,8 @@ def assemble_generic_report_payload(
             "evidence_index": "Report evidence index.html",
             "priority_context": "Owner priorities: " + ", ".join(owner_context.get("priority_services") or ["Not yet confirmed"]),
             "services": service_groups,
+            "location": location,
+            "primary_group": str(run.get("primary_group") or "generic"),
             "sources": [{"ref": f"R{i}", "kind": "review", "record_id": str(row["review_id"]),
                          "title": "Selected customer review", "excerpt": str(row["review_text"])}
                         for i, row in enumerate(quote_rows, 1)],

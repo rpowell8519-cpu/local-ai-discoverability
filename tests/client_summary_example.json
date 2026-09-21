@@ -1,0 +1,155 @@
+{
+  "schema_version": 1,
+  "business_name": "Example Bar",
+  "location": "Exampletown",
+  "audit_date": "2026-09-18",
+  "target_id": "example-bar",
+  "repetitions": 3,
+  "counting_rule": "unique_business_per_response",
+  "web_search_enabled": true,
+  "owner_reviewed_questions": true,
+  "evidence_basis": "source_report_aggregates",
+  "source_note": "Example Bar AI Visibility & Discoverability Audit, 18 September 2026, pages 3-6 and 14. Figures transcribed for this integration example; saved responses were not supplied.",
+  "providers": [
+    {
+      "id": "openai",
+      "name": "OpenAI",
+      "model": "gpt-5.6-terra",
+      "complete": 24,
+      "appearances": 13
+    },
+    {
+      "id": "claude",
+      "name": "Claude",
+      "model": "claude-sonnet-5",
+      "complete": 24,
+      "appearances": 3
+    },
+    {
+      "id": "gemini",
+      "name": "Gemini",
+      "model": "gemini-3.6-flash",
+      "complete": 24,
+      "appearances": 6
+    }
+  ],
+  "questions": [
+    {
+      "id": "q1",
+      "label": "Watching football or rugby",
+      "text": "Which sports bars in Exampletown or Brighton are best for watching live football or rugby?",
+      "complete": 9,
+      "appearances": 2
+    },
+    {
+      "id": "q2",
+      "label": "Garden and outdoor seating",
+      "text": "Which Exampletown pubs have the best garden or outdoor seating?",
+      "complete": 9,
+      "appearances": 8
+    },
+    {
+      "id": "q3",
+      "label": "Group sport, food and drinks",
+      "text": "Where can a group watch live sport while getting good food and drinks in Exampletown?",
+      "complete": 9,
+      "appearances": 3
+    },
+    {
+      "id": "q4",
+      "label": "Friends or after-work drinks",
+      "text": "What is a welcoming pub in Exampletown for friends or an after-work drink?",
+      "complete": 9,
+      "appearances": 1
+    },
+    {
+      "id": "q5",
+      "label": "Live-sport atmosphere",
+      "text": "Which Brighton and Exampletown venues have the best live-sport atmosphere?",
+      "complete": 9,
+      "appearances": 1
+    },
+    {
+      "id": "q6",
+      "label": "Casual meal, drinks and sport",
+      "text": "Where should visitors go in Exampletown for a casual meal, drinks and live sport?",
+      "complete": 9,
+      "appearances": 2
+    },
+    {
+      "id": "q7",
+      "label": "Alternatives to city-centre sports bars",
+      "text": "What are good alternatives to city-centre sports bars for watching a match near Exampletown?",
+      "complete": 9,
+      "appearances": 3
+    },
+    {
+      "id": "q8",
+      "label": "Match-day group bookings",
+      "text": "Which Exampletown pub is suitable for a match-day group booking?",
+      "complete": 9,
+      "appearances": 2
+    }
+  ],
+  "businesses": [
+    {
+      "id": "blind-busker",
+      "name": "Example Competitor One",
+      "appearances": 35
+    },
+    {
+      "id": "palmeira",
+      "name": "Example Competitor Two",
+      "appearances": 31
+    },
+    {
+      "id": "exchange",
+      "name": "Example Competitor Three",
+      "appearances": 24
+    },
+    {
+      "id": "example-bar",
+      "name": "Example Bar",
+      "appearances": 22
+    }
+  ],
+  "evidence": [],
+  "actions": [
+    {
+      "id": "groups",
+      "title": "Make match-day group visits easy to plan",
+      "question_id": "q8",
+      "status": "suggested_check",
+      "evidence_ids": [],
+      "task": "Review existing booking and sport pages. Where needed, clarify group arrangements, how to enquire, booking conditions and how customers can confirm which match is showing.",
+      "owner": "Venue manager and website provider",
+      "done_when": "A customer can find accurate arrangements and complete an enquiry; the team has tested the booking route."
+    },
+    {
+      "id": "sport",
+      "title": "Answer the questions sport customers ask",
+      "question_id": "q5",
+      "status": "suggested_check",
+      "evidence_ids": [],
+      "task": "Check that the sports offering is easy to find. Clarify how to confirm fixtures, food availability during matches and relevant viewing arrangements. Improve a useful existing page first.",
+      "owner": "Venue manager supplies facts; website provider publishes them",
+      "done_when": "Information is accurate, accessible from the main navigation and assigned to someone for regular updates."
+    },
+    {
+      "id": "garden",
+      "title": "Keep garden information clear and current",
+      "question_id": "q2",
+      "status": "suggested_check",
+      "evidence_ids": [],
+      "task": "Check garden photos and practical details, including seating, booking and access where relevant. Check key contact details and opening times across the website and principal business profiles.",
+      "owner": "Venue manager or marketing lead",
+      "done_when": "Customers can find current, verified information without conflicting details."
+    }
+  ],
+  "limitations": [
+    "The source records 100 reviews each for Example Bar and Example Competitor Three, but supplies no usable review quotations and no explanation. No customer-sentiment claim is made here.",
+    "Website and review evidence was unavailable for Example Competitor One and Example Competitor Two. The supplied report does not demonstrate a specific competitor advantage.",
+    "The source mixes mentions and recommendations. This example treats the headline counts as appearances; check the original parser before production use.",
+    "Model names are reproduced from the source audit. They are historical metadata, not model availability or configuration recommendations."
+  ]
+}

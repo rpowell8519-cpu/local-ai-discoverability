@@ -213,7 +213,11 @@ def build_owner_report(payload: Mapping[str, Any]) -> dict[str, Any]:
             "cohort": cohort, "owners": owners, "responses": responses,
             "website_audits": payload.get("website_evidence", {}).get("audits", []),
             "review_sets": payload.get("review_evidence", {}).get("review_sets", []),
-            "target_answer_ids": target_ids}
+            "target_answer_ids": target_ids,
+            "answer_businesses": {
+                response["response_id"]: sorted(key for key, ids in appearances.items() if response["response_id"] in ids)
+                for response in valid
+            }}
 
 
 def evidence_index_html(payload: Mapping[str, Any]) -> str:

@@ -51,6 +51,23 @@ conversation tool for small-business owners, not a technical audit.
   and close peers) and 15 miles for everything else. These are provisional defaults.
 - `app/pages/10_AI_Report_Generator.py` is the operator UI for all of the above.
 
+### Two report types from one evidence layer
+
+Step 6 of the report generator offers the **full evidence report (RP)** and the **client
+summary (LS)**. Both read the same assembled payload, so their counts cannot disagree. Do not
+give the summary its own counting or its own evidence.
+
+- `src/client_summary/model.py` and `pdf.py` are the summary's validator and six-page renderer,
+  vendored from the colleague's `streamlit-client-report` package. They refuse to export
+  rather than clip text or guess (incomplete tests, unbalanced runs, layout overflow).
+- `src/client_summary/adapter.py` maps the saved answers onto that contract, labels each
+  question with the owner priority it tests, and picks the comparison businesses to show.
+- `src/client_summary/actions.py` chooses exactly three actions, all `suggested_check`, from the
+  measured results. Business types only change which details and platforms are named. A
+  `verified_gap` action needs an observation and a source; nothing produces one yet.
+- The summary needs every planned answer, at least two questions and at most eight. When it
+  cannot be produced the message says what to fix; the full report can still be produced.
+
 Process and open QA items live in `docs/beta-report-process.md` (owner conversation,
 question sets, what may be claimed) and `docs/udr-report-qa-required-changes.md`. Read
 both before changing report wording, layout or counting rules.

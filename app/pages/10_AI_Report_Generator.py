@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 import inspect
 import sys
+import re
 import uuid
 from pathlib import Path
 from typing import Any
@@ -64,7 +65,14 @@ from src.poc_audit_production import (  # noqa: E402
     build_reviewable_poc_audit,
     list_report_generator_definitions,
 )
-from src.poc_audit_generic import build_reviewable_generic_audit  # noqa: E402
+from src.client_summary.adapter import (  # noqa: E402
+    build_client_summary_report,
+    render_client_summary_pdf,
+)
+from src.poc_audit_generic import (  # noqa: E402
+    assemble_generic_report_payload,
+    build_reviewable_generic_audit,
+)
 from src.report_audit_candidates import load_report_candidates  # noqa: E402
 from src.report_identity import find_possible_target_names  # noqa: E402
 from src.report_priorities import NOT_LINKED, suggest_priority_map  # noqa: E402
@@ -95,6 +103,7 @@ from src.report_generator_readiness import (  # noqa: E402
 
 BUILD_VERSION = "Accessible AI Report Generator v3.0.0"
 REPORT_STATE_KEY = "accessible_ai_report_generator_result"
+SUMMARY_STATE_KEY = "accessible_ai_client_summary_result"
 AI_VISIBILITY_HANDOFF_KEY = "ai_visibility_report_handoff_target"
 AI_VISIBILITY_FORCE_PROMPTS_KEY = "ai_visibility_force_owner_prompts"
 BRIEFS_STATE_KEY = "accessible_ai_report_owner_briefs"
@@ -1483,13 +1492,76 @@ else:
         report_run_id = definition.baseline_run_id if definition else saved_benchmark_run_id
         st.markdown(f"**Selected business:** {report_client_name}")
         st.caption(f"Saved AI Visibility run: {report_run_id}")
+        report_kind = st.radio(
+            "Report type",
+            options=["full", "summary"],
+            format_func={
+                "full": "Full evidence report (RP)",
+                "summary": "Client summary (LS)",
+            }.get,
+            horizontal=True,
+            key=f"report_kind_{selected_place_id}",
+        )
+        st.caption(
+            "Detailed, evidence-led report with the questions, methods and sources in appendices."
+            if report_kind == "full"
+            else "Six pages in plain language: the result, what was tested, where the business appeared, "
+            "who else appeared, three suggested checks and how to follow up. Same saved evidence and counts as the full report."
+        )
         generate = st.button(
-            "Generate report from saved evidence",
+            "Generate report from saved evidence" if report_kind == "full" else "Generate client summary from saved evidence",
             type="primary",
             use_container_width=True,
         )
 
-    if generate:
+    summary_key = definition.key if definition else f"generic_{durable_audit['id']}"
+    if generate and report_kind == "summary":
+        try:
+            with st.spinner("Assembling the saved evidence and laying out the client summary…"):
+                summary_payload = (
+                    definition.assembler()
+                    if definition is not None
+                    else assemble_generic_report_payload(durable_audit)
+                )
+                summary_data = build_client_summary_report(
+                    summary_payload,
+                    business_group=str(business.get("primary_group") or ""),
+                    owner_questions=list((saved_brief or {}).get("desired_searches") or []),
+                    reviewer_action_titles=list(
+                        dict((durable_audit or {}).get("reviewer_decisions") or {}).get("action_titles") or []
+                    ),
+                )
+                summary_pdf = render_client_summary_pdf(summary_data)
+        except ValueError as exc:
+            st.error(f"The client summary could not be created. {exc}")
+        except Exception as exc:
+            st.error(
+                "The client summary could not be generated from the saved evidence. "
+                "AI Visibility was not rerun and no data was changed."
+            )
+            st.exception(exc)
+        else:
+            st.session_state[SUMMARY_STATE_KEY] = {"key": summary_key, "pdf": summary_pdf}
+
+    saved_summary = st.session_state.get(SUMMARY_STATE_KEY)
+    if report_kind == "summary" and saved_summary and saved_summary["key"] == summary_key:
+        st.success("The client summary is ready.")
+        st.download_button(
+            "Download client summary",
+            data=saved_summary["pdf"],
+            file_name=(
+                re.sub(r"[^a-z0-9]+", "-", report_client_name.lower()).strip("-") or "business"
+            ) + "-ai-visibility-summary.pdf",
+            mime="application/pdf",
+            type="primary",
+            use_container_width=True,
+        )
+        st.caption(
+            "Generated in memory from the same saved evidence as the full report. The actions are suggested checks, "
+            "not confirmed gaps. Downloading it does not freeze or save a report snapshot."
+        )
+
+    if generate and report_kind == "full":
         try:
             with st.spinner("Assembling the saved evidence and laying out the report…"):
                 reviewable = (
@@ -1508,7 +1580,7 @@ else:
 
     reviewable = st.session_state.get(REPORT_STATE_KEY)
     expected_definition_key = definition.key if definition else f"generic_{durable_audit['id']}"
-    if reviewable is not None and reviewable.definition.key == expected_definition_key:
+    if report_kind == "full" and reviewable is not None and reviewable.definition.key == expected_definition_key:
         st.success("The reviewable PDF is ready.")
         st.download_button(
             "Download PDF",
