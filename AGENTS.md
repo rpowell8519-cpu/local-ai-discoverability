@@ -107,6 +107,15 @@ Process and open QA items live in `docs/beta-report-process.md` (owner conversat
 question sets, what may be claimed) and `docs/udr-report-qa-required-changes.md`. Read
 both before changing report wording, layout or counting rules.
 
+### Frequent AI names that are really a listed business outside the report
+
+`plan_subjects(..., records=...)` also offers each still-unmatched AI name used at least
+`EXTRA_MIN_ANSWERS` times against the database businesses it resembles (same look-alike test as
+the target's), as `outside_set` subjects. They are decided exactly like other name matches (saved
+in `name_links`, gate the review, credited by place ID); the page and the generator must pass the
+same database list or the two would disagree. A confirmed business can be added to the
+comparison after saving.
+
 ### Recommendations from the evidence (reviewer-approved)
 
 Recommendations are grounded in what was saved for the client and for the businesses the AI actually

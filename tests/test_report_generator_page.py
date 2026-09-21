@@ -247,7 +247,7 @@ COMPLETE = {
     "question_priority_map": {str(i): p for i, p in enumerate(
         ["Co-working", "Private offices", "Meeting rooms", "Event space", "Co-working", "Team away days", "Children’s parties"], 1)},
     "cohort_place_ids": ["place-plusx", "place-runway"],
-    "name_links": {"place-plusx": {"rejected": ["Plus X Innovation Hub"]}},
+    "name_links": {"place-plusx": {"rejected": ["Plus X Innovation Hub"]}, "place-platf9rm": {"confirmed": ["PLATF9RM"]}},
 }
 
 
@@ -429,7 +429,7 @@ def test_the_build_label_changes_so_the_team_can_tell_which_version_is_live():
     at, _, stack = run_page(revision())
     with stack:
         captions = " ".join(c.value for c in at.caption)
-        assert "Build: Accessible AI Report Generator v3.3.0" in captions
+        assert "Build: Accessible AI Report Generator v3.4.0" in captions
 
 
 # ---------------------------------------------------------------- reviews saved before the new checks
@@ -768,3 +768,14 @@ def test_a_request_over_the_cost_ceiling_cannot_be_sent():
     with stack:
         assert next(b for b in at.button if str(b.key).startswith("collect_reviews_go_")).disabled
         assert "over the ceiling" in " ".join(c.value for c in at.caption)
+
+
+def test_a_common_ai_name_that_is_a_listed_business_outside_the_comparison_is_put_to_the_reviewer():
+    decisions = {**COMPLETE, "name_links": {"place-plusx": {"rejected": ["Plus X Innovation Hub"]}}}  # saved before this check existed
+    at, saved, stack = run_page(revision(decisions, complete=True))
+    with stack:
+        assert not at.exception, [e.value for e in at.exception]
+        text = warnings_text(at)
+        assert "“PLATF9RM” (named in 20 answers)" in text and "Generating is paused" in text
+        assert any("Is a name in the answers really PLATF9RM Brighton" in m.value for m in at.markdown)
+        assert any("is in the database but is not in this comparison" in c.value for c in at.caption)

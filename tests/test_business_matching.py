@@ -142,3 +142,41 @@ def test_decisions_are_read_from_where_they_are_saved():
     plan = subjects()
     assert decisions_for({"confirmed_target_names": ["WRAP"]}, plan[0]) == (["WRAP"], [])
     assert decisions_for({"name_links": {"plusx": {"confirmed": ["a"], "rejected": ["b"]}}}, next(s for s in subjects({"PLUS X": "plusx"}) if s.key == "plusx")) == (["a"], ["b"])
+
+
+# ---- a frequently used AI name that is really a listed business outside this report
+def outside(unresolved, records=RECORDS, cohort=("plusx",), owners=()):
+    return [s for s in plan_subjects(
+        target_id=TARGET_ID, target_name=NAMES[TARGET_ID], unresolved=unresolved, owner_names=list(owners),
+        owner_places={}, cohort_ids=list(cohort), names_by_id=NAMES, records=records) if s.outside_set]
+
+
+def test_a_common_ai_name_is_offered_against_the_listed_business_it_resembles():
+    found = outside([{"business_name": "FOUNDRY", "recommendations": 9}])
+    assert [(s.place_id, s.label, [n["name"] for n in s.names]) for s in found] == [("foundry", "FOUNDRY Hove", ["FOUNDRY"])]
+    assert found[0].outside_set and found[0].names[0]["recommendations"] == 9
+
+
+def test_it_is_a_pending_decision_until_a_person_confirms_or_rejects_it():
+    subjects = plan_subjects(target_id=TARGET_ID, target_name=NAMES[TARGET_ID], unresolved=[{"business_name": "FOUNDRY", "recommendations": 9}],
+                             owner_names=[], owner_places={}, cohort_ids=["plusx"], names_by_id=NAMES, records=RECORDS)
+    assert [i["name"] for i in undecided_items(subjects, {}, [])] == ["FOUNDRY"]
+    decisions = {"name_links": {"foundry": {"confirmed": ["FOUNDRY"], "rejected": []}}}
+    assert undecided_items(subjects, decisions, []) == []
+    assert name_adjudications(subjects, decisions, {})["FOUNDRY"]["google_place_id"] == "foundry"
+    assert confirmed_names_by_place(subjects, decisions) == {"foundry": ["FOUNDRY"]}
+
+
+def test_rarely_used_unrelated_or_already_claimed_names_are_left_alone():
+    assert outside([{"business_name": "FOUNDRY", "recommendations": 2}]) == []          # too few answers to bother a reviewer
+    assert outside([{"business_name": "Hotel Pelirocco", "recommendations": 9}]) == []  # resembles nothing listed
+    # The client's own short name goes to the client, not to some other business.
+    assert outside([{"business_name": "WRAP", "recommendations": 12}]) == []
+
+
+def test_a_business_already_in_the_report_is_not_offered_twice():
+    assert outside([{"business_name": "FOUNDRY", "recommendations": 9}], cohort=("plusx", "foundry")) == []
+
+
+def test_without_the_database_list_nothing_extra_is_offered():
+    assert outside([{"business_name": "FOUNDRY", "recommendations": 9}], records=[]) == []

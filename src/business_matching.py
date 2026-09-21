@@ -56,6 +56,7 @@ class Subject:
     place_id: str | None
     names: list[dict[str, Any]] = field(default_factory=list)  # flagged unresolved names to decide
     owner_name: str | None = None  # set when the owner named this business
+    outside_set: bool = False      # a database business the AI's names resemble, not otherwise in this report
 
 
 def owner_key(owner_name: str) -> str:
@@ -95,6 +96,7 @@ def plan_subjects(
     owner_places: Mapping[str, str],
     cohort_ids: Iterable[str],
     names_by_id: Mapping[str, str],
+    records: Iterable[Mapping[str, Any]] = (),
 ) -> list[Subject]:
     """Every business whose AI names need deciding, each unresolved name claimed by at most one.
 
@@ -135,7 +137,54 @@ def plan_subjects(
         if pid == target_id or pid in owner_pids or pid not in names_by_id:
             continue
         subjects.append(Subject(pid, names_by_id[pid], pid, flag(names_by_id[pid], [names_by_id[pid]])))
+    subjects += _outside_subjects(unresolved, claimed, {s.place_id for s in subjects if s.place_id}, records)
     return subjects
+
+
+EXTRA_MIN_ANSWERS = 3       # a name the AI used at least this often is worth a look
+EXTRA_NAMES_CONSIDERED = 15  # the most-used unmatched names
+EXTRA_SUBJECTS_SHOWN = 6
+
+
+def _outside_subjects(
+    unresolved: list[dict[str, Any]], claimed: set[str], used_ids: set[str], records: Iterable[Mapping[str, Any]]
+) -> list[Subject]:
+    """Database businesses outside this report that a frequently used, still unmatched AI name may be.
+
+    Without this, "Sauna Co" named in 15 answers stays an anonymous stranger when it is really a listed
+    business that simply is not in the comparison set. A name is offered against each plausible business
+    (the reviewer can confirm at most one), and only where the two names share what the existing
+    look-alike test looks for.
+    """
+
+    seen: dict[str, Mapping[str, Any]] = {}
+    for record in records:
+        pid = str(record.get("google_place_id") or "")
+        if pid and pid not in seen:
+            seen[pid] = record
+    if not seen:
+        return []
+    pool = list(seen.values())
+    found: dict[str, Subject] = {}
+    considered = sorted(
+        (item for item in unresolved if str(item.get("business_name") or "").strip() not in claimed),
+        key=lambda item: (-int(item.get("recommendations") or 0), str(item.get("business_name"))),
+    )[:EXTRA_NAMES_CONSIDERED]
+    for item in considered:
+        if int(item.get("recommendations") or 0) < EXTRA_MIN_ANSWERS:
+            continue
+        for record in owner_competitor_candidates(str(item["business_name"]), pool, limit=3):
+            pid = str(record["google_place_id"])
+            if pid in used_ids:
+                continue
+            hit = find_possible_target_names(str(record.get("business_name") or ""), [item])
+            if hit:
+                subject = found.setdefault(pid, Subject(pid, str(record["business_name"]), pid, outside_set=True))
+                subject.names.append(hit[0])
+    ranked = sorted(found.values(), key=lambda s: (-sum(n["recommendations"] for n in s.names), s.label))[:EXTRA_SUBJECTS_SHOWN]
+    for subject in ranked:
+        claimed.update(n["name"] for n in subject.names)
+    return ranked
 
 
 def decisions_for(decisions: Mapping[str, Any], subject: Subject) -> tuple[list[str], list[str]]:

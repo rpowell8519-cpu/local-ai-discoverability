@@ -198,6 +198,7 @@ def assemble_generic_report_payload(
     subjects = plan_subjects(
         target_id=target_id, target_name=target_name, unresolved=candidate_summary["unresolved"],
         owner_names=owner_names, owner_places=owner_places, cohort_ids=cohort_ids, names_by_id=names,
+        records=all_businesses,
     )
     undecided = undecided_items(subjects, decisions_input, owner_names)
     if undecided:

@@ -125,7 +125,7 @@ from src.report_generator_readiness import (  # noqa: E402
 )
 
 
-BUILD_VERSION = "Accessible AI Report Generator v3.3.0 (recommendations from the evidence)"
+BUILD_VERSION = "Accessible AI Report Generator v3.4.0 (unmatched AI names)"
 REPORT_STATE_KEY = "accessible_ai_report_generator_result"
 SUMMARY_STATE_KEY = "accessible_ai_client_summary_result"
 AI_VISIBILITY_HANDOFF_KEY = "ai_visibility_report_handoff_target"
@@ -1365,6 +1365,7 @@ if ai_ready and definition is None:
         owner_places={name: (pid or "") for name, pid in owner_defaults.items()},
         cohort_ids=plan_cohort_ids,
         names_by_id=names_by_id,
+        records=business_records,
     )
     # A review saved before names and priorities were matched cannot yet make a correct report.
     for item in undecided_items(identity_plan, existing_decisions, owner_names_now):
@@ -1667,6 +1668,13 @@ if ai_ready and definition is None:
                     key=f"owner_place_{selected_place_id}_{position}",
                 )
                 owner_place_choices[subject.owner_name] = choice
+            elif subject.names and subject.outside_set:
+                st.markdown(f"**Is a name in the answers really {subject.label}?**")
+                st.caption(
+                    f"{subject.label} is in the database but is not in this comparison. The AI used a name that looks like "
+                    "it. If it is the same business, its appearances are counted for it (and it can then be added to the "
+                    "comparison after you save)."
+                )
             elif subject.names and subject.key != TARGET_KEY:
                 st.markdown(f"**Is another name in the answers the same business as {subject.label}?**")
             elif subject.names:
