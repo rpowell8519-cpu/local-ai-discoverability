@@ -203,7 +203,7 @@ def build_owner_report(payload: Mapping[str, Any]) -> dict[str, Any]:
     cohort = []
     for member in payload.get("diagnostic", {}).get("cohort", []):
         pid = str(member.get("google_place_id") or "")
-        if not pid or pid not in businesses:
+        if not pid:
             continue
         cohort.append({**member, "count": len(appearances[pid]),
                        "services": [{"name": s["name"], "count": len(appearances[pid] & set().union(*(question_map[o]["answer_ids"] for o in s["questions"]))), "answers": s["answers"]} for s in tested]})

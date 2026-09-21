@@ -68,3 +68,46 @@ def test_report_page_has_no_hardcoded_local_default():
     source = page.read_text()
     assert 'or "Brighton and Hove"' not in source
     assert "location_context=run_location" in source
+
+
+def test_the_default_comparison_set_mixes_owner_named_and_most_visible_up_to_seven():
+    from src.report_competitors import select_comparison_set
+
+    owner = ["own1", "own2", "own3", "own4", "own5"]
+    visible = ["vis1", "own1", "vis2", "vis3", "vis4", "vis5"]
+    chosen = select_comparison_set(owner, visible)
+    assert len(chosen) == 7 and len(set(chosen)) == 7
+    assert chosen[:4] == ["own1", "own2", "own3", "own4"]          # owner-named first, up to four
+    assert chosen[4:] == ["vis1", "vis2", "vis3"]                    # then the most visible, without repeats
+
+
+def test_an_owner_named_business_the_ai_never_recommended_is_still_offered():
+    from src.report_competitors import select_comparison_set
+
+    assert "never_seen" in select_comparison_set(["never_seen"], ["a", "b", "c"])
+
+
+def test_when_the_owner_named_few_the_most_visible_fill_the_rest():
+    from src.report_competitors import select_comparison_set
+
+    chosen = select_comparison_set(["own1"], [f"v{i}" for i in range(10)])
+    assert chosen == ["own1", "v0", "v1", "v2", "v3", "v4", "v5"]
+
+
+def test_when_few_are_visible_more_owner_named_businesses_fill_the_gaps():
+    from src.report_competitors import select_comparison_set
+
+    chosen = select_comparison_set([f"o{i}" for i in range(7)], ["v0"])
+    assert len(chosen) == 7 and "v0" in chosen and chosen[:4] == ["o0", "o1", "o2", "o3"]
+
+
+def test_fewer_candidates_than_the_limit_gives_only_those():
+    from src.report_competitors import select_comparison_set
+
+    assert select_comparison_set(["a"], ["b"]) == ["a", "b"] and select_comparison_set([], []) == []
+
+
+def test_the_limit_is_seven_others_so_eight_businesses_with_the_client():
+    from src.report_competitors import MAX_COMPARISON_BUSINESSES
+
+    assert MAX_COMPARISON_BUSINESSES == 7

@@ -10,7 +10,7 @@ from unittest import mock
 import pytest
 
 from src.poc_audit_generic import assemble_generic_report_payload
-from src.report_identity import UndecidedTargetNamesError
+from src.business_matching import UndecidedNamesError
 
 TARGET_ID, RUN_ID, NAME = "place-wrap", "11111111-1111-1111-1111-111111111111", "WRAP- Coworking, Meeting Rooms & Offices"
 PRIORITIES = ["Co-working", "Private offices", "Meeting rooms"]
@@ -102,7 +102,7 @@ def assemble(decisions):
 
 
 def test_an_undecided_look_alike_name_stops_generation_with_a_clear_message():
-    with pytest.raises(UndecidedTargetNamesError, match="“WRAP”"):
+    with pytest.raises(UndecidedNamesError, match="“WRAP”"):
         assemble({})
 
 
@@ -116,7 +116,7 @@ def test_a_confirmed_name_is_credited_to_the_target_and_disclosed():
     assert config["slot_adjudications"]["WRAP"]["google_place_id"] == TARGET_ID
     assert config["slot_adjudications"]["WRAP"]["resolution_method"] == "reviewer_confirmed_target_name"
     assert any("“WRAP”" in line for line in config["methodology_validation"])
-    assert loader.call_args.kwargs["confirmed_target_names"] == ["WRAP"]
+    assert loader.call_args.kwargs["confirmed_names"] == {TARGET_ID: ["WRAP"]}
 
 
 def test_confirmed_links_become_service_groups_that_cover_each_question_once():
@@ -154,3 +154,95 @@ def test_generated_reports_ask_for_findings_and_carry_the_site_check_they_were_g
         )
     assert config["owner_report"]["auto_findings"] is True
     assert config["owner_report"]["site_findings"] == [finding]
+
+
+
+# ---------------------------------------------------------------- owner competitors and other businesses
+OWNER_BUSINESS_ROWS = BUSINESS_ROWS + [
+    {"google_place_id": "place-platf9rm", "business_name": "PLATF9RM Brighton - Coworking, Offices & Events", "primary_group": "coworking",
+     "business_format": "", "city": "Brighton", "address": "x", "latitude": "50.83", "longitude": "-0.14", "phone": None, "postal_code": None},
+]
+
+
+def assemble_with_owners(decisions, owners=("PLATF9RM",), unresolved=None):
+    audit = revision({"cohort_place_ids": ["place-plusx", "place-platf9rm"], **decisions})
+    audit["owner_competitors"] = list(owners)
+    summary = {"target": [{"recommendations": 0}], "unresolved": unresolved if unresolved is not None else [
+        *UNRESOLVED, {"business_name": "Plus X Innovation Hub", "recommendations": 7}],
+        "verified": [{"google_place_id": "place-platf9rm", "business_name": OWNER_BUSINESS_ROWS[3]["business_name"], "recommendations": 33}]}
+
+    class Engine(_Engine):
+        def connect(self):
+            conn = _Connection()
+            original = conn.execute
+
+            def execute(statement, params=None):
+                sql = " ".join(str(statement).lower().split())
+                if "from business_features bf" in sql and "lateral" in sql:
+                    return _Result(OWNER_BUSINESS_ROWS)
+                if "from business_features where google_place_id is not null" in sql:
+                    return _Result(OWNER_BUSINESS_ROWS)
+                return original(statement, params)
+            conn.execute = execute
+            return conn
+
+    with mock.patch("src.poc_audit_generic.load_report_candidates", return_value=summary) as loader, \
+         mock.patch("src.poc_audit_generic.assemble_poc_audit_payload", side_effect=lambda config, engine=None: config):
+        config = assemble_generic_report_payload(audit, engine=Engine())
+    return config, loader
+
+
+DECIDED = {"confirmed_target_names": ["WRAP"], "owner_competitor_places": {"PLATF9RM": "place-platf9rm"},
+           "name_links": {"place-platf9rm": {"confirmed": ["PLATF9RM"]}, "place-plusx": {"rejected": ["Plus X Innovation Hub"]}}}
+
+
+def test_generation_is_blocked_until_the_owners_competitor_is_matched_to_a_business():
+    with pytest.raises(UndecidedNamesError, match="which business in the database “PLATF9RM” is"):
+        assemble_with_owners({"confirmed_target_names": ["WRAP"]})
+
+
+def test_generation_is_blocked_while_an_ai_name_for_a_competitor_is_undecided():
+    decisions = {**DECIDED, "name_links": {}}
+    with pytest.raises(UndecidedNamesError) as raised:
+        assemble_with_owners(decisions)
+    assert "“PLATF9RM” (20 answer(s))" in str(raised.value) and "“Plus X Innovation Hub” (7 answer(s))" in str(raised.value)
+
+
+def test_a_confirmed_competitor_name_is_credited_to_the_competitor_and_disclosed():
+    config, loader = assemble_with_owners(DECIDED)
+    credited = config["slot_adjudications"]["PLATF9RM"]
+    assert credited["google_place_id"] == "place-platf9rm" and credited["resolution_method"] == "reviewer_confirmed_business_name"
+    assert "PLATF9RM" not in [n for n in config["slot_adjudications"] if config["slot_adjudications"][n]["google_place_id"] == TARGET_ID]
+    assert loader.call_args.kwargs["confirmed_names"] == {TARGET_ID: ["WRAP"], "place-platf9rm": ["PLATF9RM"]}
+    assert any("as PLATF9RM Brighton - Coworking, Offices & Events: “PLATF9RM”" in line for line in config["methodology_validation"])
+
+
+def test_the_owners_competitors_are_listed_as_the_reviewer_matched_them():
+    config, _ = assemble_with_owners(DECIDED)
+    entries = config["analyst_decisions"]["owner_competitors"]
+    assert entries[0]["google_place_id"] == "place-platf9rm" and entries[0]["visibility_status"] == "Recommended 33 times"
+
+
+def test_an_owner_competitor_not_in_the_database_is_counted_as_one_named_group():
+    decisions = {"confirmed_target_names": ["WRAP"], "owner_competitor_places": {"PLATF9RM": ""},
+                 "name_links": {"owner:platf9rm": {"confirmed": ["PLATF9RM"]}, "place-plusx": {"rejected": ["Plus X Innovation Hub"]}}}
+    config, _ = assemble_with_owners(decisions)
+    group = config["slot_adjudications"]["PLATF9RM"]
+    assert group["google_place_id"] is None and group["business_name"] == "PLATF9RM"
+    entry = config["analyst_decisions"]["owner_competitors"][0]
+    assert entry["google_place_id"] is None and entry["match_status"] == "not_in_system"
+
+
+def test_googles_own_review_count_and_rating_travel_with_the_report():
+    saved = [dict(row) for row in BUSINESS_ROWS]
+    try:
+        BUSINESS_ROWS[0].update(rating="4.6", reviews="2,431")
+        BUSINESS_ROWS[1].update(rating=None, reviews="not a number")
+        config, _ = assemble({"confirmed_target_names": ["WRAP"]})
+    finally:
+        for row, original in zip(BUSINESS_ROWS, saved):
+            row.clear()
+            row.update(original)
+    listing = config["owner_report"]["listing_reviews"]
+    assert listing[TARGET_ID] == {"reviews": 2431, "rating": 4.6}
+    assert listing["place-plusx"] == {"reviews": None, "rating": None}   # unreadable text becomes "not recorded", never an error

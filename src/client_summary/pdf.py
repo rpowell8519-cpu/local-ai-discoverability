@@ -186,13 +186,16 @@ class Page:
             self.c.rect(LEFT, H - bar_top - 8, WIDTH * value / total, 8, stroke=0, fill=1)
         self.top += pitch
 
-    def scaled_bar(self, label, value, maximum, target):
+    def scaled_bar(self, label, value, maximum, target, count=4):
         """Page-4 style: label left, bar scaled to the largest business, count at the right."""
         if self.level >= 1:
             label = one_line(label, 'Helvetica-Bold' if target else 'Helvetica', 12, 186)
         paragraph = Paragraph(safe(label), self.styles['label12b' if target else 'label12'])
         _, height = paragraph.wrap(190, 100)
-        pitch = max(36, height + 20)
+        floor = 36 if count <= 4 else 31 if count <= 6 else 27  # closer bars when eight are shown
+        if self.level >= 4:
+            floor = 24
+        pitch = max(floor, height + (20 if count <= 4 else 12 if self.level < 4 else 8))
         self.need(pitch)
         paragraph.drawOn(self.c, LEFT, H - self.top - height)
         self.c.setFont('Helvetica-Bold', 12)
@@ -241,15 +244,16 @@ def tile_label(label, prefix='Answers about '):
         trimmed = True
 
 
-LAST_LEVEL = 3
+LAST_LEVEL = 4
 
 
 def render_pdf(payload):
     """Return PDF bytes after validation; never write client data to disk.
 
-    Content that does not fit is first condensed, step by step: single-line names, tighter spacing,
-    inline sources, then dropping one optional explanatory paragraph. Type is never made smaller and
-    nothing is clipped. Only if every step fails does the export stop with the layout error.
+    Content that does not fit is first condensed, step by step and each step strictly shorter:
+    single-line names, tighter spacing, dropping one optional explanatory paragraph, then closer bars
+    with the closing caveat folded into its heading. Type is never made smaller and nothing is
+    clipped. Only if every step fails does the export stop with the layout error.
     """
     validated = validate_report(payload)
     error = None
@@ -401,7 +405,7 @@ def _render(payload, level):
     for b in m['businesses']:
         is_target = b['id'] == d['target_id']
         shown = d.get('short_name') if is_target and level >= 1 and d.get('short_name') else b['name']
-        page.scaled_bar(shown, b['appearances'], top_value, target=is_target)
+        page.scaled_bar(shown, b['appearances'], top_value, target=is_target, count=len(m['businesses']))
     target_count = next(b['appearances'] for b in m['businesses'] if b['id'] == d['target_id'])
     ahead = sorted((b for b in others if b['appearances'] > target_count), key=lambda b: b['appearances'])
     if others and ahead:
@@ -437,12 +441,11 @@ def _render(payload, level):
         page.para('The other businesses give useful examples to investigate. This report does not show that a particular '
                   'page, review or listing caused their higher visibility.')
     if d.get('evidence'):
-        page.heading('What we checked on your website')
+        page.heading('What we checked on your website' if level < 4 else 'What we checked (observations only, not causes)')
         for e in d['evidence']:
-            joiner = ' ' if level >= 2 else '<br/>'
-            source = safe(compact_source(e['source'])) if level >= 2 else safe(e['source'])
-            page.para('<b>' + safe(e['id']) + ':</b> ' + safe(e['observation']) + joiner + '<b>Source:</b> ' + source, 'small', 7)
-        page.para('These observations do not establish why an AI provider included a business.', 'small')
+            page.para('<b>' + safe(e['id']) + ':</b> ' + safe(e['observation']) + '<br/><b>Source:</b> ' + safe(compact_source(e['source']) if level >= 2 else e['source']), 'small', 7)
+        if level < 4:
+            page.para('These observations do not establish why an AI provider included a business.', 'small')
     else:
         page.para('No sourced website or review observations were supplied for this summary. Compare relevant pages and '
                   'customer information before claiming that a competitor has stronger evidence. Missing evidence is not '

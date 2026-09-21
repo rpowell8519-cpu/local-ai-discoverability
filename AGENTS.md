@@ -193,6 +193,30 @@ silently skews every result, and the page once defaulted to "Brighton and Hove" 
 business. Do not reintroduce a default. `src/llm_providers/` still contains that fallback for
 callers that pass no location; the report generator never does.
 
+### Comparison set, name matching and reviews
+
+- **Eight businesses in all**: the client plus up to `MAX_COMPARISON_BUSINESSES` (7) others. The
+  default mixes the competitors the owner named (up to four, first) with the most visible businesses
+  in the AI answers (`select_comparison_set`). An owner-named business the AI never recommended is
+  still offered and scores zero; do not filter it out. The summary, its contract and page 4 spacing
+  are sized for eight.
+- **Names must be matched by a person** (`src/business_matching.py`). The owner's words ("PLATF9RM"),
+  Google's listing name and the AI's short forms are three names for one business, so a competitor is
+  under-counted and shown as an unverified stranger. Step 5 asks, for each owner-named competitor,
+  which database business it is (or "not in the database"), and asks about every AI name that may be
+  the same business as the client, an owner competitor or a comparison business. Suggestions are
+  labelled; nothing is credited until decided; one name can never be claimed by two businesses.
+  Decisions live in `reviewer_decisions` (`owner_competitor_places`, `name_links`, plus the earlier
+  target keys). A competitor with no database record is counted as one named, unverified group.
+  Generation refuses while anything is undecided. Missing a match is the harmful error, so
+  similarity errs towards flagging (`find_possible_target_names` also flags names that share most
+  of their words); an extra flag costs a click.
+- **Reviews do not drive the AI counts.** The AI platforms answer without reading reviews. Saved
+  review text is supporting evidence only: the counts in Appendix D and any quotations chosen.
+  The page and Appendix D show "Google reports N reviews" (from the saved listing's `reviews` and
+  `rating`) beside what was saved and analysed, for every business in the report, so a sample is
+  never mistaken for the total. Unreadable listing values become "Not recorded", never an error.
+
 ### Lessons from the first real WRAP run
 
 The first live run failed and showed three things that stub-data tests had hidden. Keep them true.

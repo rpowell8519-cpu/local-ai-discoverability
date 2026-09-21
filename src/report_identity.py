@@ -79,6 +79,18 @@ def _contains_words(haystack: str, needle: str) -> bool:
     return f" {needle} " in f" {haystack} "
 
 
+def _shares_most_words(candidate: str, reference: str) -> bool:
+    """Two or more meaningful words in common, making up most of the candidate.
+
+    Catches "Plus X Innovation Hub" beside "Plus X Innovation Brighton", where neither name contains
+    the other. It only flags; a reviewer decides, and a missed match costs more than an extra flag.
+    """
+
+    wanted = [word for word in candidate.split() if word not in _GENERIC_WORDS]
+    shared = [word for word in wanted if word in set(reference.split())]
+    return len(shared) >= 2 and len(shared) / max(len(wanted), 1) >= 0.6
+
+
 def _similarity_reason(candidate: str, references: Iterable[str]) -> str | None:
     for reference in references:
         if candidate == reference:
@@ -89,6 +101,8 @@ def _similarity_reason(candidate: str, references: Iterable[str]) -> str | None:
             return "Is part of the business's listing name"
         if SequenceMatcher(None, candidate, reference).ratio() >= _SIMILARITY_THRESHOLD:
             return "Closely resembles the business's name"
+        if _shares_most_words(candidate, reference):
+            return "Shares most of its words with the business's name"
     return None
 
 

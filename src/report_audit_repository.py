@@ -10,6 +10,7 @@ from sqlalchemy.engine import Engine
 
 from src.database import get_engine
 from src.report_audit_workflow import WORKFLOW_SCHEMA_VERSION
+from src.report_competitors import MAX_COMPARISON_BUSINESSES
 from src.report_generator_readiness import normalise_owner_brief, owner_brief_missing_fields
 
 
@@ -198,8 +199,8 @@ def save_reviewer_decisions_revision(
         if not latest or not latest.get("benchmark_run_id"):
             raise ValueError("A completed benchmark must be attached before report review")
         cohort = list(reviewer_decisions.get("cohort_place_ids") or [])
-        if len(cohort) > 3 or len(set(cohort)) != len(cohort):
-            raise ValueError("Select up to three distinct verified comparison businesses")
+        if len(cohort) > MAX_COMPARISON_BUSINESSES or len(set(cohort)) != len(cohort):
+            raise ValueError(f"Select up to {MAX_COMPARISON_BUSINESSES} distinct verified comparison businesses")
         parameters = {
             "id": str(uuid.uuid4()),
             "schema_version": WORKFLOW_SCHEMA_VERSION,

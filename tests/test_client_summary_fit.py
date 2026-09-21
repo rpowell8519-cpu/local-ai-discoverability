@@ -100,3 +100,68 @@ def test_a_tile_label_is_measured_not_guessed_so_long_question_wording_never_bre
     height = Paragraph(renderer.safe(text), ParagraphStyle("t", fontName="Helvetica", fontSize=11, leading=16)).wrap(135, 200)[1]
     assert height <= 34
     assert renderer.tile_label("Meeting rooms") == "Answers about Meeting rooms"
+
+
+# ---------------------------------------------------------------- the business plus seven others
+def with_eight_businesses(long_names=False):
+    d = copy.deepcopy(wrap_summary())
+    names = ["Plus X Innovation Brighton", "Runway East Brighton | Office Space", "PLATF9RM Brighton - Coworking, Offices & Events",
+             "Freedom Works - The Palace Workspace", "Projects Nile House", "Spaces Trafalgar Place", "The Skiff"]
+    counts = [30, 23, 33, 0, 7, 7, 7]
+    d["businesses"] = [d["businesses"][0]] + [
+        {"id": f"biz-{i}", "name": (("Extremely Long Comparison Business Name Ltd " * 3)[:75].strip() if long_names else n), "appearances": c}
+        for i, (n, c) in enumerate(zip(names, counts))
+    ]
+    return d
+
+
+def test_the_business_plus_seven_others_renders_with_all_eight_bars():
+    d = with_eight_businesses()
+    assert len(d["businesses"]) == 8 and pages(d) == 6
+    text = " ".join(" ".join(p.extract_text().split()) for p in PdfReader(BytesIO(render_pdf(d))).pages[3:4])
+    for name in ("Freedom Works", "Projects Nile House", "The Skiff", "PLATF9RM"):
+        assert name in text
+
+
+def test_eight_businesses_with_maximum_length_names_still_render():
+    assert pages(with_eight_businesses(long_names=True)) == 6
+
+
+def test_eight_businesses_with_the_worst_findings_the_real_checks_can_produce_still_render():
+    from src.site_checks import CrawlerAccess, AI_SEARCH_CRAWLERS, ContactCheck, contact_finding, crawler_finding
+
+    everything_blocked = CrawlerAccess("blocked", tuple(AI_SEARCH_CRAWLERS), "https://www.a-rather-long-business-name.co.uk/robots.txt", "2026-09-21", True)
+    both_wrong = ContactCheck(
+        ("the Google listing gives 01273 123456; the pages read show 01273 654321 and 01273 111222 but not that number",
+         "the Google listing has postcode BN1 3XE; the pages read show BN3 2FL but not that postcode"),
+        ("phone number", "postcode"), (), ("https://www.a-rather-long-business-name.co.uk/contact-us/find-us-here",), "2026-09-13")
+    findings = [crawler_finding(everything_blocked, "E1"), contact_finding(both_wrong, "E2")]
+    d = with_eight_businesses(long_names=True)
+    d["evidence"] = [{"id": f["id"], "observation": f["observation"], "source": f["source"]} for f in findings]
+    d["limitations"] = ["2 business name(s) in the answers could not be matched to a verified business and are not shown.",
+                        "A reviewer confirmed that the AI answers “WRAP” and “Wrap Brighton” refer to this business."]
+    assert pages(d) == 6
+
+
+def test_an_impossible_combination_is_refused_cleanly_never_clipped():
+    d = with_eight_businesses(long_names=True)
+    d["evidence"] = [{"id": f"E{i}", "observation": ("An observation of the maximum permitted length. " * 6)[:220],
+                      "source": ("https://example.co.uk/a/very/long/path/to/a/page " * 5)[:200]} for i in (1, 2, 3)]
+    d["limitations"] = [("A limitation at the maximum permitted length for this contract. " * 5)[:240] for _ in range(4)]
+    try:
+        assert pages(d) == 6            # fitting is fine
+    except ReportLayoutError as error:
+        assert "too long" in str(error)  # refusing with a clear message is the only other acceptable outcome
+
+
+def test_an_owner_named_business_with_no_appearances_is_shown_with_a_zero_bar():
+    d = with_eight_businesses()
+    text = " ".join(" ".join(p.extract_text().split()) for p in PdfReader(BytesIO(render_pdf(d))).pages[3:4])
+    assert "Freedom Works" in text  # 0 appearances, but the owner asked about it, so it is not dropped
+
+
+def test_more_than_seven_comparison_businesses_is_refused_by_the_contract():
+    d = with_eight_businesses()
+    d["businesses"].append({"id": "one-too-many", "name": "Ninth Business", "appearances": 1})
+    with pytest.raises(Exception, match="expected 1-8 items"):
+        render_pdf(d)

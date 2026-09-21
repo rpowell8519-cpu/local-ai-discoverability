@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from typing import Any
 
 import pandas as pd
@@ -21,6 +21,7 @@ def load_report_candidates(
     target_google_place_id: str,
     engine: Engine | None = None,
     confirmed_target_names: Iterable[str] = (),
+    confirmed_names: Mapping[str, Iterable[str]] | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
     """Return measured verified candidates and unresolved names for human review.
 
@@ -86,25 +87,18 @@ def load_report_candidates(
         )
     if results.empty:
         return {"target": [], "verified": [], "unresolved": []}
-    confirmed = [str(name) for name in confirmed_target_names if str(name).strip()]
-    if confirmed:
-        target_row = next(
-            (
-                row for row in business_rows
-                if str(row["google_place_id"]) == str(target_google_place_id)
-            ),
-            None,
-        )
-        if target_row is not None:
+    credited: dict[str, list[str]] = {
+        str(pid): [str(name) for name in names if str(name).strip()]
+        for pid, names in dict(confirmed_names or {}).items()
+    }
+    if confirmed_target_names:
+        credited.setdefault(str(target_google_place_id), []).extend(str(n) for n in confirmed_target_names if str(n).strip())
+    for pid, names in credited.items():
+        row = next((r for r in business_rows if str(r["google_place_id"]) == pid), None)
+        if row is not None and names:
             aliases = pd.concat(
-                [
-                    aliases,
-                    confirmed_alias_frame(
-                        target_google_place_id=target_google_place_id,
-                        target_business_name=target_row["business_name"],
-                        confirmed=confirmed,
-                    ),
-                ],
+                [aliases, confirmed_alias_frame(
+                    target_google_place_id=pid, target_business_name=row["business_name"], confirmed=names)],
                 ignore_index=True,
             )
     records = build_recommendation_records(

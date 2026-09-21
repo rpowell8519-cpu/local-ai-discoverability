@@ -200,12 +200,29 @@ def render_owner_services_pdf(payload) -> bytes:
     start("INVENTORY", "Research coverage and source references", "Appendix D · independently reviewed evidence")
     add("Website evidence is saved page text and audit metadata, not an exhaustive current-site assessment. Counts below are collected page records; duplicate URLs or truncated excerpts can reduce coverage. No new public research was added to this historical audit.")
     rows = []
-    for audit in report["website_audits"]:
-        group = next((g for g in report["review_sets"] if str(g.get("google_place_id")) == str(audit.get("google_place_id"))), {})
-        rows.append([audit["business_name"], str(len(audit.get("pages", []))), str(len(group.get("records", []))) if group.get("records") else "Not assessed"])
-    if rows:
-        table(["Business", "Page records", "Reviews analysed"], rows, [305, 90, 110])
+    listing_reviews = cfg.get("listing_reviews")
+    if listing_reviews is not None:
+        # Every business in the report, with what Google says beside what was actually analysed.
+        target_id = str(report["audit"]["target_google_place_id"])
+        members = [(target_id, report["name"])] + [(str(m["google_place_id"]), m["business_name"]) for m in report["cohort"]]
+        for place_id, business_name in dict.fromkeys(members):
+            audit = next((a for a in report["website_audits"] if str(a.get("google_place_id")) == place_id), None)
+            group = next((g for g in report["review_sets"] if str(g.get("google_place_id")) == place_id), {})
+            said = listing_reviews.get(place_id) or {}
+            google = "Not recorded" if said.get("reviews") is None else (
+                f"{said['reviews']:,} reviews" + (f", {said['rating']:g} stars" if said.get("rating") else ""))
+            rows.append([business_name, str(len(audit.get("pages", []))) if audit else "None saved",
+                         str(len(group.get("records", []))) if group.get("records") else "Not assessed", google])
+        table(["Business", "Page records", "Reviews analysed", "Google reports"], rows, [195, 75, 105, 130])
+    else:
+        for audit in report["website_audits"]:
+            group = next((g for g in report["review_sets"] if str(g.get("google_place_id")) == str(audit.get("google_place_id"))), {})
+            rows.append([audit["business_name"], str(len(audit.get("pages", []))), str(len(group.get("records", []))) if group.get("records") else "Not assessed"])
+        if rows:
+            table(["Business", "Page records", "Reviews analysed"], rows, [305, 90, 110])
     add("No collected review text means review content was not assessed—not that the business has no reviews. Reviews analysed are a sample, not a verified total review count. The companion index lists every captured page with its date and record ID.")
+    if listing_reviews is not None:
+        add("Reviews do not affect the AI visibility counts in this report: the AI answers were produced by the AI platforms without reading reviews. Saved review text is supporting evidence only, through the counts above and any customer quotations chosen for the report. “Google reports” is the review count and rating in the business's saved Google listing.", "small")
     for ref, source in report["sources"].items():
         url = source.get("url")
         title = f'<a name="{e(ref)}"/>{e(ref)} · {e(source["title"])}'

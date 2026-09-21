@@ -103,7 +103,7 @@ def validate_report(payload):
     appearances = sum(q['appearances'] for q in questions.values())
     if sum(p['appearances'] for p in providers.values()) != appearances:
         fail('Question and provider appearance totals do not agree.')
-    businesses = indexed(collection(d.get('businesses'), 'businesses', 1, 6), 'businesses')
+    businesses = indexed(collection(d.get('businesses'), 'businesses', 1, 8), 'businesses')
     if d['target_id'] not in businesses:
         fail('businesses must include target_id.')
     if businesses[d['target_id']].get('name') != d['business_name']:
@@ -164,7 +164,7 @@ def from_records(metadata, records):
         fail('Supply metadata object and a list of canonical response records.')
     d = deepcopy(metadata)
     text(d.get('target_id'), 'target_id', 80)
-    indexed(collection(d.get('businesses'), 'businesses', 1, 6), 'businesses')
+    indexed(collection(d.get('businesses'), 'businesses', 1, 8), 'businesses')
     ps = indexed(collection(d.get('providers'), 'providers', 1, 3), 'providers')
     qs = indexed(collection(d.get('questions'), 'questions', 1, 8), 'questions')
     reps = count(d.get('repetitions'), 'repetitions', 20)
@@ -197,7 +197,7 @@ def from_records(metadata, records):
         for obj in (ps[pid], qs[qid]):
             obj['complete'] += 1
             obj['appearances'] += int(d['target_id'] in names)
-    for b in collection(d.get('businesses'), 'businesses', 1, 6):
+    for b in collection(d.get('businesses'), 'businesses', 1, 8):
         b['appearances'] = counts[b['id']]
     d['evidence_basis'] = 'saved_response_records'
     return validate_report(d)

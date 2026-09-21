@@ -76,6 +76,15 @@ from src.poc_audit_generic import (  # noqa: E402
 )
 from src.report_audit_candidates import load_report_candidates  # noqa: E402
 from src.business_lookup import near_misses, search_businesses  # noqa: E402
+from src.business_matching import (  # noqa: E402
+    TARGET_KEY,
+    UndecidedNamesError,
+    default_owner_match,
+    owner_competitor_candidates,
+    owner_key,
+    plan_subjects,
+    undecided_items,
+)
 from src.report_identity import (  # noqa: E402
     UndecidedTargetNamesError,
     find_possible_target_names,
@@ -84,8 +93,10 @@ from src.report_identity import (  # noqa: E402
 from src.site_checks import check_ai_crawler_access, crawler_finding  # noqa: E402
 from src.report_priorities import NOT_LINKED, suggest_priority_map, undecided_questions  # noqa: E402
 from src.report_competitors import (  # noqa: E402
+    MAX_COMPARISON_BUSINESSES,
     catchment_radius_miles,
     resolve_run_location,
+    select_comparison_set,
     classify_location,
     match_owner_competitors,
 )
@@ -110,7 +121,7 @@ from src.report_generator_readiness import (  # noqa: E402
 )
 
 
-BUILD_VERSION = "Accessible AI Report Generator v3.1.1 (first-run fixes: page fit, question links)"
+BUILD_VERSION = "Accessible AI Report Generator v3.2.0 (eight businesses, name matching, review counts)"
 REPORT_STATE_KEY = "accessible_ai_report_generator_result"
 SUMMARY_STATE_KEY = "accessible_ai_client_summary_result"
 AI_VISIBILITY_HANDOFF_KEY = "ai_visibility_report_handoff_target"
@@ -151,7 +162,9 @@ def load_businesses() -> pd.DataFrame:
             coalesce(
                 nullif(rol.raw_data->>'website', ''),
                 nullif(rol.raw_data->>'site', '')
-            ) as source_website_url
+            ) as source_website_url,
+            nullif(rol.raw_data->>'rating', '') as google_rating,
+            nullif(rol.raw_data->>'reviews', '') as google_reviews
         from business_features bf
         left join lateral (
             select raw_data
@@ -298,6 +311,21 @@ def site_findings_for(business: Mapping[str, Any], audit: Mapping[str, Any] | No
     url = clean_text((audit or {}).get("manual_website_url")) or clean_text(business.get("source_website_url"))
     finding = crawler_finding(check_ai_crawler_access(url)) if url else None
     return url, [finding] if finding else []
+
+
+def google_review_text(record: Mapping[str, Any]) -> str | None:
+    """Google's own review count and rating from the saved listing, or None if it is missing or unreadable."""
+
+    try:
+        count = int(float(clean_text(record.get("google_reviews")).replace(",", "")))
+    except ValueError:
+        return None
+    text = f"{count:,} reviews"
+    try:
+        text += f", {float(clean_text(record.get('google_rating'))):g} stars"
+    except ValueError:
+        pass
+    return text
 
 
 def clean_text(value: Any) -> str:
@@ -1171,10 +1199,10 @@ if ai_ready and definition is None:
     st.subheader("5. Review the AI-selected comparison set")
     review_notice = st.empty()
     st.write(
-        "The platform suggests three verified, geographically relevant businesses found in "
-        "AI Visibility. Owner-nominated competitors are measured separately, including those "
-        "with no visibility. A reviewer can override the AI-discovered set when there is a "
-        "clear relevance, location or identity reason."
+        f"The report compares the business with up to {MAX_COMPARISON_BUSINESSES} others, {MAX_COMPARISON_BUSINESSES + 1} in all. "
+        "The suggested set mixes the competitors the owner named with the most visible businesses in the AI "
+        "answers, including any the owner named that the AI never recommended. A reviewer can change it "
+        "when there is a clear relevance, location or identity reason."
     )
     try:
         candidates = load_report_candidates(
@@ -1206,6 +1234,29 @@ if ai_ready and definition is None:
         key: business.get(key) for key in ("city", "address", "latitude", "longitude")
     }
     service_areas = list(owner_context.get("service_areas") or [])
+    existing_decisions = dict((durable_audit or {}).get("reviewer_decisions") or {})
+    names_by_id = {str(row["google_place_id"]): str(row["business_name"]) for row in business_records}
+    owner_names_now = [str(name) for name in (saved_brief or {}).get("owner_competitors") or []]
+    stored_places = dict(existing_decisions.get("owner_competitor_places") or {})
+    owner_candidate_lists = {name: owner_competitor_candidates(name, business_records) for name in owner_names_now}
+    # None means undecided; "" means the reviewer said it is not in the database.
+    owner_defaults: dict[str, str | None] = {
+        name: (str(stored_places[name]) if name in stored_places else default_owner_match(name, owner_candidate_lists[name]))
+        for name in owner_names_now
+    }
+    owner_place_ids_now = [pid for pid in owner_defaults.values() if pid and pid != selected_place_id]
+    # A business the owner named that the AI never recommended is still a comparison, with no appearances.
+    present_ids = {str(item.get("google_place_id")) for item in verified_candidates}
+    for pid in owner_place_ids_now:
+        if pid not in present_ids and pid in businesses_by_id:
+            record = businesses_by_id[pid]
+            verified_candidates.append({
+                "google_place_id": pid, "business_name": record["business_name"], "recommendations": 0,
+                "city": record.get("city"), "address": record.get("address"), "latitude": record.get("latitude"),
+                "longitude": record.get("longitude"), "primary_group": record.get("primary_group"),
+                "business_format": record.get("business_format"),
+            })
+            present_ids.add(pid)
     verified_candidates = [
         {
             **item,
@@ -1235,40 +1286,7 @@ if ai_ready and definition is None:
                 st.switch_page("pages/8_AI_Visibility.py")
     if len(candidate_by_id) < 3:
         st.warning(
-            "Fewer than three verified AI-visible businesses are available. Use the relevant verified businesses available; a report can proceed without a forced comparison set."
-        )
-    existing_decisions = dict((durable_audit or {}).get("reviewer_decisions") or {})
-    # A review saved before names and priorities were confirmed cannot yet make a correct report.
-    owner_priorities_now = [str(item) for item in owner_context.get("priority_services") or []]
-    try:
-        questions_now = load_run_prompt_seed(saved_benchmark_run_id)
-    except Exception:
-        questions_now = []
-    undecided_now = undecided_target_names(
-        str(business["business_name"]),
-        candidates["unresolved"],
-        existing_decisions.get("confirmed_target_names") or [],
-        existing_decisions.get("rejected_target_names") or [],
-    )
-    unlinked_now = (
-        undecided_questions(questions_now, owner_priorities_now, dict(existing_decisions.get("question_priority_map") or {}))
-        if owner_priorities_now else []
-    )
-    if undecided_now:
-        review_update_reasons.append(
-            "confirm or reject the AI answer name "
-            + " and ".join(f"“{item['name']}” (named in {item['recommendations']} answers)" for item in undecided_now)
-            + ", which may be this business under a shorter name"
-        )
-    if unlinked_now:
-        review_update_reasons.append(
-            "link " + ", ".join(f"Q{order}" for order in unlinked_now) + " to the owner priority each one tests"
-        )
-    if configuration_ready and review_update_reasons:
-        review_notice.warning(
-            "**This review was completed before some checks existed, so it needs one more look.** "
-            "The report cannot be generated until you: " + "; ".join(review_update_reasons) + ". "
-            "Make the choices in the form below, then click **Complete report review**."
+            "Fewer than three verified AI-visible businesses are available. Use the relevant businesses available, including any the owner named; a report can proceed without a forced comparison set."
         )
     local_default_ids = [
         str(item["google_place_id"])
@@ -1283,30 +1301,70 @@ if ai_ready and definition is None:
     eligible_default_ids = [*local_default_ids, *wider_default_ids]
     default_cohort = [
         item for item in existing_decisions.get("cohort_place_ids", []) if item in candidate_by_id
-    ] or eligible_default_ids[:3]
+    ] or select_comparison_set([pid for pid in owner_place_ids_now if pid in candidate_by_id], eligible_default_ids)
     recommendation_counts = {
         str(item.get("google_place_id")): int(item.get("recommendations") or 0)
         for item in verified_candidates
     }
-    owner_matches = match_owner_competitors(
-        list((saved_brief or {}).get("owner_competitors") or []),
-        business_records,
-        recommendation_counts,
+    owner_priorities_now = [str(item) for item in owner_context.get("priority_services") or []]
+    try:
+        questions_now = load_run_prompt_seed(saved_benchmark_run_id)
+    except Exception:
+        questions_now = []
+    plan_cohort_ids = list(dict.fromkeys([*default_cohort, *owner_place_ids_now]))
+    identity_plan = plan_subjects(
+        target_id=selected_place_id,
+        target_name=str(business["business_name"]),
+        unresolved=candidates["unresolved"],
+        owner_names=owner_names_now,
+        owner_places={name: (pid or "") for name, pid in owner_defaults.items()},
+        cohort_ids=plan_cohort_ids,
+        names_by_id=names_by_id,
     )
+    # A review saved before names and priorities were matched cannot yet make a correct report.
+    for item in undecided_items(identity_plan, existing_decisions, owner_names_now):
+        review_update_reasons.append(
+            f"match the owner's competitor “{item['subject']}” to a business in the database"
+            if not item.get("name") else
+            f"confirm or reject the AI answer name “{item['name']}” (named in {item['recommendations']} answers) "
+            f"as {item['subject']}"
+        )
+    unlinked_now = (
+        undecided_questions(questions_now, owner_priorities_now, dict(existing_decisions.get("question_priority_map") or {}))
+        if owner_priorities_now else []
+    )
+    if unlinked_now:
+        review_update_reasons.append(
+            "link " + ", ".join(f"Q{order}" for order in unlinked_now) + " to the owner priority each one tests"
+        )
+    if configuration_ready and review_update_reasons:
+        review_notice.warning(
+            "**This review was completed before some checks existed, so it needs one more look.** "
+            "The report cannot be generated until you: " + "; ".join(review_update_reasons) + ". "
+            "Make the choices in the form below, then click **Complete report review**."
+        )
     st.caption(
         f"Suggested catchment for this business type: {suggested_radius:.0f} miles. "
         "Owner-stated service areas take priority when provided."
     )
-    if owner_matches:
+    if owner_names_now:
         st.markdown("**The competitors the owner identified**")
         st.dataframe(
             pd.DataFrame([
                 {
-                    "Owner entry": item["owner_name"],
-                    "Matched business": item["business_name"] if item["match_status"] == "matched" else "Needs confirmation",
-                    "Benchmark result": item["visibility_status"],
+                    "Owner entry": name,
+                    "Matched business": (
+                        "Needs matching below" if owner_defaults[name] is None
+                        else ("Not in the database" if owner_defaults[name] == "" else names_by_id.get(str(owner_defaults[name]), "Unknown"))
+                    ),
+                    "Benchmark result": (
+                        "Identity needs confirmation" if owner_defaults[name] is None
+                        else ("Not checked" if owner_defaults[name] == "" else (
+                            f"Recommended {recommendation_counts.get(str(owner_defaults[name]), 0)} times"
+                            if recommendation_counts.get(str(owner_defaults[name]), 0) else "Not recommended in this benchmark"))
+                    ),
                 }
-                for item in owner_matches
+                for name in owner_names_now
             ]),
             hide_index=True,
             use_container_width=True,
@@ -1316,7 +1374,8 @@ if ai_ready and definition is None:
             pd.DataFrame(
                 [
                     {
-                        "AI-selected business": candidate_by_id[place_id]["business_name"],
+                        "Comparison business": candidate_by_id[place_id]["business_name"],
+                        "Chosen because": "Named by the owner" if place_id in owner_place_ids_now else "Most visible in the AI answers",
                         "Recommendations": int(candidate_by_id[place_id].get("recommendations") or 0),
                         "Location": candidate_by_id[place_id].get("city") or "Not available",
                         "Catchment": str(candidate_by_id[place_id].get("location_classification") or "unknown").replace("_", " ").title(),
@@ -1334,6 +1393,12 @@ if ai_ready and definition is None:
         "any comparison business without website pages, and its review evidence is reported as unavailable. "
         "Collect what exists for the businesses above; the report generates without it and says so."
     )
+    st.caption(
+        "**About reviews.** They do not affect the AI visibility counts: the AI platforms answer without reading "
+        "reviews. Saved review text is supporting evidence only. It appears as the review counts in the report's "
+        "appendix and as any customer quotations you choose. “Google reports” is the count and rating in the "
+        "business's saved Google listing, so you can see whether the reviews we hold are all of them or a sample."
+    )
     comparison_evidence = []
     for place_id in cohort_ids_for_quotes:
         try:
@@ -1350,6 +1415,7 @@ if ai_ready and definition is None:
                 "pages": int((status["website_audit"] or {}).get("pages_crawled") or 0),
                 "has_website_audit": status["website_audit"] is not None,
                 "reviews": int(status["review_count"]),
+                "google": google_review_text(record),
                 "is_target": place_id == selected_place_id,
             }
         )
@@ -1359,7 +1425,8 @@ if ai_ready and definition is None:
                 {
                     "Business": ("Your client: " if item["is_target"] else "") + item["name"],
                     "Website pages saved": str(item["pages"]) if item["has_website_audit"] else "None yet",
-                    "Reviews saved": str(item["reviews"]) if item["reviews"] else "None yet",
+                    "Google reports": item["google"] or "Not recorded",
+                    "Review text saved": str(item["reviews"]) if item["reviews"] else "None yet",
                 }
                 for item in comparison_evidence
             ]
@@ -1415,7 +1482,7 @@ if ai_ready and definition is None:
                 "Comparison businesses",
                 options=list(candidate_by_id),
                 default=default_cohort,
-                max_selections=3,
+                max_selections=MAX_COMPARISON_BUSINESSES,
                 format_func=lambda place_id: (
                     f"{candidate_by_id[place_id]['business_name']} — "
                     f"{int(candidate_by_id[place_id].get('recommendations') or 0)} recommendation(s) — "
@@ -1432,33 +1499,74 @@ if ai_ready and definition is None:
                 "Outside the expected catchment: " + ", ".join(outside_selected)
                 + ". Keep only when the wider-area comparison is genuinely relevant."
             )
-        possible_target_names = find_possible_target_names(
-            str(business["business_name"]), candidates["unresolved"]
-        )
-        stored_confirmed = set(existing_decisions.get("confirmed_target_names") or [])
-        stored_rejected = set(existing_decisions.get("rejected_target_names") or [])
-        target_name_choices: dict[str, str] = {}
-        if possible_target_names:
-            st.markdown("**Is the business under a different name in the AI answers?**")
+        # Names the AI used that may be a business in this report, and the owner's own competitor names.
+        name_choices: list[dict[str, Any]] = []
+        owner_place_choices: dict[str, str] = {}
+        stored_links = dict(existing_decisions.get("name_links") or {})
+        if any(subject.names or subject.owner_name for subject in identity_plan):
+            st.markdown("**Match the names the AI used to the right businesses**")
             st.caption(
-                f"The Google listing is “{business['business_name']}”. These names in the AI answers could not be "
-                "matched to it automatically. If they are this business, its appearances would otherwise be "
-                "left out and the report could wrongly say it did not appear. The report cannot be completed "
-                "until each name is confirmed or rejected."
+                "The AI, the owner and Google often name the same business differently, so a business can be "
+                "counted under several names and look less visible than it is. Say which names are the same "
+                "business. Nothing is matched until you decide, and the report cannot be completed while any "
+                "choice is open."
             )
-            for position, option in enumerate(possible_target_names):
-                target_name_choices[option["name"]] = st.radio(
-                    f"“{option['name']}” — named in {option['recommendations']} answer(s). {option['reason']}.",
-                    options=["undecided", "yes", "no"],
-                    index=1 if option["name"] in stored_confirmed else (2 if option["name"] in stored_rejected else 0),
-                    format_func={
-                        "undecided": "Not decided",
-                        "yes": "Yes, this is the business",
-                        "no": "No, a different business",
-                    }.get,
-                    horizontal=True,
-                    key=f"target_name_choice_{selected_place_id}_{position}",
+        decision_labels = {"undecided": "Not decided", "yes": "Yes, the same business", "no": "No, a different business"}
+        for position, subject in enumerate(identity_plan):
+            if subject.owner_name:
+                st.markdown(f"**The owner named “{subject.owner_name}”**")
+                candidate_ids = [str(c["google_place_id"]) for c in owner_candidate_lists[subject.owner_name]]
+                current = owner_defaults[subject.owner_name]
+                if current and current not in candidate_ids:
+                    candidate_ids.insert(0, current)
+                options = ["", *candidate_ids, "__none__"]
+                index = 0 if current is None else (options.index("__none__") if current == "" else options.index(current))
+                suggested = (
+                    "  (suggested from the name: please check)"
+                    if current and subject.owner_name not in stored_places else ""
                 )
+                choice = st.selectbox(
+                    f"Which business in the database is this?{suggested}",
+                    options=options,
+                    index=index,
+                    format_func=lambda value: (
+                        "Choose…" if value == ""
+                        else "Not in the database: keep the owner's name" if value == "__none__"
+                        else business_label(businesses_by_id[value])
+                    ),
+                    key=f"owner_place_{selected_place_id}_{position}",
+                )
+                owner_place_choices[subject.owner_name] = choice
+            elif subject.names and subject.key != TARGET_KEY:
+                st.markdown(f"**Is another name in the answers the same business as {subject.label}?**")
+            elif subject.names:
+                st.markdown("**Is the business under a different name in the AI answers?**")
+                st.caption(
+                    f"The Google listing is “{business['business_name']}”. If these names are this business, its "
+                    "appearances would otherwise be left out and the report could wrongly say it did not appear."
+                )
+            saved_names = stored_links.get(subject.key, {}) if subject.key != TARGET_KEY else {
+                "confirmed": existing_decisions.get("confirmed_target_names") or [],
+                "rejected": existing_decisions.get("rejected_target_names") or [],
+            }
+            for flagged_position, option in enumerate(subject.names):
+                saved_choice = "yes" if option["name"] in (saved_names.get("confirmed") or []) else (
+                    "no" if option["name"] in (saved_names.get("rejected") or []) else "undecided")
+                radio_key = (
+                    f"target_name_choice_{selected_place_id}_{flagged_position}" if subject.key == TARGET_KEY
+                    else f"name_choice_{selected_place_id}_{position}_{flagged_position}"
+                )
+                name_choices.append({
+                    "subject": subject, "name": option["name"],
+                    "choice": st.radio(
+                        f"“{option['name']}” — named in {option['recommendations']} answer(s). {option['reason']}.",
+                        options=["undecided", "yes", "no"],
+                        index=["undecided", "yes", "no"].index(saved_choice),
+                        format_func=decision_labels.get,
+                        horizontal=True,
+                        key=radio_key,
+                    ),
+                })
         priority_services = [str(item) for item in owner_context.get("priority_services") or []]
         try:
             review_questions = load_run_prompt_seed(saved_benchmark_run_id)
@@ -1527,19 +1635,24 @@ if ai_ready and definition is None:
             "Complete report review",
             type="primary",
             use_container_width=True,
-            disabled=len(selected_cohort) > 3,
+            disabled=len(selected_cohort) > MAX_COMPARISON_BUSINESSES,
         )
-    undecided_names = [
-        name for name, choice in target_name_choices.items() if choice == "undecided"
-    ] if (save_draft or complete_review) else []
+    checking = save_draft or complete_review
+    open_names = [item for item in name_choices if item["choice"] == "undecided"] if checking else []
+    unchosen_owners = [name for name, choice in owner_place_choices.items() if choice == ""] if checking else []
     unlinked_questions = [
         order for order, choice in question_choices.items() if not choice
-    ] if (save_draft or complete_review) else []
-    if complete_review and (undecided_names or unlinked_questions):
+    ] if checking else []
+    if complete_review and (open_names or unchosen_owners or unlinked_questions):
         problems = []
-        if undecided_names:
+        if unchosen_owners:
             problems.append(
-                "whether these names are this business: " + ", ".join(f"“{name}”" for name in undecided_names)
+                "which business in the database these owner competitors are: " + ", ".join(f"“{n}”" for n in unchosen_owners)
+            )
+        if open_names:
+            problems.append(
+                "whether these AI answer names are the same business: "
+                + ", ".join(f"“{item['name']}”" for item in open_names)
             )
         if unlinked_questions:
             problems.append(
@@ -1549,10 +1662,22 @@ if ai_ready and definition is None:
             "Before completing the review, decide " + "; and ".join(problems)
             + ". Your other changes have not been saved."
         )
-    elif save_draft or complete_review:
+    elif checking:
+        target_items = [item for item in name_choices if item["subject"].key == TARGET_KEY]
+        chosen_places = {name: ("" if choice == "__none__" else choice) for name, choice in owner_place_choices.items() if choice != ""}
+        links: dict[str, dict[str, list[str]]] = {}
+        for item in name_choices:
+            if item["subject"].key == TARGET_KEY or item["choice"] == "undecided":
+                continue
+            owner = item["subject"].owner_name
+            key = (chosen_places.get(owner) or owner_key(owner)) if owner else item["subject"].key
+            entry = links.setdefault(key, {"confirmed": [], "rejected": []})
+            entry["confirmed" if item["choice"] == "yes" else "rejected"].append(item["name"])
         reviewer_decisions = {
-            "confirmed_target_names": [n for n, c in target_name_choices.items() if c == "yes"],
-            "rejected_target_names": [n for n, c in target_name_choices.items() if c == "no"],
+            "confirmed_target_names": [i["name"] for i in target_items if i["choice"] == "yes"],
+            "rejected_target_names": [i["name"] for i in target_items if i["choice"] == "no"],
+            "owner_competitor_places": chosen_places,
+            "name_links": links,
             "question_priority_map": {order: choice for order, choice in question_choices.items() if choice},
             "cohort_place_ids": selected_cohort,
             "headline": " ".join(headline.split()),
@@ -1560,7 +1685,6 @@ if ai_ready and definition is None:
             "action_titles": [line.strip(" \t-•") for line in action_titles.splitlines() if line.strip(" \t-•")],
             "review_quote_ids": selected_quotes,
             "review_notes": " ".join(review_notes.split()),
-            "owner_competitor_matches": owner_matches,
             "cohort_location_assessments": {
                 place_id: {
                     key: candidate_by_id[place_id].get(key)
@@ -1703,7 +1827,7 @@ else:
                         durable_audit, site_findings=site_findings_for(business, durable_audit)[1]
                     )
                 )
-        except UndecidedTargetNamesError as exc:
+        except (UndecidedTargetNamesError, UndecidedNamesError) as exc:
             st.warning(str(exc))
         except Exception as exc:
             st.error(

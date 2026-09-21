@@ -137,3 +137,38 @@ def resolve_run_location(service_areas: Iterable[str], city: Any) -> str:
     if city is None or (isinstance(city, float) and city != city):
         return ""
     return str(city).strip()
+
+
+MAX_COMPARISON_BUSINESSES = 7  # the business itself plus up to seven others makes eight in all
+OWNER_SHARE_OF_COMPARISONS = 4  # at most this many of the seven are chosen because the owner named them
+
+
+def select_comparison_set(
+    owner_named: Iterable[str],
+    most_visible: Iterable[str],
+    *,
+    limit: int = MAX_COMPARISON_BUSINESSES,
+    owner_share: int = OWNER_SHARE_OF_COMPARISONS,
+) -> list[str]:
+    """A default comparison set that mixes the businesses the owner named with the most visible ones.
+
+    Owner-named businesses come first, up to owner_share, because the owner asked about them and a
+    business the AI never recommended is still a useful comparison. The rest are the most visible
+    businesses in the AI answers. If either group runs short the other fills the gap, and nothing
+    appears twice. The reviewer can change the result.
+    """
+
+    owner = list(dict.fromkeys(str(item) for item in owner_named if str(item)))
+    visible = list(dict.fromkeys(str(item) for item in most_visible if str(item)))
+    chosen = owner[: max(0, min(owner_share, limit))]
+    for item in visible:
+        if len(chosen) >= limit:
+            break
+        if item not in chosen:
+            chosen.append(item)
+    for item in owner:
+        if len(chosen) >= limit:
+            break
+        if item not in chosen:
+            chosen.append(item)
+    return chosen[:limit]

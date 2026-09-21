@@ -39,6 +39,8 @@ BUSINESSES = [
     ("place-plusx", "Plus X Innovation Brighton", ""),
     ("place-runway", "Runway East Brighton | Office Space", "https://runway.example"),
     ("place-skiff", "The Skiff", ""),
+    ("place-platf9rm", "PLATF9RM Brighton - Coworking, Offices & Events", ""),
+    ("place-freedom", "Freedom Works - The Palace Workspace", ""),
 ]
 
 
@@ -104,11 +106,11 @@ class _Engine:
         return _Connection()
 
 
-def revision(decisions=None, complete=False):
+def revision(decisions=None, complete=False, owners=()):
     return {
         "id": "rev-uuid", "revision": 3, "target_google_place_id": TARGET_ID, "target_business_name": TARGET_NAME,
         "known_for": "A friendly co-working space in Brighton for freelancers and teams",
-        "desired_searches": QUESTIONS, "owner_competitors": [], "benchmark_run_id": RUN_ID,
+        "desired_searches": QUESTIONS, "owner_competitors": list(owners), "benchmark_run_id": RUN_ID,
         "website_evidence_state": "not_checked", "review_evidence_state": "not_checked",
         "reviewer_decisions": decisions or {}, "reviewer_decisions_complete": complete,
         "owner_context": {"priority_services": PRIORITIES, "service_areas": ["Brighton and Hove"]},
@@ -128,6 +130,7 @@ CANDIDATES = {
     "unresolved": [
         {"business_name": "PLATF9RM", "recommendations": 20},
         {"business_name": "WRAP", "recommendations": 12},
+        {"business_name": "Plus X Innovation Hub", "recommendations": 7},
         {"business_name": "Hotel Pelirocco", "recommendations": 5},
     ],
 }
@@ -186,6 +189,9 @@ def test_decisions_are_saved_once_every_choice_is_made():
     at, saved, stack = run_page(revision())
     with stack:
         next(r for r in at.radio if str(r.key).startswith("target_name_choice_")).set_value("yes")
+        for other in at.radio:
+            if "name_choice" in str(other.key) and not str(other.key).startswith("target_"):
+                other.set_value("no")
         next(s for s in at.selectbox if s.key == f"question_priority_{TARGET_ID}_5").set_value("Private offices")
         at.run()
         button(at, "Complete report review").click().run()
@@ -239,6 +245,7 @@ COMPLETE = {
     "question_priority_map": {str(i): p for i, p in enumerate(
         ["Co-working", "Private offices", "Meeting rooms", "Event space", "Co-working", "Team away days", "Children’s parties"], 1)},
     "cohort_place_ids": ["place-plusx", "place-runway"],
+    "name_links": {"place-plusx": {"rejected": ["Plus X Innovation Hub"]}},
 }
 
 
@@ -420,7 +427,7 @@ def test_the_build_label_changes_so_the_team_can_tell_which_version_is_live():
     at, _, stack = run_page(revision())
     with stack:
         captions = " ".join(c.value for c in at.caption)
-        assert "Build: Accessible AI Report Generator v3.1.1" in captions
+        assert "Build: Accessible AI Report Generator v3.2.0" in captions
 
 
 # ---------------------------------------------------------------- reviews saved before the new checks
@@ -449,6 +456,9 @@ def test_completing_the_review_lifts_the_pause_without_reloading_anything_else()
     at, saved, stack = run_page(revision(OLD_REVIEW, complete=True))
     with stack:
         next(r for r in at.radio if str(r.key).startswith("target_name_choice_")).set_value("yes")
+        for other in at.radio:
+            if "name_choice" in str(other.key) and not str(other.key).startswith("target_"):
+                other.set_value("no")
         for box in at.selectbox:
             if str(box.key).startswith("question_priority_") and box.value == "":
                 box.set_value("Private offices")
@@ -526,3 +536,132 @@ def test_a_saved_link_with_no_clear_better_suggestion_is_not_second_guessed():
     at, _, stack = run_page(revision({"question_priority_map": {"5": "Co-working"}}))
     with stack:  # Q5 is ambiguous, so nothing is suggested and the reviewer's choice stands
         assert "Check Q5" not in " ".join(c.value for c in at.caption)
+
+
+
+# ---------------------------------------------------------------- the owner's competitors and other names
+OWNERS = ("PLATF9RM", "Freedom Works", "PLUS X")
+
+
+def owner_boxes(at):
+    return {b.label.split("  (")[0]: b for b in at.selectbox if str(b.key).startswith("owner_place_")}
+
+
+def test_each_owner_competitor_gets_a_database_match_choice_with_a_labelled_suggestion():
+    at, _, stack = run_page(revision(owners=OWNERS))
+    with stack:
+        assert not at.exception, [e.value for e in at.exception]
+        boxes = [b for b in at.selectbox if str(b.key).startswith("owner_place_")]
+        assert len(boxes) == 3
+        assert all("(suggested from the name: please check)" in b.label for b in boxes)
+        chosen = sorted(b.value for b in boxes)
+        assert chosen == ["place-freedom", "place-platf9rm", "place-plusx"]  # each owner name found its one clear match
+
+
+def test_an_ai_name_identical_to_what_the_owner_typed_is_offered_for_a_decision():
+    at, _, stack = run_page(revision(owners=OWNERS))
+    with stack:
+        labels = [r.label for r in at.radio if "name_choice" in str(r.key)]
+        assert any("“PLATF9RM” — named in 20 answer(s). Same as the name the owner gave." in label for label in labels)
+        assert any("“Plus X Innovation Hub” — named in 7 answer(s)" in label for label in labels)   # shares most words with Plus X
+
+
+def test_the_review_cannot_be_completed_while_a_competitor_name_is_undecided():
+    at, saved, stack = run_page(revision(owners=OWNERS))
+    with stack:
+        next(r for r in at.radio if str(r.key).startswith("target_name_choice_")).set_value("yes")
+        for box in at.selectbox:
+            if str(box.key).startswith("question_priority_") and box.value == "":
+                box.set_value("Private offices")
+        at.run()
+        button(at, "Complete report review").click().run()
+        assert not at.exception, [e.value for e in at.exception]
+        assert "whether these AI answer names are the same business" in " ".join(e.value for e in at.error)
+        saved.assert_not_called()
+
+
+def decide_everything(at):
+    for radio in at.radio:
+        if str(radio.key).startswith("target_name_choice_") or "name_choice" in str(radio.key):
+            radio.set_value("yes" if "PLATF9RM" in radio.label or "WRAP" in radio.label else "no")
+    for box in at.selectbox:
+        if str(box.key).startswith("question_priority_") and box.value == "":
+            box.set_value("Private offices")
+    at.run()
+
+
+def test_the_matches_are_saved_against_the_right_businesses():
+    at, saved, stack = run_page(revision(owners=OWNERS))
+    with stack:
+        decide_everything(at)
+        button(at, "Complete report review").click().run()
+        assert not at.exception, [e.value for e in at.exception]
+        saved.assert_called_once()
+        decisions = saved.call_args.kwargs["reviewer_decisions"]
+        assert decisions["owner_competitor_places"] == {"PLATF9RM": "place-platf9rm", "Freedom Works": "place-freedom", "PLUS X": "place-plusx"}
+        assert decisions["name_links"]["place-platf9rm"]["confirmed"] == ["PLATF9RM"]
+        assert decisions["name_links"]["place-plusx"]["rejected"] == ["Plus X Innovation Hub"]
+        assert decisions["confirmed_target_names"] == ["WRAP"]
+
+
+def test_an_owner_competitor_can_be_marked_as_not_in_the_database():
+    at, saved, stack = run_page(revision(owners=("Some Unlisted Rival",)))
+    with stack:
+        box = next(b for b in at.selectbox if str(b.key).startswith("owner_place_"))
+        assert box.value == ""            # nothing similar, so nothing is suggested
+        box.set_value("__none__")
+        at.run()
+        decide_everything(at)
+        button(at, "Complete report review").click().run()
+        decisions = saved.call_args.kwargs["reviewer_decisions"]
+        assert decisions["owner_competitor_places"] == {"Some Unlisted Rival": ""}   # "" records: not in the database
+
+
+def test_an_owner_competitor_left_unchosen_blocks_completion_and_names_it():
+    at, saved, stack = run_page(revision(owners=("Some Unlisted Rival",)))
+    with stack:
+        decide_everything(at)
+        button(at, "Complete report review").click().run()
+        assert "which business in the database these owner competitors are: “Some Unlisted Rival”" in " ".join(e.value for e in at.error)
+        saved.assert_not_called()
+
+
+def test_an_owner_named_business_the_ai_never_recommended_is_offered_and_chosen_by_default():
+    at, _, stack = run_page(revision(owners=OWNERS))
+    with stack:
+        multiselect = next(m for m in at.multiselect)
+        offered = " | ".join(multiselect.options)
+        assert "Freedom Works - The Palace Workspace — 0 recommendation(s)" in offered   # never recommended, but the owner named it
+        chosen = list(multiselect.value)
+        assert chosen[:3] == ["place-platf9rm", "place-freedom", "place-plusx"]   # the owner's businesses come first
+        assert set(chosen[3:]) == {"place-runway", "place-skiff"}                  # then the most visible
+
+
+def test_the_comparison_table_says_why_each_business_is_included():
+    at, _, stack = run_page(revision(owners=OWNERS))
+    with stack:
+        table = next(df for df in at.dataframe if "Chosen because" in df.value.columns)
+        reasons = dict(zip(table.value["Comparison business"], table.value["Chosen because"]))
+        assert reasons["Freedom Works - The Palace Workspace"] == "Named by the owner"
+        assert reasons["Runway East Brighton | Office Space"] == "Most visible in the AI answers"
+
+
+def test_an_older_review_is_told_to_match_the_owners_competitors():
+    at, _, stack = run_page(revision(OLD_REVIEW, complete=True, owners=OWNERS))
+    with stack:
+        assert not at.exception, [e.value for e in at.exception]
+        text = warnings_text(at)
+        assert "match the owner's competitor “PLATF9RM” to a business in the database" in text
+        assert "Generating is paused" in text
+
+
+# ---------------------------------------------------------------- reviews on the page
+def test_the_evidence_panel_shows_googles_count_beside_what_was_saved_and_explains_what_reviews_do():
+    at, _, stack = run_page(revision())
+    with stack:
+        assert not at.exception, [e.value for e in at.exception]
+        table = next(df for df in at.dataframe if "Google reports" in df.value.columns)
+        assert list(table.value["Google reports"]) and "Review text saved" in table.value.columns
+        captions = " ".join(c.value for c in at.caption)
+        assert "They do not affect the AI visibility counts" in captions
+        assert "the AI platforms answer without reading reviews" in captions

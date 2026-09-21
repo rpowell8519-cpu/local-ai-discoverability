@@ -165,3 +165,13 @@ def test_alias_frame_with_no_confirmed_names_is_empty_with_expected_columns():
         target_google_place_id=TARGET_ID, target_business_name=TARGET_NAME, confirmed=[]
     )
     assert frame.empty and "alias_name" in frame.columns
+
+
+def test_a_name_sharing_most_of_its_words_is_flagged_even_though_neither_contains_the_other():
+    # Regression: "Plus X Innovation Hub" (7 answers) sat unresolved beside "Plus X Innovation Brighton" (30).
+    found = find_possible_target_names("Plus X Innovation Brighton", unresolved(("Plus X Innovation Hub", 7), ("Brighton i360", 7), ("Hotel Pelirocco", 5)))
+    assert [item["name"] for item in found] == ["Plus X Innovation Hub"]
+
+
+def test_sharing_only_a_generic_word_or_one_word_is_not_enough():
+    assert find_possible_target_names("Runway East Brighton | Office Space", unresolved(("Brighton i360", 7), ("Brighton Palace Pier", 5), ("East Coast Brewery", 2))) == []

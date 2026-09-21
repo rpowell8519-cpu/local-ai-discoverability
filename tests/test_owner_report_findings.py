@@ -174,3 +174,32 @@ def test_a_source_with_no_date_says_so_in_full_instead_of_being_cut_short():
 def test_a_source_with_no_collection_says_not_recorded():
     text = rendered_text(generated(site_findings=[CRAWLER_GAP]))
     assert "Collection: Not recorded" in text
+
+
+# ---------------------------------------------------------------- reviews: what Google reports and what was analysed
+def with_listing_reviews(payload, reviews=None):
+    payload["report"]["owner_report"]["listing_reviews"] = reviews or {
+        "synthetic-target": {"reviews": 2431, "rating": 4.6},
+        "synthetic-other": {"reviews": None, "rating": None},
+    }
+    return payload
+
+
+def test_the_appendix_lists_every_business_with_what_google_reports_beside_what_was_analysed():
+    payload = with_listing_reviews(generated())
+    payload["diagnostic"]["cohort"] = [{"google_place_id": "synthetic-other", "business_name": "Example Colour Studio"}]
+    text = rendered_text(payload)
+    assert "Google reports" in text and "2,431 reviews, 4.6 stars" in text
+    assert "Example Colour Studio" in text and "Not recorded" in text      # a business with nothing recorded is still listed
+    assert "None saved" in text or "Not assessed" in text
+
+
+def test_the_report_says_plainly_that_reviews_do_not_drive_the_ai_counts():
+    text = rendered_text(with_listing_reviews(generated()))
+    assert "Reviews do not affect the AI visibility counts" in text
+    assert "produced by the AI platforms without reading reviews" in text
+
+
+def test_hand_built_reports_keep_their_original_appendix():
+    text = rendered_text(synthetic_owner_services_payload())
+    assert "Google reports" not in text and "Reviews do not affect the AI visibility counts" not in text

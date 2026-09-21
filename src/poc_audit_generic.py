@@ -11,9 +11,24 @@ from src.poc_audit_assembler import assemble_poc_audit_payload
 from src.poc_audit_cisco_assembler import NON_BUSINESS_PREFIXES
 from src.poc_audit_production import PocAuditDefinition, ReviewablePocAudit, build_reviewable_poc_audit
 from src.report_audit_candidates import load_report_candidates
-from src.report_competitors import classify_location, match_owner_competitors
-from src.report_identity import assert_target_names_decided, target_name_adjudications
+from src.report_competitors import MAX_COMPARISON_BUSINESSES, classify_location, match_owner_competitors
+from src.business_matching import (
+    UndecidedNamesError, confirmed_by_place_from_decisions, disclosure_lines, name_adjudications,
+    owner_competitor_entries, plan_subjects, undecided_items,
+)
 from src.report_priorities import build_service_groups
+
+
+def _number(value: Any) -> float | None:
+    try:
+        return float(str(value).replace(",", ""))
+    except (TypeError, ValueError):
+        return None
+
+
+def _whole_number(value: Any) -> int | None:
+    number = _number(value)
+    return int(number) if number is not None and number >= 0 else None
 
 
 def _rows(connection, sql: str, parameters: Mapping[str, Any] | None = None) -> list[dict[str, Any]]:
@@ -97,8 +112,9 @@ def assemble_generic_report_payload(
     run_id = str(audit_revision.get("benchmark_run_id") or "")
     decisions_input = dict(audit_revision.get("reviewer_decisions") or {})
     cohort_ids = [str(item) for item in decisions_input.get("cohort_place_ids") or []]
-    if len(cohort_ids) > 3 or len(set(cohort_ids)) != len(cohort_ids):
-        raise ValueError("Select up to three distinct verified comparison businesses")
+    owner_place_ids = [str(pid) for pid in dict(decisions_input.get("owner_competitor_places") or {}).values() if str(pid)]
+    if len(cohort_ids) > MAX_COMPARISON_BUSINESSES or len(set(cohort_ids)) != len(cohort_ids):
+        raise ValueError(f"Select up to {MAX_COMPARISON_BUSINESSES} distinct verified comparison businesses")
 
     database = engine or get_engine()
     with database.connect() as connection:
@@ -119,7 +135,9 @@ def assemble_generic_report_payload(
                    coalesce(rol.raw_data->>'latitude', rol.raw_data->>'lat') as latitude,
                    coalesce(rol.raw_data->>'longitude', rol.raw_data->>'lng') as longitude,
                    nullif(rol.raw_data->>'phone', '') as phone,
-                   nullif(rol.raw_data->>'postal_code', '') as postal_code
+                   nullif(rol.raw_data->>'postal_code', '') as postal_code,
+                   nullif(rol.raw_data->>'rating', '') as rating,
+                   nullif(rol.raw_data->>'reviews', '') as reviews
             from business_features bf
             left join lateral (
                 select raw_data from raw_outscraper_locations
@@ -128,7 +146,7 @@ def assemble_generic_report_payload(
             ) rol on true
             where bf.google_place_id = any(:ids)
             """,
-            {"ids": [str(audit_revision["target_google_place_id"]), *cohort_ids]},
+            {"ids": list(dict.fromkeys([str(audit_revision["target_google_place_id"]), *cohort_ids, *owner_place_ids]))},
         )
         names = {str(item["google_place_id"]): str(item["business_name"]) for item in business_rows}
         if any(place_id not in names for place_id in cohort_ids):
@@ -168,19 +186,22 @@ def assemble_generic_report_payload(
     category = str(run.get("target_category_label") or run.get("primary_group") or "Local services").replace("_", " ").title()
     expected = int(run["prompt_count"]) * int(run["repeat_count"]) * len(list(run["providers"]))
     confirmed_target_names = [str(item) for item in decisions_input.get("confirmed_target_names") or []]
-    rejected_target_names = [str(item) for item in decisions_input.get("rejected_target_names") or []]
+    owner_names = [str(item) for item in audit_revision.get("owner_competitors") or []]
+    owner_places = {str(k): str(v or "") for k, v in dict(decisions_input.get("owner_competitor_places") or {}).items()}
     candidate_summary = load_report_candidates(
         run_id=run_id,
         target_google_place_id=target_id,
         engine=database,
-        confirmed_target_names=confirmed_target_names,
+        confirmed_names=confirmed_by_place_from_decisions(decisions_input, target_id),
     )
-    assert_target_names_decided(
-        target_name,
-        candidate_summary["unresolved"],
-        confirmed_target_names,
-        rejected_target_names,
+    # Names the AI used that may be a business in this report must each be decided by a person.
+    subjects = plan_subjects(
+        target_id=target_id, target_name=target_name, unresolved=candidate_summary["unresolved"],
+        owner_names=owner_names, owner_places=owner_places, cohort_ids=cohort_ids, names_by_id=names,
     )
+    undecided = undecided_items(subjects, decisions_input, owner_names)
+    if undecided:
+        raise UndecidedNamesError(undecided)
     recommendations = (
         int(candidate_summary["target"][0].get("recommendations") or 0)
         if candidate_summary.get("target")
@@ -190,13 +211,7 @@ def assemble_generic_report_payload(
         str(item["google_place_id"]): int(item.get("recommendations") or 0)
         for item in candidate_summary["verified"]
     }
-    owner_competitors = list(decisions_input.get("owner_competitor_matches") or [])
-    if not owner_competitors:
-        owner_competitors = match_owner_competitors(
-            list(audit_revision.get("owner_competitors") or []),
-            all_businesses,
-            recommendation_counts,
-        )
+    owner_competitors = owner_competitor_entries(owner_names, decisions_input, names, recommendation_counts)
     headline = str(decisions_input.get("headline") or (
         f"{target_name} was recommended in {recommendations} of {expected} AI responses."
         if recommendations else
@@ -330,6 +345,10 @@ def assemble_generic_report_payload(
             # Ask the report to build its strengths, gaps and actions from the findings.
             "auto_findings": True,
             "site_findings": [dict(finding) for finding in site_findings],
+            "listing_reviews": {
+                place_id: {"reviews": _whole_number(row.get("reviews")), "rating": _number(row.get("rating"))}
+                for place_id, row in details_by_id.items() if place_id in {target_id, *cohort_ids}
+            },
             "listing_contact": {
                 "phone": details_by_id.get(target_id, {}).get("phone"),
                 "postal_code": details_by_id.get(target_id, {}).get("postal_code"),
@@ -354,11 +373,7 @@ def assemble_generic_report_payload(
         "target_indirect_terms": (),
         "response_verification_note": "Saved completed response reconciled with the persisted target recommendation fields.",
         "verification_statement": f"{expected} expected responses were loaded from the attached completed benchmark.",
-        "slot_adjudications": target_name_adjudications(
-            target_google_place_id=target_id,
-            target_business_name=target_name,
-            confirmed=confirmed_target_names,
-        ),
+        "slot_adjudications": name_adjudications(subjects, decisions_input, {}),
         "non_business_prefixes": tuple(NON_BUSINESS_PREFIXES),
         "cohort": cohort,
         "website_audits": websites,
@@ -374,14 +389,8 @@ def assemble_generic_report_payload(
         "methodology_validation": (
             f"{expected} saved response records loaded",
             f"{int(run['prompt_count'])} owner-reviewed questions",
-            "Comparison businesses selected from measured AI responses",
-            *(
-                (
-                    "Reviewer confirmed these AI answer names as this business: "
-                    + ", ".join(f"“{name}”" for name in confirmed_target_names),
-                )
-                if confirmed_target_names else ()
-            ),
+            "Comparison businesses chosen from the most visible in the AI answers and the businesses the owner named",
+            *disclosure_lines(subjects, decisions_input),
         ),
         "methodology_limitations": ("This is a model-memory benchmark, not a live web-search test.", "Results depend on the exact questions, models and audit date.", "Unavailable website or review evidence is disclosed rather than scored.", "Observed differences are not causal."),
         "non_causality": "No website, identity or review difference is presented as a proven ranking factor.",

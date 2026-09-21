@@ -15,13 +15,14 @@ from typing import Any
 from src.owner_services_report import build_owner_report, provider_name
 from src.report_identity import display_name
 from src.owner_report_findings import collect_findings
+from src.report_competitors import MAX_COMPARISON_BUSINESSES
 from src.client_summary.actions import build_actions
 from src.client_summary.model import from_records
 from src.client_summary.pdf import render_pdf
 
 _LABEL_LIMIT = 65
 _NAME_LIMIT = 75
-_MAX_COMPARISONS = 3
+_MAX_COMPARISONS = MAX_COMPARISON_BUSINESSES
 _GROUP_LABEL_SKIP = "Question "
 _CONFIRMED_METHOD = "reviewer_confirmed_target_name"
 
@@ -159,9 +160,10 @@ def build_client_summary_report(
         for name in sorted({provider_name(r["provider"]) for r in report["responses"]})
     ]
 
+    chosen = payload.get("diagnostic", {}).get("cohort") or []  # includes owner-named businesses with no appearances
     shown = [
         (str(item["google_place_id"]), str(item["business_name"]))
-        for item in report["cohort"]
+        for item in chosen
         if item.get("google_place_id") and str(item["google_place_id"]) != target_id
     ][:_MAX_COMPARISONS]
     if not shown:
