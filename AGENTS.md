@@ -75,8 +75,13 @@ give the summary its own counting or its own evidence.
   PerplexityBot, Googlebot, Bingbot; training crawlers are a business choice and are not
   flagged). It reads only robots.txt through the audit's public-address-only fetcher. A file
   that cannot be read is "unknown" and becomes a stated limitation, never a gap. It cannot
-  see firewall or CDN rules, so it says what robots.txt says and no more. The full report
-  (RP) does not use these findings yet.
+  see firewall or CDN rules, so it says what robots.txt says and no more.
+  The second check compares the Google listing's phone number and postcode with the pages the
+  website audit already saved (no network request). It only reports a difference when the site
+  shows a different number and the listing's number appears on no page, and a page that reached
+  the 8,000-character save cap never supports a difference, because the number could sit in the
+  cut-off part. No data on either side means no finding. Gaps come first and findings are
+  numbered E1-E3. The full report (RP) does not use these findings yet.
 - The summary needs every planned answer, at least two questions and at most eight. When it
   cannot be produced the message says what to fix; the full report can still be produced.
 

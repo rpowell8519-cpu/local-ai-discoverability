@@ -196,3 +196,88 @@ def test_an_unreadable_robots_file_is_a_limitation_never_a_gap(payload):
 def test_no_website_means_no_limitation_about_crawlers(payload):
     data = summary(payload, site_findings=[], website_checked=False)
     assert not any("robots.txt" in item for item in data["limitations"])
+
+
+CONTACT_GAP = {
+    "id": "E2", "kind": "contact_details", "gap": True, "fields": ["phone number"],
+    "observation": "The website and the Google listing disagree: the Google listing gives 01273 123456; the pages read show 01273 654321 but not that number.",
+    "source": "https://example.co.uk/contact, saved 21 September 2026",
+}
+CONTACT_OK = {
+    "id": "E2", "kind": "contact_details", "gap": False, "fields": [], "matches": ["phone number", "postcode"],
+    "observation": "The website shows the same phone number and postcode as the Google listing.",
+    "source": "https://example.co.uk/contact, saved 21 September 2026",
+}
+
+
+def test_a_contact_discrepancy_is_a_second_verified_gap_and_replaces_the_generic_consistency_action():
+    actions = build_actions(QUESTIONS, business_group="pub", findings=[CRAWLER_GAP, CONTACT_GAP])
+    assert [a["status"] for a in actions] == ["verified_gap", "verified_gap", "suggested_check"]
+    assert actions[1]["title"] == "Make your contact details match everywhere"
+    assert actions[1]["evidence_ids"] == ["E2"] and "phone number" in actions[1]["task"]
+    assert not any("consistent" in a["title"] for a in actions)
+    assert [a["id"] for a in actions] == ["action-1", "action-2", "action-3"]
+
+
+def test_a_contact_gap_alone_keeps_two_topic_checks():
+    actions = build_actions(QUESTIONS, business_group="pub", findings=[CONTACT_GAP])
+    assert [a["status"] for a in actions] == ["verified_gap", "suggested_check", "suggested_check"]
+
+
+def test_matching_contact_details_are_acknowledged_in_the_consistency_action():
+    actions = build_actions(QUESTIONS, business_group="pub", findings=[CONTACT_OK])
+    assert {a["status"] for a in actions} == {"suggested_check"}
+    assert "agree on the phone number and postcode" in actions[2]["task"]
+    assert len(actions[2]["task"]) <= TASK_LIMIT
+
+
+def test_every_finding_combination_fits_the_contract():
+    for findings in ([], [CRAWLER_GAP], [CONTACT_GAP], [CRAWLER_GAP, CONTACT_GAP], [CRAWLER_OK, CONTACT_OK]):
+        for group in ("pub", "salon", "cleaning_services", "coworking", None):
+            for action in build_actions(QUESTIONS, business_group=group, findings=findings):
+                assert len(action["title"]) <= TITLE_LIMIT and len(action["task"]) <= TASK_LIMIT
+                assert len(action["owner"]) <= OWNER_LIMIT and len(action["done_when"]) <= DONE_LIMIT
+
+
+def _with_website(payload, phone_on_site):
+    """Add a phone number to a page the synthetic audit already saved for the target."""
+    payload["report"]["owner_report"]["listing_contact"] = {"phone": "01273 123456", "postal_code": None, "address": None}
+    audit = payload["website_evidence"]["audits"][0]
+    audit["completed_at"] = "2026-09-20T10:00:00"
+    audit["pages"][0]["text_excerpt"] += f" Call us on {phone_on_site}."
+    return payload
+
+
+def test_the_summary_runs_the_contact_check_from_the_saved_pages_and_shows_its_source(payload):
+    data = summary(_with_website(payload, "01273 654321"), site_findings=[], website_checked=False)
+    assert [e["id"] for e in data["evidence"]] == ["E1"]
+    assert data["actions"][0]["status"] == "verified_gap" and data["actions"][0]["evidence_ids"] == ["E1"]
+    page_url = payload["website_evidence"]["audits"][0]["pages"][0]["url"]
+    assert data["evidence"][0]["source"] == f"{page_url}, saved 20 September 2026"
+    text = " ".join(" ".join(p.extract_text().split()) for p in PdfReader(BytesIO(render_client_summary_pdf(data))).pages)
+    assert "01273 654321" in text and "MAKE YOUR CONTACT DETAILS MATCH EVERYWHERE" in text
+
+
+def test_findings_are_numbered_in_order_with_gaps_first(payload):
+    data = summary(_with_website(payload, "01273 654321"), site_findings=[CRAWLER_OK], website_checked=True)
+    assert [(e["id"], "robots" in e["observation"]) for e in data["evidence"]] == [("E1", False), ("E2", True)]
+    both = summary(_with_website(synthetic_owner_services_payload(), "01273 654321"), site_findings=[CRAWLER_GAP], website_checked=True)
+    assert [a["status"] for a in both["actions"]][:2] == ["verified_gap", "verified_gap"]
+    assert [e["id"] for e in both["evidence"]] == ["E1", "E2"]
+    assert both["actions"][0]["evidence_ids"] == ["E1"] and both["actions"][1]["evidence_ids"] == ["E2"]
+
+
+def test_no_listing_data_means_the_contact_check_is_skipped(payload):
+    data = summary(payload)
+    assert data["evidence"] == []
+
+
+def test_a_verified_action_is_justified_by_its_observation_not_by_a_topic_count(payload):
+    data = summary(_with_website(payload, "01273 654321"), site_findings=[CRAWLER_GAP], website_checked=True)
+    page_five = " ".join(
+        PdfReader(BytesIO(render_client_summary_pdf(data))).pages[4].extract_text().split()
+    )
+    assert "Why: robots.txt asks these AI search crawlers not to visit the site" in page_five
+    assert "Why: The website and the Google listing disagree" in page_five
+    # the topic count is still the reason for the suggested check
+    assert "Why: you appeared in" in page_five

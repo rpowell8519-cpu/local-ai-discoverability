@@ -86,3 +86,83 @@ def test_check_uses_the_fetcher_and_the_supplied_date():
         SITE, today=date(2026, 9, 21), fetcher=lambda url: (200, "User-agent: *\nDisallow: /\n")
     )
     assert result.status == "blocked" and result.checked_on == "2026-09-21"
+
+
+# ---------------------------------------------------------------- contact details
+from src.site_checks import (  # noqa: E402
+    SAVED_TEXT_CAP, check_contact_details, contact_finding, extract_contact_details,
+    normalise_postcode, normalise_uk_phone,
+)
+
+
+@pytest.mark.parametrize("written", [
+    "01273 123456", "+44 (0)1273 123456", "+44 1273 123456", "0044 1273 123456", "(01273) 123-456", "01273123456",
+])
+def test_every_way_of_writing_a_uk_number_gives_the_same_number(written):
+    assert normalise_uk_phone(written) == "01273123456"
+
+
+@pytest.mark.parametrize("not_a_phone", ["2026-09-21", "12345", "0123456789012345", "", None, "ABC"])
+def test_dates_reference_numbers_and_junk_are_not_phone_numbers(not_a_phone):
+    assert normalise_uk_phone(not_a_phone) is None
+
+
+def test_postcodes_are_found_and_normalised():
+    assert normalise_postcode("Unit 4, Brighton bn1 4ea") == "BN14EA"
+    assert normalise_postcode("No code here") is None
+    phones, postcodes = extract_contact_details("Hove BN3 2FL. Tel 01273 123456. Ref 0123456789012345")
+    assert phones == {"01273123456"} and postcodes == {"BN32FL"}
+
+
+def page(text, url="https://x.example/contact"):
+    return {"url": url, "text_excerpt": text}
+
+
+def contact(pages, phone="01273 123456", postcode="BN1 4EA"):
+    return check_contact_details(listing_phone=phone, listing_postcode=postcode, pages=pages, checked_on=TODAY)
+
+
+def test_matching_details_are_reported_as_an_observation_not_a_gap():
+    finding = contact_finding(contact([page("Call 01273 123456. 4 Church Rd, Brighton BN1 4EA")]))
+    assert finding["gap"] is False
+    assert finding["observation"] == "The website shows the same phone number and postcode as the Google listing."
+
+
+def test_a_different_number_on_complete_pages_is_a_specific_discrepancy():
+    finding = contact_finding(contact([page("Call us on 01273 654321. BN1 4EA")]))
+    assert finding["gap"] is True and finding["fields"] == ["phone number"]
+    assert "01273 123456" in finding["observation"] and "01273 654321" in finding["observation"]
+    assert "https://x.example/contact" in finding["source"] and "21 September 2026" in finding["source"]
+
+
+def test_the_listing_number_appearing_on_any_page_means_no_discrepancy():
+    pages = [page("Call 01273 654321"), page("Also on 01273 123456", "https://x.example/about")]
+    assert contact_finding(contact(pages, postcode=None))["gap"] is False
+
+
+def test_a_truncated_page_can_never_support_a_discrepancy():
+    long_text = "Call 01273 654321. " + "x" * SAVED_TEXT_CAP
+    assert contact([page(long_text)], postcode=None) is None
+
+
+def test_no_number_on_the_site_is_not_reported_because_it_may_be_an_image():
+    assert contact([page("Welcome to our salon. Book online.")], postcode=None) is None
+
+
+def test_missing_listing_data_or_pages_means_no_finding():
+    assert contact([page("Call 01273 654321")], phone=None, postcode=None) is None
+    assert contact([], phone="01273 123456") is None
+    assert contact_finding(None) is None
+
+
+def test_two_differences_are_both_named_and_still_fit_the_contract():
+    finding = contact_finding(contact([page("Call 07700 900123 or 01273 654321, Hove BN3 2FL")]))
+    assert finding["fields"] == ["phone number", "postcode"]
+    assert len(finding["observation"]) <= 220 and len(finding["source"]) <= 200
+    assert finding["observation"].endswith(".")
+
+
+def test_a_number_followed_by_a_sentence_is_not_swallowed_with_the_next_digits():
+    # Regression: "Tel 01273 123456. 4 Church Road" once ran the number into the house number.
+    phones, _ = extract_contact_details("Tel 01273 123456. 4 Church Road, Brighton. Or 07700 900123, 12 High St.")
+    assert phones == {"01273123456", "07700900123"}

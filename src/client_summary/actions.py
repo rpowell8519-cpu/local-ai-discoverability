@@ -102,11 +102,12 @@ def build_actions(
     actions = []
     crawler_gap = next((f for f in findings if f.get("kind") == "crawler_access" and f.get("gap")), None)
     crawler_checked = any(f.get("kind") == "crawler_access" for f in findings)
+    contact = next((f for f in findings if f.get("kind") == "contact_details"), None)
+    contact_gap = contact if contact and contact.get("gap") else None
     if crawler_gap:
         blocked = ", ".join(crawler_gap.get("blocked_labels") or ["AI search tools"])
         actions.append(
             {
-                "id": "action-1",
                 "title": "Let AI search tools visit your website",
                 "question_id": weakest_first[0]["id"],
                 "status": "verified_gap",
@@ -119,12 +120,28 @@ def build_actions(
                 "done_when": "robots.txt no longer blocks these crawlers, and the provider has confirmed hosting and security settings allow them",
             }
         )
-    for question in weakest_first[: 2 - len(actions)]:
-        position = len(actions) + 1
+    if contact_gap:
+        fields = " and ".join(contact_gap.get("fields") or ["contact details"])
+        actions.append(
+            {
+                "title": "Make your contact details match everywhere",
+                "question_id": weakest_first[0]["id"],
+                "status": "verified_gap",
+                "evidence_ids": [contact_gap["id"]],
+                "task": (
+                    f"The website and the Google listing give a different {fields}. Decide which is correct, then update "
+                    "whichever is wrong so the website, Google Business Profile and other listings all agree."
+                ),
+                "owner": "Business owner decides; website provider and profile manager update",
+                "done_when": f"The same {fields} appears on the website, Google Business Profile and the main directories",
+            }
+        )
+    include_consistency = contact_gap is None
+    topic_slots = 3 - len(actions) - (1 if include_consistency else 0)
+    for question in weakest_first[:topic_slots]:
         label = str(question["label"]).strip()
         actions.append(
             {
-                "id": f"action-{position}",
                 "title": f"Make {_topic_for_title(label)} easy to find and act on",
                 "question_id": question["id"],
                 "status": "suggested_check",
@@ -137,22 +154,29 @@ def build_actions(
                 "done_when": _DONE_TOPIC,
             }
         )
-    actions.append(
-        {
-            "id": "action-3",
-            "title": "Keep your business details accurate and consistent",
-            "question_id": strongest["id"],
-            "status": "suggested_check",
-            "evidence_ids": [],
-            "task": (
-                "Check that your name, address, phone number, opening times, services and links match on your "
-                f"website and on {profile.platforms}. Correct differences and remove duplicate or out-of-date "
-                "listings." + ("" if crawler_checked else _CRAWLER_CLAUSE)
-            ),
-            "owner": _OWNER_DETAILS,
-            "done_when": _DONE_DETAILS_CHECKED if crawler_checked else _DONE_DETAILS,
-        }
-    )
+    if include_consistency:
+        agreed = contact is not None  # phone and postcode already verified as matching the listing
+        checked = " and ".join(contact.get("matches") or []) if agreed else ""
+        actions.append(
+            {
+                "title": "Keep your business details accurate and consistent",
+                "question_id": strongest["id"],
+                "status": "suggested_check",
+                "evidence_ids": [],
+                "task": (
+                    (f"Your website and Google listing agree on the {checked}. Check that your name, opening times, "
+                     if agreed else
+                     "Check that your name, address, phone number, opening times, services and links match on your website and ")
+                    + (f"services and links also match on {profile.platforms}. " if agreed else f"on {profile.platforms}. ")
+                    + "Correct differences and remove duplicate or out-of-date listings."
+                    + ("" if crawler_checked else _CRAWLER_CLAUSE)
+                ),
+                "owner": _OWNER_DETAILS,
+                "done_when": _DONE_DETAILS_CHECKED if crawler_checked else _DONE_DETAILS,
+            }
+        )
+    for position, action in enumerate(actions, 1):
+        action["id"] = f"action-{position}"
     for action, title in zip(actions, [str(t).strip() for t in reviewer_titles if str(t).strip()]):
         action["title"] = title
     return actions

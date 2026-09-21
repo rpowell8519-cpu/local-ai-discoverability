@@ -13,6 +13,7 @@ from typing import Any
 
 from src.owner_services_report import build_owner_report, provider_name
 from src.report_identity import display_name
+from src.site_checks import check_contact_details, contact_finding
 from src.client_summary.actions import build_actions
 from src.client_summary.model import from_records
 from src.client_summary.pdf import render_pdf
@@ -72,6 +73,35 @@ def _confirmed_names(payload: Mapping[str, Any]) -> list[str]:
     )
 
 
+def _target_pages(payload: Mapping[str, Any], target_id: str) -> tuple[list[dict[str, Any]], str]:
+    for audit in payload.get("website_evidence", {}).get("audits", []):
+        if str(audit.get("google_place_id")) == target_id:
+            checked_on = str(audit.get("completed_at") or audit.get("started_at") or payload["audit"]["audit_date"])[:10]
+            return list(audit.get("pages") or []), checked_on
+    return [], str(payload["audit"]["audit_date"])
+
+
+def _merge_findings(
+    payload: Mapping[str, Any], owner_config: Mapping[str, Any], target_id: str,
+    site_findings: Iterable[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    """Site findings plus the contact-details check, gaps first, numbered E1, E2, E3."""
+
+    listing = dict(owner_config.get("listing_contact") or {})
+    pages, checked_on = _target_pages(payload, target_id)
+    contact = contact_finding(
+        check_contact_details(
+            listing_phone=listing.get("phone"),
+            listing_postcode=listing.get("postal_code") or listing.get("address"),
+            pages=pages,
+            checked_on=checked_on,
+        )
+    )
+    combined = [dict(f) for f in site_findings] + ([contact] if contact else [])
+    ordered = sorted(combined, key=lambda f: not f.get("gap"))[:3]
+    return [{**f, "id": f"E{number}"} for number, f in enumerate(ordered, 1)]
+
+
 def build_client_summary_report(
     payload: Mapping[str, Any],
     *,
@@ -117,7 +147,7 @@ def build_client_summary_report(
         for q in report["questions"]
     ]
     group = business_group or owner_config.get("primary_group")
-    findings = sorted(site_findings, key=lambda f: not f.get("gap"))[:3]
+    findings = _merge_findings(payload, owner_config, target_id, site_findings)
     actions = build_actions(
         measured, business_group=group, reviewer_titles=reviewer_action_titles, findings=findings
     )

@@ -399,7 +399,11 @@ def render_pdf(payload):
     for i, a in enumerate(d['actions'], 1):
         q = qs[a['question_id']]
         page.eyebrow_row(f'{i} | {a["title"]}')
-        page.para(f'<b>Why:</b> you appeared in {q["appearances"]} of {q["complete"]} answers about {quoted(q["label"])}.', 'body')
+        if a['status'] == 'verified_gap':
+            observed = next((e['observation'] for e in d.get('evidence', []) if e['id'] in a['evidence_ids']), '')
+            page.para('<b>Why:</b> ' + safe(observed), 'body')
+        else:
+            page.para(f'<b>Why:</b> you appeared in {q["appearances"]} of {q["complete"]} answers about {quoted(q["label"])}.', 'body')
         if a['status'] == 'suggested_check':
             page.para('<b>Check and improve:</b> ' + safe(a['task']), 'body', 12)
         else:

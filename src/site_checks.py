@@ -6,6 +6,7 @@ unavailable result is never reported as a gap.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import date
 from typing import Any, Callable
@@ -125,4 +126,138 @@ def crawler_finding(access: CrawlerAccess | None, finding_id: str = "E1") -> dic
         "observation": observation[:_OBSERVATION_LIMIT],
         "source": source,
         "blocked_labels": [label for _, label in access.blocked],
+    }
+
+
+# --------------------------------------------------------------------------- contact details
+# Compares the Google listing's phone number and postcode with the pages already saved by the
+# website audit. It reads saved evidence only, so it makes no network request. A page's saved
+# text is capped, so a page that reached the cap cannot show that something is absent.
+SAVED_TEXT_CAP = 8000  # website_audit stores text_content[:8000] per page
+_PHONE = re.compile(r"(?<![\d.])(?:\+44|0044|\(?0)[\d\s().\-]{8,16}\d(?!\d)")
+_POSTCODE = re.compile(r"\b([A-Z]{1,2}\d[A-Z\d]?)\s*(\d[A-Z]{2})\b", re.IGNORECASE)
+
+
+def normalise_uk_phone(value: str) -> str | None:
+    """National form (01273123456) of a UK number, or None if it is not one."""
+
+    digits_source = re.sub(r"\(0\)", "", str(value or ""))
+    digits = re.sub(r"\D", "", digits_source)
+    if digits.startswith("0044"):
+        digits = "0" + digits[4:]
+    elif digits.startswith("44") and str(value).strip().startswith("+"):
+        digits = "0" + digits[2:]
+    return digits if digits.startswith("0") and len(digits) in (10, 11) else None
+
+
+def normalise_postcode(value: str) -> str | None:
+    match = _POSTCODE.search(str(value or ""))
+    return (match.group(1) + match.group(2)).upper() if match else None
+
+
+def _readable_phone(national: str) -> str:
+    if len(national) != 11:
+        return national
+    if national.startswith("02"):
+        return f"{national[:3]} {national[3:7]} {national[7:]}"
+    return f"{national[:5]} {national[5:]}"
+
+
+def extract_contact_details(text: str) -> tuple[set[str], set[str]]:
+    phones = {
+        n for n in (
+            normalise_uk_phone(re.split(r"[.,;]\s", m.group(0))[0]) for m in _PHONE.finditer(text or "")
+        ) if n
+    }
+    postcodes = {p for p in (normalise_postcode(m.group(0)) for m in _POSTCODE.finditer(text or "")) if p}
+    return phones, postcodes
+
+
+@dataclass(frozen=True)
+class ContactCheck:
+    discrepancies: tuple[str, ...]   # human-readable, one per field that disagrees
+    mismatched: tuple[str, ...]      # which fields: "phone number", "postcode"
+    matches: tuple[str, ...]         # fields confirmed on the site
+    pages_read: tuple[str, ...]      # URLs of the pages the conclusion rests on
+    checked_on: str
+
+
+def check_contact_details(
+    *,
+    listing_phone: str | None,
+    listing_postcode: str | None,
+    pages: list[dict[str, Any]],
+    checked_on: str,
+) -> ContactCheck | None:
+    """Compare the listing's phone and postcode with the saved page text; None if nothing can be said."""
+
+    listing_number = normalise_uk_phone(listing_phone or "")
+    listing_pc = normalise_postcode(listing_postcode or "")
+    if not pages or not (listing_number or listing_pc):
+        return None
+    seen_phones: set[str] = set()
+    seen_pcs: set[str] = set()
+    complete_phones: dict[str, str] = {}   # number -> first complete page showing it
+    complete_pcs: dict[str, str] = {}
+    complete_urls: list[str] = []
+    for page in pages:
+        text = str(page.get("text_excerpt") or "")
+        phones, postcodes = extract_contact_details(text)
+        seen_phones |= phones
+        seen_pcs |= postcodes
+        if len(text) < SAVED_TEXT_CAP - 100:  # the whole page was saved
+            complete_urls.append(str(page.get("url") or ""))
+            for number in phones:
+                complete_phones.setdefault(number, str(page.get("url") or ""))
+            for code in postcodes:
+                complete_pcs.setdefault(code, str(page.get("url") or ""))
+
+    discrepancies, mismatched, matches, used = [], [], [], []
+    if listing_number:
+        if listing_number in seen_phones:
+            matches.append("phone number")
+        elif complete_phones:
+            others = sorted(complete_phones)[:2]
+            discrepancies.append(
+                f"the Google listing gives {_readable_phone(listing_number)}; the pages read show "
+                + " and ".join(_readable_phone(n) for n in others) + " but not that number"
+            )
+            mismatched.append("phone number")
+            used += [complete_phones[n] for n in others]
+    if listing_pc:
+        if listing_pc in seen_pcs:
+            matches.append("postcode")
+        elif complete_pcs:
+            other = sorted(complete_pcs)[0]
+            discrepancies.append(
+                f"the Google listing has postcode {listing_pc[:-3]} {listing_pc[-3:]}; the pages read show "
+                f"{other[:-3]} {other[-3:]} but not that postcode"
+            )
+            mismatched.append("postcode")
+            used.append(complete_pcs[other])
+    if not discrepancies and not matches:
+        return None
+    pages_read = tuple(dict.fromkeys(url for url in (used or complete_urls) if url))[:3]
+    return ContactCheck(tuple(discrepancies), tuple(mismatched), tuple(matches), pages_read, checked_on)
+
+
+def contact_finding(check: ContactCheck | None, finding_id: str = "E2") -> dict[str, Any] | None:
+    if check is None:
+        return None
+    sources = ", ".join(check.pages_read) or "saved website pages"
+    source = f"{sources}, saved {_long_date(check.checked_on)}"[:_SOURCE_LIMIT]
+    if check.discrepancies:
+        lead = "The website and the Google listing disagree: "
+        observation = lead + "; ".join(check.discrepancies) + "."
+        if len(observation) > _OBSERVATION_LIMIT:  # keep whole sentences rather than cutting one off
+            observation = lead + check.discrepancies[0] + ". Another detail also differs."
+        gap = True
+    else:
+        observation = "The website shows the same " + " and ".join(check.matches) + " as the Google listing."
+        gap = False
+    return {
+        "id": finding_id, "kind": "contact_details", "gap": gap,
+        "observation": observation[:_OBSERVATION_LIMIT], "source": source,
+        "fields": list(check.mismatched),
+        "matches": list(check.matches),
     }

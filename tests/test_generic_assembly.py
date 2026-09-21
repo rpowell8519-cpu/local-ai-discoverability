@@ -35,7 +35,8 @@ class _Result:
 
 BUSINESS_ROWS = [
     {"google_place_id": pid, "business_name": name, "primary_group": "coworking", "business_format": "",
-     "city": "Brighton", "address": "x", "latitude": "50.83", "longitude": "-0.14"}
+     "city": "Brighton", "address": "x", "latitude": "50.83", "longitude": "-0.14",
+     "phone": "01273 123456" if pid == TARGET_ID else None, "postal_code": "BN1 4EA" if pid == TARGET_ID else None}
     for pid, name in ((TARGET_ID, NAME), ("place-plusx", "Plus X Innovation Brighton"), ("place-skiff", "The Skiff"))
 ]
 
@@ -136,3 +137,8 @@ def test_location_and_business_type_travel_with_the_report_for_the_summary():
     assert config["owner_report"]["primary_group"] == "coworking"
     assert config["report_format"] == "accessible_owner_services_v4"
     assert config["cohort"][0]["google_place_id"] == "place-plusx"
+
+
+def test_the_google_listings_phone_and_postcode_travel_with_the_report():
+    config, _ = assemble({"confirmed_target_names": ["WRAP"]})
+    assert config["owner_report"]["listing_contact"] == {"phone": "01273 123456", "postal_code": "BN1 4EA", "address": "x"}

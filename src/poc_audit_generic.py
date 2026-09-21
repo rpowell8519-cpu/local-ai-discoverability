@@ -116,7 +116,9 @@ def assemble_generic_report_payload(
                    rol.raw_data->>'city' as city,
                    coalesce(rol.raw_data->>'address', rol.raw_data->>'full_address') as address,
                    coalesce(rol.raw_data->>'latitude', rol.raw_data->>'lat') as latitude,
-                   coalesce(rol.raw_data->>'longitude', rol.raw_data->>'lng') as longitude
+                   coalesce(rol.raw_data->>'longitude', rol.raw_data->>'lng') as longitude,
+                   nullif(rol.raw_data->>'phone', '') as phone,
+                   nullif(rol.raw_data->>'postal_code', '') as postal_code
             from business_features bf
             left join lateral (
                 select raw_data from raw_outscraper_locations
@@ -324,6 +326,11 @@ def assemble_generic_report_payload(
             "services": service_groups,
             "location": location,
             "primary_group": str(run.get("primary_group") or "generic"),
+            "listing_contact": {
+                "phone": details_by_id.get(target_id, {}).get("phone"),
+                "postal_code": details_by_id.get(target_id, {}).get("postal_code"),
+                "address": details_by_id.get(target_id, {}).get("address"),
+            },
             "sources": [{"ref": f"R{i}", "kind": "review", "record_id": str(row["review_id"]),
                          "title": "Selected customer review", "excerpt": str(row["review_text"])}
                         for i, row in enumerate(quote_rows, 1)],
