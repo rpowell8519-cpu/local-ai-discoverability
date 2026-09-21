@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import importlib
 import inspect
 import sys
@@ -127,9 +129,35 @@ from src.report_generator_readiness import (  # noqa: E402
 )
 
 
-BUILD_VERSION = "Accessible AI Report Generator v3.5.0 (wording for new business types)"
+BUILD_VERSION = "Accessible AI Report Generator v3.5.1 (report types in one list)"
 REPORT_STATE_KEY = "accessible_ai_report_generator_result"
 SUMMARY_STATE_KEY = "accessible_ai_client_summary_result"
+
+@dataclass(frozen=True)
+class ReportType:
+    """One kind of report the page can produce. Add an entry here and its two handlers in the generate step."""
+
+    key: str
+    label: str
+    description: str
+    button: str
+
+
+REPORT_TYPES = (
+    ReportType(
+        "full", "Full evidence report (RP)",
+        "Detailed, evidence-led report with the questions, methods and sources in appendices.",
+        "Generate report from saved evidence",
+    ),
+    ReportType(
+        "summary", "Client summary (LS)",
+        "Six pages in plain language: the result, what was tested, where the business appeared, "
+        "who else appeared, three actions and how to follow up. Same saved evidence and counts as the full report. "
+        "When it is generated it also reads the website's robots.txt (a read-only request) to see whether AI search "
+        "crawlers are blocked; any block found becomes a sourced action.",
+        "Generate client summary from saved evidence",
+    ),
+)
 AI_VISIBILITY_HANDOFF_KEY = "ai_visibility_report_handoff_target"
 AI_VISIBILITY_FORCE_PROMPTS_KEY = "ai_visibility_force_owner_prompts"
 BRIEFS_STATE_KEY = "accessible_ai_report_owner_briefs"
@@ -2011,22 +2039,13 @@ else:
         st.caption(f"Saved AI Visibility run: {report_run_id}")
         report_kind = st.radio(
             "Report type",
-            options=["full", "summary"],
-            format_func={
-                "full": "Full evidence report (RP)",
-                "summary": "Client summary (LS)",
-            }.get,
+            options=[item.key for item in REPORT_TYPES],
+            format_func={item.key: item.label for item in REPORT_TYPES}.get,
             horizontal=True,
             key=f"report_kind_{selected_place_id}",
         )
-        st.caption(
-            "Detailed, evidence-led report with the questions, methods and sources in appendices."
-            if report_kind == "full"
-            else "Six pages in plain language: the result, what was tested, where the business appeared, "
-            "who else appeared, three actions and how to follow up. Same saved evidence and counts as the full report. "
-            "When it is generated it also reads the website's robots.txt (a read-only request) to see whether AI search "
-            "crawlers are blocked; any block found becomes a sourced action."
-        )
+        chosen_type = next(item for item in REPORT_TYPES if item.key == report_kind)
+        st.caption(chosen_type.description)
         summary_is_draft = True
         if report_kind == "summary":
             summary_is_draft = st.checkbox(
@@ -2035,14 +2054,10 @@ else:
                 key=f"summary_draft_{selected_place_id}",
                 help="Adds a small DRAFT label to each page header. Untick it once the report has been checked and signed off.",
             )
-        generate = st.button(
-            "Generate report from saved evidence" if report_kind == "full" else "Generate client summary from saved evidence",
-            type="primary",
-            use_container_width=True,
-        )
+        generate = st.button(chosen_type.button, type="primary", use_container_width=True)
 
     summary_key = definition.key if definition else f"generic_{durable_audit['id']}"
-    if generate and report_kind == "summary":
+    def generate_summary():
         try:
             with st.spinner("Assembling the saved evidence and laying out the client summary…"):
                 summary_site_url, summary_findings = site_findings_for(business, durable_audit)
@@ -2074,25 +2089,26 @@ else:
         else:
             st.session_state[SUMMARY_STATE_KEY] = {"key": summary_key, "pdf": summary_pdf}
 
-    saved_summary = st.session_state.get(SUMMARY_STATE_KEY)
-    if report_kind == "summary" and saved_summary and saved_summary["key"] == summary_key:
-        st.success("The client summary is ready.")
-        st.download_button(
-            "Download client summary",
-            data=saved_summary["pdf"],
-            file_name=(
-                re.sub(r"[^a-z0-9]+", "-", report_client_name.lower()).strip("-") or "business"
-            ) + "-ai-visibility-summary.pdf",
-            mime="application/pdf",
-            type="primary",
-            use_container_width=True,
-        )
-        st.caption(
-            "Generated in memory from the same saved evidence as the full report. The actions are suggested checks, "
-            "not confirmed gaps. Downloading it does not freeze or save a report snapshot."
-        )
+    def show_summary():
+        saved_summary = st.session_state.get(SUMMARY_STATE_KEY)
+        if saved_summary and saved_summary["key"] == summary_key:
+            st.success("The client summary is ready.")
+            st.download_button(
+                "Download client summary",
+                data=saved_summary["pdf"],
+                file_name=(
+                    re.sub(r"[^a-z0-9]+", "-", report_client_name.lower()).strip("-") or "business"
+                ) + "-ai-visibility-summary.pdf",
+                mime="application/pdf",
+                type="primary",
+                use_container_width=True,
+            )
+            st.caption(
+                "Generated in memory from the same saved evidence as the full report. The actions are suggested checks, "
+                "not confirmed gaps. Downloading it does not freeze or save a report snapshot."
+            )
 
-    if generate and report_kind == "full":
+    def generate_full():
         try:
             with st.spinner("Assembling the saved evidence and laying out the report…"):
                 reviewable = (
@@ -2113,30 +2129,36 @@ else:
         else:
             st.session_state[REPORT_STATE_KEY] = reviewable
 
-    reviewable = st.session_state.get(REPORT_STATE_KEY)
-    expected_definition_key = definition.key if definition else f"generic_{durable_audit['id']}"
-    if report_kind == "full" and reviewable is not None and reviewable.definition.key == expected_definition_key:
-        st.success("The reviewable PDF is ready.")
-        st.download_button(
-            "Download PDF",
-            data=reviewable.pdf_bytes,
-            file_name=reviewable.definition.pdf_filename,
-            mime="application/pdf",
-            type="primary",
-            use_container_width=True,
-        )
-        st.caption(
-            "This draft was generated in memory. Downloading it does not freeze or "
-            "save a report snapshot."
-        )
-        if reviewable.payload.get("report", {}).get("report_format") == "accessible_owner_services_v4":
-            from src.owner_services_report import evidence_index_html
-            index_name = reviewable.payload["report"].get("owner_report", {}).get("evidence_index", "Report evidence index.html")
+    def show_full():
+        reviewable = st.session_state.get(REPORT_STATE_KEY)
+        expected_definition_key = definition.key if definition else f"generic_{durable_audit['id']}"
+        if reviewable is not None and reviewable.definition.key == expected_definition_key:
+            st.success("The reviewable PDF is ready.")
             st.download_button(
-                "Download companion evidence index",
-                data=evidence_index_html(reviewable.payload),
-                file_name=index_name,
-                mime="text/html",
+                "Download PDF",
+                data=reviewable.pdf_bytes,
+                file_name=reviewable.definition.pdf_filename,
+                mime="application/pdf",
+                type="primary",
                 use_container_width=True,
             )
-            st.caption("Keep the evidence index beside the PDF so its saved-answer links work. It contains original answers and saved research, not newly collected evidence.")
+            st.caption(
+                "This draft was generated in memory. Downloading it does not freeze or "
+                "save a report snapshot."
+            )
+            if reviewable.payload.get("report", {}).get("report_format") == "accessible_owner_services_v4":
+                from src.owner_services_report import evidence_index_html
+                index_name = reviewable.payload["report"].get("owner_report", {}).get("evidence_index", "Report evidence index.html")
+                st.download_button(
+                    "Download companion evidence index",
+                    data=evidence_index_html(reviewable.payload),
+                    file_name=index_name,
+                    mime="text/html",
+                    use_container_width=True,
+                )
+                st.caption("Keep the evidence index beside the PDF so its saved-answer links work. It contains original answers and saved research, not newly collected evidence.")
+
+    generate_report, show_report = {"summary": (generate_summary, show_summary), "full": (generate_full, show_full)}[report_kind]
+    if generate:
+        generate_report()
+    show_report()

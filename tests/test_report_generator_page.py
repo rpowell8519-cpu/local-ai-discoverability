@@ -429,7 +429,7 @@ def test_the_build_label_changes_so_the_team_can_tell_which_version_is_live():
     at, _, stack = run_page(revision())
     with stack:
         captions = " ".join(c.value for c in at.caption)
-        assert "Build: Accessible AI Report Generator v3.5.0" in captions
+        assert "Build: Accessible AI Report Generator v3.5.1" in captions
 
 
 # ---------------------------------------------------------------- reviews saved before the new checks
@@ -839,3 +839,14 @@ def test_completing_the_review_keeps_saved_wording():
             at.run()
             button(at, "Complete report review").click().run()
             assert saved.call_args.kwargs["reviewer_decisions"]["type_wording"]["label"] == "sauna"
+
+
+def test_the_report_types_offered_come_from_one_list_and_each_has_its_own_button():
+    at, _, stack = run_page(revision(COMPLETE, complete=True))
+    with stack:
+        radio = next(r for r in at.radio if str(r.key).startswith("report_kind_"))
+        assert list(radio.options) == ["Full evidence report (RP)", "Client summary (LS)"] and radio.value == "full"
+        assert "Generate report from saved evidence" in [b.label for b in at.button]
+        radio.set_value("summary").run()
+        assert "Generate client summary from saved evidence" in [b.label for b in at.button]
+        assert "Generate report from saved evidence" not in [b.label for b in at.button]
