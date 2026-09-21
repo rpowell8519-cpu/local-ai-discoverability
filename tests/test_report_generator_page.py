@@ -147,6 +147,7 @@ def run_page(audit, *, extra=()):
     for patch in patches:
         stack.enter_context(patch)
     at = AppTest.from_file(PAGE, default_timeout=60)
+    at.secrets["TEST_ONLY_PLACEHOLDER"] = "unused"  # tests must not depend on a local secrets.toml
     at.session_state["active_report_project_place_id"] = TARGET_ID
     at.run()
     return at, saved, stack
@@ -353,6 +354,7 @@ def test_a_search_kept_while_in_data_admin_is_restored_on_return():
         stack.enter_context(patch)
     with stack:
         at = AppTest.from_file(PAGE, default_timeout=60)
+        at.secrets["TEST_ONLY_PLACEHOLDER"] = "unused"  # tests must not depend on a local secrets.toml
         at.session_state["report_business_search_memo"] = "The Skiff"
         at.run()
         assert not at.exception, [e.value for e in at.exception]
