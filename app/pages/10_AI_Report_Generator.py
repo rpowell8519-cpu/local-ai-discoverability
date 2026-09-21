@@ -1485,6 +1485,12 @@ if ai_ready and definition is None:
                     format_func=lambda value: "Choose…" if value == "" else value,
                     key=f"question_priority_{selected_place_id}_{order}",
                 )
+                better = suggested_links.get(order)
+                if stored_links.get(order) and better and better != stored_links[order]:
+                    st.caption(
+                        f":orange[Check Q{order}: it is linked to “{stored_links[order]}”, but its wording fits "
+                        f"“{better}” better.]"
+                    )
         headline = st.text_area(
             "Plain-English headline",
             value=str(existing_decisions.get("headline") or ""),

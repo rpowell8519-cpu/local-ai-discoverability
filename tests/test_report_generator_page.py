@@ -509,3 +509,20 @@ def test_suggested_links_are_labelled_as_suggestions_and_saved_ones_are_not():
     with stack:
         box = next(s for s in at.selectbox if s.key == f"question_priority_{TARGET_ID}_1")
         assert "suggested" not in box.label  # a reviewer's saved choice is not a suggestion
+
+
+def test_a_saved_link_the_wording_contradicts_is_flagged_for_a_second_look():
+    # WRAP's saved review linked "co working" to the wrong priority; a saved choice must not hide that.
+    saved = {"question_priority_map": {"1": "Meeting rooms", "2": "Private offices"}}
+    at, _, stack = run_page(revision(saved))
+    with stack:
+        assert not at.exception, [e.value for e in at.exception]
+        notes = " ".join(c.value for c in at.caption)
+        assert "Check Q1: it is linked to “Meeting rooms”, but its wording fits “Co-working” better." in notes
+        assert "Check Q2" not in notes  # a link that agrees with the wording is left alone
+
+
+def test_a_saved_link_with_no_clear_better_suggestion_is_not_second_guessed():
+    at, _, stack = run_page(revision({"question_priority_map": {"5": "Co-working"}}))
+    with stack:  # Q5 is ambiguous, so nothing is suggested and the reviewer's choice stands
+        assert "Check Q5" not in " ".join(c.value for c in at.caption)
