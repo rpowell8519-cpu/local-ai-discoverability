@@ -76,9 +76,13 @@ from src.poc_audit_generic import (  # noqa: E402
 )
 from src.report_audit_candidates import load_report_candidates  # noqa: E402
 from src.business_lookup import near_misses, search_businesses  # noqa: E402
-from src.report_identity import find_possible_target_names  # noqa: E402
+from src.report_identity import (  # noqa: E402
+    UndecidedTargetNamesError,
+    find_possible_target_names,
+    undecided_target_names,
+)
 from src.site_checks import check_ai_crawler_access, crawler_finding  # noqa: E402
-from src.report_priorities import NOT_LINKED, suggest_priority_map  # noqa: E402
+from src.report_priorities import NOT_LINKED, suggest_priority_map, undecided_questions  # noqa: E402
 from src.report_competitors import (  # noqa: E402
     catchment_radius_miles,
     resolve_run_location,
@@ -1161,8 +1165,11 @@ with st.container(border=True):
                 st.cache_data.clear()
                 st.rerun()
 
+review_update_reasons: list[str] = []
+review_notice = None
 if ai_ready and definition is None:
     st.subheader("5. Review the AI-selected comparison set")
+    review_notice = st.empty()
     st.write(
         "The platform suggests three verified, geographically relevant businesses found in "
         "AI Visibility. Owner-nominated competitors are measured separately, including those "
@@ -1231,6 +1238,38 @@ if ai_ready and definition is None:
             "Fewer than three verified AI-visible businesses are available. Use the relevant verified businesses available; a report can proceed without a forced comparison set."
         )
     existing_decisions = dict((durable_audit or {}).get("reviewer_decisions") or {})
+    # A review saved before names and priorities were confirmed cannot yet make a correct report.
+    owner_priorities_now = [str(item) for item in owner_context.get("priority_services") or []]
+    try:
+        questions_now = load_run_prompt_seed(saved_benchmark_run_id)
+    except Exception:
+        questions_now = []
+    undecided_now = undecided_target_names(
+        str(business["business_name"]),
+        candidates["unresolved"],
+        existing_decisions.get("confirmed_target_names") or [],
+        existing_decisions.get("rejected_target_names") or [],
+    )
+    unlinked_now = (
+        undecided_questions(questions_now, owner_priorities_now, dict(existing_decisions.get("question_priority_map") or {}))
+        if owner_priorities_now else []
+    )
+    if undecided_now:
+        review_update_reasons.append(
+            "confirm or reject the AI answer name "
+            + " and ".join(f"“{item['name']}” (named in {item['recommendations']} answers)" for item in undecided_now)
+            + ", which may be this business under a shorter name"
+        )
+    if unlinked_now:
+        review_update_reasons.append(
+            "link " + ", ".join(f"Q{order}" for order in unlinked_now) + " to the owner priority each one tests"
+        )
+    if configuration_ready and review_update_reasons:
+        review_notice.warning(
+            "**This review was completed before some checks existed, so it needs one more look.** "
+            "The report cannot be generated until you: " + "; ".join(review_update_reasons) + ". "
+            "Make the choices in the form below, then click **Complete report review**."
+        )
     local_default_ids = [
         str(item["google_place_id"])
         for item in verified_candidates
@@ -1319,8 +1358,8 @@ if ai_ready and definition is None:
             [
                 {
                     "Business": ("Your client: " if item["is_target"] else "") + item["name"],
-                    "Website pages saved": item["pages"] if item["has_website_audit"] else "None yet",
-                    "Reviews saved": item["reviews"] if item["reviews"] else "None yet",
+                    "Website pages saved": str(item["pages"]) if item["has_website_audit"] else "None yet",
+                    "Reviews saved": str(item["reviews"]) if item["reviews"] else "None yet",
                 }
                 for item in comparison_evidence
             ]
@@ -1553,6 +1592,11 @@ if definition is None and not configuration_ready:
         "the report reviewer checks the question set, selects relevant businesses from the AI "
         "answers and records any missing evidence as a limitation."
     )
+elif configuration_ready and definition is None and review_update_reasons:
+    st.warning(
+        "**Generating is paused until the review in step 5 is updated.** It was completed before some checks existed. "
+        "Please " + "; ".join(review_update_reasons) + ". This takes a minute and keeps the report accurate."
+    )
 else:
     with st.container(border=True):
         report_client_name = definition.client_name if definition else str(durable_audit["target_business_name"])
@@ -1652,6 +1696,8 @@ else:
                         durable_audit, site_findings=site_findings_for(business, durable_audit)[1]
                     )
                 )
+        except UndecidedTargetNamesError as exc:
+            st.warning(str(exc))
         except Exception as exc:
             st.error(
                 "The report could not be generated from the configured evidence. "

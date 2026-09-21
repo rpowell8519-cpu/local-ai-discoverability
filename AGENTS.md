@@ -193,6 +193,15 @@ silently skews every result, and the page once defaulted to "Brighton and Hove" 
 business. Do not reintroduce a default. `src/llm_providers/` still contains that fallback for
 callers that pass no location; the report generator never does.
 
+### Reviews completed before these checks existed
+
+A review saved before names and priorities were confirmed is flagged at the top of step 5 with
+exactly what is missing, and Generate in step 6 is paused with the same list, so nobody clicks
+into an error. The reviewer makes the choices in the form and completes the review again; only
+then can either report be generated. The assembler still refuses undecided look-alike names as a
+backstop, and the page turns that refusal into a plain message. Do not remove either guard, and do
+not auto-confirm names to skip the step: whether an answer name is the client is a human decision.
+
 ### Question-to-priority links and comparison evidence
 
 The owner's priority services and the tested questions are written separately, so

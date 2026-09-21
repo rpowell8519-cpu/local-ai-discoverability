@@ -419,3 +419,78 @@ def test_the_build_label_changes_so_the_team_can_tell_which_version_is_live():
     with stack:
         captions = " ".join(c.value for c in at.caption)
         assert "Build: Accessible AI Report Generator v3.1.0" in captions
+
+
+# ---------------------------------------------------------------- reviews saved before the new checks
+OLD_REVIEW = {"cohort_place_ids": ["place-plusx", "place-runway"], "headline": "", "summary": ""}
+
+
+def warnings_text(at):
+    return " ".join(w.value for w in at.warning)
+
+
+def test_a_review_completed_before_the_new_checks_is_flagged_up_front_and_generate_is_paused():
+    at, _, stack = run_page(revision(OLD_REVIEW, complete=True))
+    with stack:
+        assert not at.exception, [e.value for e in at.exception]
+        text = warnings_text(at)
+        assert "completed before some checks existed" in text
+        assert "“WRAP” (named in 12 answers)" in text and "Q1, Q2, Q3, Q4, Q5, Q6, Q7" in text
+        assert "Generating is paused until the review in step 5 is updated" in text
+        labels = [b.label for b in at.button]
+        assert "Generate report from saved evidence" not in labels
+        assert "Generate client summary from saved evidence" not in labels
+        assert "Complete report review" in labels  # the way forward is right there
+
+
+def test_completing_the_review_lifts_the_pause_without_reloading_anything_else():
+    at, saved, stack = run_page(revision(OLD_REVIEW, complete=True))
+    with stack:
+        next(r for r in at.radio if str(r.key).startswith("target_name_choice_")).set_value("yes")
+        for box in at.selectbox:
+            if str(box.key).startswith("question_priority_") and box.value == "":
+                box.set_value("Private offices")
+        at.run()
+        button(at, "Complete report review").click().run()
+        assert not at.exception, [e.value for e in at.exception]
+        saved.assert_called_once()  # the decisions were accepted and saved
+
+
+def test_a_fully_decided_review_shows_no_notice_and_offers_generate():
+    at, stack = generate_summary(_closed("open"))
+    with stack:
+        assert not at.exception, [e.value for e in at.exception]
+        text = warnings_text(at)
+        assert "completed before some checks existed" not in text and "Generating is paused" not in text
+        assert "Generate report from saved evidence" in [b.label for b in at.button]
+
+
+def test_rejecting_a_name_counts_as_a_decision():
+    decisions = {**COMPLETE, "confirmed_target_names": [], "rejected_target_names": ["WRAP"]}
+    at, _, stack = run_page(revision(decisions, complete=True))
+    with stack:
+        assert "Generating is paused" not in warnings_text(at)
+
+
+def test_a_business_with_no_owner_priorities_is_never_asked_to_link_questions():
+    audit = revision({**COMPLETE, "question_priority_map": {}}, complete=True)
+    audit["owner_context"] = {"priority_services": [], "service_areas": ["Brighton and Hove"]}
+    at, _, stack = run_page(audit)
+    with stack:
+        assert "link Q" not in warnings_text(at) and "Generating is paused" not in warnings_text(at)
+
+
+def test_a_review_that_slips_through_gives_a_plain_message_not_a_traceback():
+    from src.report_identity import UndecidedTargetNamesError
+
+    boom = mock.Mock(side_effect=UndecidedTargetNamesError([{"name": "WRAP", "recommendations": 12}]))
+    at, _, stack = run_page(
+        revision(COMPLETE, complete=True),
+        extra=[mock.patch("src.poc_audit_generic.build_reviewable_generic_audit", boom),
+               mock.patch("src.site_checks.check_ai_crawler_access", return_value=None)],
+    )
+    with stack:
+        button(at, "Generate report from saved evidence").click().run()
+        assert not at.exception, [e.value for e in at.exception]
+        assert "“WRAP” (12 answer(s))" in warnings_text(at)
+        assert not at.error
