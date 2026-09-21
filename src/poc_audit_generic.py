@@ -13,6 +13,7 @@ from src.poc_audit_production import PocAuditDefinition, ReviewablePocAudit, bui
 from src.report_audit_candidates import load_report_candidates
 from src.report_competitors import classify_location, match_owner_competitors
 from src.report_identity import assert_target_names_decided, target_name_adjudications
+from src.report_priorities import build_service_groups
 
 
 def _rows(connection, sql: str, parameters: Mapping[str, Any] | None = None) -> list[dict[str, Any]]:
@@ -149,6 +150,17 @@ def assemble_generic_report_payload(
     target_id = str(audit_revision["target_google_place_id"])
     target_name = str(audit_revision["target_business_name"])
     owner_context = dict(audit_revision.get("owner_context") or {})
+    priority_services = [str(item) for item in owner_context.get("priority_services") or []]
+    question_priority_map = {
+        str(order): str(service)
+        for order, service in dict(decisions_input.get("question_priority_map") or {}).items()
+    }
+    # Reviews saved before question-to-priority links existed keep "coverage not mapped".
+    service_groups = (
+        build_service_groups(priority_services, question_priority_map)
+        if priority_services and question_priority_map
+        else [{"name": name, "questions": None} for name in priority_services]
+    )
     location = str(run.get("location_context") or "the local area")
     category = str(run.get("target_category_label") or run.get("primary_group") or "Local services").replace("_", " ").title()
     expected = int(run["prompt_count"]) * int(run["repeat_count"]) * len(list(run["providers"]))
@@ -309,7 +321,7 @@ def assemble_generic_report_payload(
         "owner_report": dict(decisions_input.get("owner_report") or {
             "evidence_index": "Report evidence index.html",
             "priority_context": "Owner priorities: " + ", ".join(owner_context.get("priority_services") or ["Not yet confirmed"]),
-            "services": [{"name": name, "questions": None} for name in owner_context.get("priority_services") or []],
+            "services": service_groups,
             "sources": [{"ref": f"R{i}", "kind": "review", "record_id": str(row["review_id"]),
                          "title": "Selected customer review", "excerpt": str(row["review_text"])}
                         for i, row in enumerate(quote_rows, 1)],

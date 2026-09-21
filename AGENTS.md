@@ -112,6 +112,19 @@ the report generator, and the decision is stored in `reviewer_decisions`
 Confirmed names are credited through `slot_adjudications` and disclosed in the report's
 methodology. Generation refuses to run while a look-alike name is undecided.
 
+### Question-to-priority links and comparison evidence
+
+The owner's priority services and the tested questions are written separately, so
+`src/report_priorities.py` links them. Step 5 of the report generator suggests a link from
+shared wording, and the reviewer confirms each one. Links are stored in `reviewer_decisions`
+(`question_priority_map`) and turned into the report's service groups. A priority with no
+question is "Not tested", never a zero. Do not remove the completion gate: without links the
+report shows "coverage not mapped" for every priority.
+
+Step 4 collects website and review evidence for the target only, because the comparison set
+is chosen afterwards. Step 5 therefore shows the comparison businesses' evidence and can
+crawl their websites. Reviews for them go through the review tools, which apply the cost ceiling.
+
 ## Database safety
 
 Do not apply changes to the Supabase/PostgreSQL schema without the user's explicit approval.

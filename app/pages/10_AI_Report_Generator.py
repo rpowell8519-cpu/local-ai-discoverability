@@ -67,6 +67,7 @@ from src.poc_audit_production import (  # noqa: E402
 from src.poc_audit_generic import build_reviewable_generic_audit  # noqa: E402
 from src.report_audit_candidates import load_report_candidates  # noqa: E402
 from src.report_identity import find_possible_target_names  # noqa: E402
+from src.report_priorities import NOT_LINKED, suggest_priority_map  # noqa: E402
 from src.report_competitors import (  # noqa: E402
     catchment_radius_miles,
     classify_location,
@@ -271,6 +272,42 @@ def has_configured_measurement_project(google_place_id: str) -> bool:
                 {"google_place_id": google_place_id},
             ).scalar_one()
         )
+
+
+def clean_text(value: Any) -> str:
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return ""
+    return str(value).strip()
+
+
+def review_comparison_website(
+    *, place_id: str, business_name: str, website_url: str, business_group: str
+) -> None:
+    """Crawl and save one comparison business's website, as for the target."""
+
+    audit_run_id = create_audit_run(
+        audit_batch_id=str(uuid.uuid4()),
+        google_place_id=place_id,
+        business_name=business_name,
+        requested_url=website_url,
+    )
+    try:
+        audit_result, audit_pages = audit_website(
+            website_url=website_url,
+            business_group=business_group,
+            max_pages=20,
+            timeout_seconds=12,
+            adaptive_stop=True,
+        )
+        for audit_page in audit_pages:
+            save_audit_page(audit_run_id=audit_run_id, page=audit_page)
+        finish_audit_run(audit_run_id=audit_run_id, result=audit_result)
+    except Exception as exc:
+        finish_audit_run(
+            audit_run_id=audit_run_id,
+            result={"audit_status": "failed", "error_message": str(exc)},
+        )
+        raise
 
 
 def business_label(row: dict[str, Any]) -> str:
@@ -1176,6 +1213,82 @@ if ai_ready and definition is None:
             use_container_width=True,
         )
     cohort_ids_for_quotes = tuple(dict.fromkeys([selected_place_id, *default_cohort]))
+    st.markdown("**Evidence for the comparison businesses**")
+    st.caption(
+        "Section 4 collects evidence for this business only. The comparison page shows “Not assessed” for "
+        "any comparison business without website pages, and its review evidence is reported as unavailable. "
+        "Collect what exists for the businesses above; the report generates without it and says so."
+    )
+    comparison_evidence = []
+    for place_id in cohort_ids_for_quotes:
+        try:
+            status = load_evidence_status(place_id)
+        except Exception:
+            status = {"website_audit": None, "review_count": 0}
+        record = businesses_by_id.get(place_id, {})
+        comparison_evidence.append(
+            {
+                "place_id": place_id,
+                "name": clean_text(record.get("business_name")) or place_id,
+                "group": clean_text(record.get("primary_group")) or "generic",
+                "website_url": clean_text(record.get("source_website_url")),
+                "pages": int((status["website_audit"] or {}).get("pages_crawled") or 0),
+                "has_website_audit": status["website_audit"] is not None,
+                "reviews": int(status["review_count"]),
+                "is_target": place_id == selected_place_id,
+            }
+        )
+    st.dataframe(
+        pd.DataFrame(
+            [
+                {
+                    "Business": ("Your client: " if item["is_target"] else "") + item["name"],
+                    "Website pages saved": item["pages"] if item["has_website_audit"] else "None yet",
+                    "Reviews saved": item["reviews"] if item["reviews"] else "None yet",
+                }
+                for item in comparison_evidence
+            ]
+        ),
+        hide_index=True,
+        use_container_width=True,
+    )
+    for item in comparison_evidence:
+        if item["is_target"] or item["has_website_audit"]:
+            continue
+        if not item["website_url"]:
+            st.caption(f"{item['name']}: no website is saved, so no website comparison is possible.")
+            continue
+        if st.button(
+            f"Review the website of {item['name']}",
+            key=f"review_comparison_website_{item['place_id']}",
+            help="Visits public pages on this business's saved website and stores them as evidence.",
+        ):
+            try:
+                with st.spinner(f"Reviewing {item['name']}'s website and saving the evidence…"):
+                    review_comparison_website(
+                        place_id=item["place_id"],
+                        business_name=item["name"],
+                        website_url=item["website_url"],
+                        business_group=item["group"],
+                    )
+            except Exception as exc:
+                st.error(f"The website of {item['name']} could not be reviewed. You can retry or continue without it.")
+                st.exception(exc)
+            else:
+                st.cache_data.clear()
+                st.rerun()
+    if any(not item["reviews"] for item in comparison_evidence):
+        st.caption(
+            "Customer reviews are collected through the review tools, which can pull for several businesses at once "
+            "and apply the cost ceiling."
+        )
+        if st.button("Open review tools for these businesses", key="open_review_tools_for_comparison"):
+            st.session_state["active_diagnostic_cohort"] = {
+                "target_google_place_id": selected_place_id,
+                "target_business_name": str(business["business_name"]),
+                "business_ids": list(cohort_ids_for_quotes),
+            }
+            st.switch_page("pages/7_Review_Insights.py")
     try:
         review_choices = load_review_choices(cohort_ids_for_quotes)
     except Exception:
@@ -1231,6 +1344,31 @@ if ai_ready and definition is None:
                     horizontal=True,
                     key=f"target_name_choice_{selected_place_id}_{position}",
                 )
+        priority_services = [str(item) for item in owner_context.get("priority_services") or []]
+        try:
+            review_questions = load_run_prompt_seed(saved_benchmark_run_id)
+        except Exception:
+            review_questions = []
+        question_choices: dict[str, str] = {}
+        if priority_services and review_questions:
+            st.markdown("**Which of the owner's priorities does each question test?**")
+            st.caption(
+                "This lets the report show results for each priority. Choices are suggested from the wording "
+                "and must be checked. A priority with no question is reported as not tested, not as absent."
+            )
+            stored_links = dict(existing_decisions.get("question_priority_map") or {})
+            suggested_links = suggest_priority_map(review_questions, priority_services)
+            link_options = ["", *priority_services, NOT_LINKED]
+            for question in review_questions:
+                order = str(int(question["base_prompt_order"]))
+                preselected = stored_links.get(order) or suggested_links.get(order) or ""
+                question_choices[order] = st.selectbox(
+                    f"Q{order}: {question['prompt_text']}",
+                    options=link_options,
+                    index=link_options.index(preselected) if preselected in link_options else 0,
+                    format_func=lambda value: "Choose…" if value == "" else value,
+                    key=f"question_priority_{selected_place_id}_{order}",
+                )
         headline = st.text_area(
             "Plain-English headline",
             value=str(existing_decisions.get("headline") or ""),
@@ -1272,16 +1410,28 @@ if ai_ready and definition is None:
     undecided_names = [
         name for name, choice in target_name_choices.items() if choice == "undecided"
     ] if (save_draft or complete_review) else []
-    if complete_review and undecided_names:
+    unlinked_questions = [
+        order for order, choice in question_choices.items() if not choice
+    ] if (save_draft or complete_review) else []
+    if complete_review and (undecided_names or unlinked_questions):
+        problems = []
+        if undecided_names:
+            problems.append(
+                "whether these names are this business: " + ", ".join(f"“{name}”" for name in undecided_names)
+            )
+        if unlinked_questions:
+            problems.append(
+                "which priority each of these questions tests: " + ", ".join(f"Q{order}" for order in unlinked_questions)
+            )
         st.error(
-            "Decide whether these names are this business before completing the review: "
-            + ", ".join(f"“{name}”" for name in undecided_names)
+            "Before completing the review, decide " + "; and ".join(problems)
             + ". Your other changes have not been saved."
         )
     elif save_draft or complete_review:
         reviewer_decisions = {
             "confirmed_target_names": [n for n, c in target_name_choices.items() if c == "yes"],
             "rejected_target_names": [n for n, c in target_name_choices.items() if c == "no"],
+            "question_priority_map": {order: choice for order, choice in question_choices.items() if choice},
             "cohort_place_ids": selected_cohort,
             "headline": " ".join(headline.split()),
             "summary": " ".join(summary.split()),
