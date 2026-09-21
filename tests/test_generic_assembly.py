@@ -257,3 +257,11 @@ def test_approved_wording_for_the_business_type_travels_with_the_report_and_is_d
     plain, _ = assemble({"confirmed_target_names": ["WRAP"]})
     assert plain["owner_report"]["type_wording"] == {}
     assert not any("drafted by an AI" in line for line in plain["methodology_validation"])
+
+
+def test_a_waived_evidence_layer_is_disclosed_with_its_reason():
+    config, _ = assemble({"confirmed_target_names": ["WRAP"], "evidence_waivers": {"reviews": "No review text saved."}})
+    assert any("Recommendations do not draw on the review text comparison: No review text saved." in line and "reviewer accepted" in line
+               for line in config["methodology_validation"])
+    plain, _ = assemble({"confirmed_target_names": ["WRAP"]})
+    assert not any("do not draw on" in line for line in plain["methodology_validation"])

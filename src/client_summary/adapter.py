@@ -15,7 +15,7 @@ from typing import Any
 from src.owner_services_report import build_owner_report, provider_name
 from src.report_identity import display_name
 from src.owner_report_findings import collect_findings
-from src.report_competitors import MAX_COMPARISON_BUSINESSES
+from src.client_summary.model import MAX_NAMED, MAX_VISIBLE
 from src.type_wording import to_profile
 from src.client_summary.actions import build_actions
 from src.client_summary.model import from_records
@@ -23,7 +23,6 @@ from src.client_summary.pdf import render_pdf
 
 _LABEL_LIMIT = 65
 _NAME_LIMIT = 75
-_MAX_COMPARISONS = MAX_COMPARISON_BUSINESSES
 _GROUP_LABEL_SKIP = "Question "
 _CONFIRMED_METHOD = "reviewer_confirmed_target_name"
 
@@ -118,6 +117,16 @@ def _comparison_evidence(owner_config: Mapping[str, Any], approved: list[dict[st
     }]
 
 
+def _evidence_layers(owner_config: Mapping[str, Any], approved: list[dict[str, Any]]) -> list[str]:
+    """What the approved recommendations were drawn from, so the summary can say so and never overstate."""
+
+    if not approved:
+        return []
+    layers = dict(owner_config.get("recommendation_basis") or {}).get("layers") or {}
+    used = [name for name, key in (("websites", "website"), ("customer reviews", "reviews")) if dict(layers.get(key) or {}).get("status") == "used"]
+    return used
+
+
 def build_client_summary_report(
     payload: Mapping[str, Any],
     *,
@@ -178,21 +187,25 @@ def build_client_summary_report(
         for name in sorted({provider_name(r["provider"]) for r in report["responses"]})
     ]
 
-    chosen = payload.get("diagnostic", {}).get("cohort") or []  # includes owner-named businesses with no appearances
-    shown = [
-        (str(item["google_place_id"]), str(item["business_name"]))
-        for item in chosen
-        if item.get("google_place_id") and str(item["google_place_id"]) != target_id
-    ][:_MAX_COMPARISONS]
-    if not shown:
-        shown = [
-            (row["key"], row["name"])
-            for row in report["market"]
-            if row["verified"] and row["key"] != target_id
-        ][:_MAX_COMPARISONS]
-    businesses = [{"id": target_id, "name": target_name, "appearances": 0}] + [
-        {"id": place_id, "name": _shorten(name, _NAME_LIMIT), "appearances": 0} for place_id, name in shown
-    ]
+    # Page 4: the competitors the owner named, as the reviewer matched them to the database.
+    # Page 5: the businesses the AI recommended most, whether or not the owner named them.
+    named: list[tuple[str, str, bool]] = []
+    for owner in report["owners"]:
+        pid = str(owner.get("google_place_id") or "")
+        key = pid or "unresolved:" + str(owner.get("business_name") or owner.get("owner_name")).casefold()
+        if key != target_id and all(key != item[0] for item in named):
+            named.append((key, str(owner.get("business_name") or owner.get("owner_name")), bool(pid)))
+    named = named[:MAX_NAMED]
+    visible = [(row["key"], row["name"]) for row in report["market"] if row["verified"] and row["key"] != target_id][:MAX_VISIBLE]
+    businesses = [{"id": target_id, "name": target_name, "appearances": 0}]
+    seen = {target_id}
+    for key, name, _ in named:
+        seen.add(key)
+        businesses.append({"id": key, "name": _shorten(name, _NAME_LIMIT), "appearances": 0})
+    for key, name in visible:
+        if key not in seen:
+            seen.add(key)
+            businesses.append({"id": key, "name": _shorten(name, _NAME_LIMIT), "appearances": 0})
 
     records = [
         {
@@ -245,6 +258,10 @@ def build_client_summary_report(
         "providers": providers,
         "questions": questions,
         "businesses": businesses,
+        "named_ids": [key for key, _, _ in named],
+        "unverified_ids": [key for key, _, verified in named if not verified],
+        "visible_ids": [key for key, _ in visible],
+        "evidence_layers": _evidence_layers(owner_config, approved),
         "evidence": [
             {"id": str(f["id"]), "observation": str(f["observation"]), "source": str(f["source"])}
             for f in findings

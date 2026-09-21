@@ -31,9 +31,9 @@ class ReportTests(unittest.TestCase):
         with self.assertRaisesRegex(ReportValidationError,'requires'):validate_report(self.d)
         self.d['evidence']=[{'id':'e1','observation':'Test observation, not a real audit finding.','source':'Test fixture'}]
         self.d['actions'][0]['evidence_ids']=['e1'];validate_report(self.d)
-        self.assertEqual(len(PdfReader(BytesIO(render_pdf(self.d))).pages),6)
-    def test_pdf_six_pages_and_correct_content(self):
-        reader=PdfReader(BytesIO(render_pdf(self.d)));self.assertEqual(len(reader.pages),6)
+        self.assertEqual(len(PdfReader(BytesIO(render_pdf(self.d))).pages),8)
+    def test_pdf_eight_pages_and_correct_content(self):
+        reader=PdfReader(BytesIO(render_pdf(self.d)));self.assertEqual(len(reader.pages),8)
         text='\n'.join(p.extract_text() for p in reader.pages)
         self.assertIn('22 of 72',text);self.assertIn('Check and improve:',text)
         self.assertIn('No sourced website or review observations',text)
@@ -63,8 +63,7 @@ class ReportTests(unittest.TestCase):
             a['task']=('Detailed task description with several words. ' * 9)[:380]
             a['owner']=('Responsible person ' * 5)[:100]
             a['done_when']=('Completion criteria with several words. ' * 6)[:200]
-        self.d['businesses'] += [{'id': f'extra-{i}', 'name': 'Additional comparison business', 'appearances': 1} for i in range(2)]
-        self.d['evidence'] = [{'id': f'e{i}', 'observation': 'W' * 220, 'source': 'W' * 200} for i in range(3)]
+            a['why']=('Because of a long reason. ' * 20)[:260]
         with self.assertRaises(ReportLayoutError):render_pdf(self.d)
     def test_unknown_reference_and_wrong_date(self):
         self.d['actions'][0]['question_id']='missing'
@@ -121,7 +120,7 @@ class RestyledSummaryTests(unittest.TestCase):
         for q, value in zip(self.d['questions'], [8, 6, 6, 5, 5, 4, 3, 3]):
             q['appearances'] = value
         self.d['providers'] = [{**p, 'appearances': v} for p, v in zip(self.d['providers'], [14, 13, 13])]
-        text = self.pages()[3]
+        text = self.pages()[4]
         self.assertIn('had the most appearances of the businesses shown', text)
         self.assertNotIn('nearest business above', text)
 
@@ -130,10 +129,10 @@ class RestyledSummaryTests(unittest.TestCase):
             q['appearances'] = value
         self.d['providers'] = [{**p, 'appearances': v} for p, v in zip(self.d['providers'], [13, 12, 0])]
         self.d['businesses'][-1]['appearances'] = 25
-        self.assertIn('did not appear in any answer from Gemini', self.pages()[3])
+        self.assertIn('did not appear in any answer from Gemini', self.pages()[5])
 
     def test_actions_do_not_end_with_doubled_full_stops(self):
-        self.assertNotIn('..', self.pages()[4])
+        self.assertNotIn('..', self.pages()[6])
 
     def test_short_name_is_used_in_headlines_and_full_name_in_the_header(self):
         self.d['business_name'] = 'WRAP- Coworking, Meeting Rooms & Offices'
@@ -145,12 +144,12 @@ class RestyledSummaryTests(unittest.TestCase):
 
     def test_long_topic_label_still_fits_the_tiles(self):
         self.d['questions'][0]['label'] = ('A very long customer topic name that goes on ' * 2)[:65].rstrip()
-        self.assertEqual(len(self.pages()), 6)
+        self.assertEqual(len(self.pages()), 8)
 
     def test_every_page_carries_the_draft_header_and_footer(self):
         for number, text in enumerate(self.pages(), 1):
             self.assertIn('CLIENT SUMMARY DRAFT | 18 SEPTEMBER 2026', text)
-            self.assertIn(f'{number} / 6', text)
+            self.assertIn(f'{number} / 8', text)
 
 
 class DraftLabelTests(unittest.TestCase):
@@ -188,8 +187,8 @@ class TiedResultTests(unittest.TestCase):
     def setUp(self):
         self.d = json.loads((BASE / 'client_summary_example.json').read_text())
 
-    def page_four(self):
-        return ' '.join(PdfReader(BytesIO(render_pdf(self.d))).pages[3].extract_text().split())
+    def page_five(self):
+        return ' '.join(PdfReader(BytesIO(render_pdf(self.d))).pages[4].extract_text().split())
 
     def test_a_tie_for_the_lead_is_described_as_level_not_as_the_most(self):
         # Regression: the first WRAP report said "had the most appearances" while level with Plus X at 30.
@@ -201,7 +200,7 @@ class TiedResultTests(unittest.TestCase):
         self.d['businesses'][-1]['appearances'] = sum(q['appearances'] for q in self.d['questions'])
         top = self.d['businesses'][-1]['appearances']
         self.d['businesses'][0]['appearances'] = top
-        text = self.page_four()
+        text = self.page_five()
         self.assertIn('was level with', text)
         self.assertNotIn('had the most appearances', text)
 
@@ -213,4 +212,4 @@ class TiedResultTests(unittest.TestCase):
         self.d['businesses'][-1]['appearances'] = total
         for b in self.d['businesses'][:-1]:
             b['appearances'] = total - 5
-        self.assertIn('had the most appearances of the businesses shown', self.page_four())
+        self.assertIn('had the most appearances of the businesses shown', self.page_five())

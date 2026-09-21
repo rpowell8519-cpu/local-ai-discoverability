@@ -54,6 +54,9 @@ class ReportLayoutError(ReportValidationError):
     pass
 
 
+TOTAL_PAGES = 8
+
+
 class Page:
     """Top-down layout cursor in points from the top edge, matching the draft's spacing."""
 
@@ -120,7 +123,7 @@ class Page:
         c.setFont('Helvetica', 8)
         c.setFillColor(GREY)
         c.drawString(LEFT, H - 808, f"AI visibility | Baseline audit: {long_date(d['audit_date'])}")
-        c.drawRightString(RIGHT, H - 808, f'{number} / 6')
+        c.drawRightString(RIGHT, H - 808, f'{number} / {TOTAL_PAGES}')
         self.top = 78
         self.eyebrow(eyebrow)
         self.top = 102
@@ -396,32 +399,97 @@ def _render(payload, level):
               f'{per_q}. Small changes in a later test should not automatically be treated as a lasting improvement.', 'small')
     page.end()
 
-    # ---------------------------------------------------------------- page 4
-    others = [b for b in m['businesses'] if b['id'] != d['target_id']]
-    page.start(4, 'Other businesses in the answers', 'Who appeared alongside you?',
-               f'Appearance counts for {safe(name)} and the comparison businesses selected for this report.')
-    page.eyebrow_row('Comparison businesses | appearances in the test')
-    top_value = max(b['appearances'] for b in m['businesses'])
-    for b in m['businesses']:
-        is_target = b['id'] == d['target_id']
-        shown = d.get('short_name') if is_target and level >= 1 and d.get('short_name') else b['name']
-        page.scaled_bar(shown, b['appearances'], top_value, target=is_target, count=len(m['businesses']))
-    target_count = next(b['appearances'] for b in m['businesses'] if b['id'] == d['target_id'])
-    ahead = sorted((b for b in others if b['appearances'] > target_count), key=lambda b: b['appearances'])
-    if others and ahead:
-        gap_sentence = (f' The nearest business above {safe(name)} in this list was {safe(ahead[0]["name"])}, '
-                        f'{ahead[0]["appearances"] - target_count} appearance{"s" if ahead[0]["appearances"] - target_count != 1 else ""} ahead.')
-    elif others and (level_with := [b for b in others if b['appearances'] == target_count]):
-        gap_sentence = (f' {safe(name)} was level with {safe(join_names(b["name"] for b in level_with))}, '
-                        f'at {target_count} appearance{"s" if target_count != 1 else ""} each.')
-    elif others:
-        gap_sentence = f' {safe(name)} had the most appearances of the businesses shown.'
+    # ---------------------------------------------------------------- pages 4 and 5: competitors
+    by_id = {b['id']: b for b in d['businesses']}
+    target_b = by_id[d['target_id']]
+    target_count = target_b['appearances']
+    named = [by_id[i] for i in d.get('named_ids') or []]
+    unverified = set(d.get('unverified_ids') or [])
+    visible_ids = d.get('visible_ids')
+    visible = ([by_id[i] for i in visible_ids] if visible_ids is not None
+               else [b for b in m['businesses'] if b['id'] != d['target_id']][:9])
+
+    def bars(rows):
+        ranked = sorted([target_b, *rows], key=lambda b: (-b['appearances'], b['id'] != d['target_id'], b['name']))
+        top_value = max(b['appearances'] for b in ranked)
+        for b in ranked:
+            is_target = b['id'] == d['target_id']
+            shown = d.get('short_name') if is_target and level >= 1 and d.get('short_name') else b['name']
+            page.scaled_bar(shown, b['appearances'], top_value, target=is_target, count=len(ranked))
+
+    def comparison(rows):
+        more = [b for b in rows if b['appearances'] > target_count]
+        level_with = [b for b in rows if b['appearances'] == target_count]
+        fewer = [b for b in rows if b['appearances'] < target_count]
+        parts = []
+        if more:
+            parts.append(f'{len(more)} appeared more often than {safe(name)}')
+        if level_with:
+            parts.append(f'{len(level_with)} equally often')
+        if fewer:
+            parts.append(f'{len(fewer)} less often')
+        return parts
+
+    page.start(4, 'Competitors you named', 'Who you told us you compete with',
+               f'These are the businesses you named as competitors, compared with {safe(name)} in the same test answers.')
+    if named:
+        page.eyebrow_row('Businesses you named | appearances in the test')
+        bars(named)
+        parts = comparison(named)
+        page.para(f'Of the {len(named)} business{"es" if len(named) != 1 else ""} you named, ' + join_names(parts) + '.'
+                  + f' {bname} appeared in {target_count} of {total} answers.')
+        not_in_db = [b for b in named if b['id'] in unverified]
+        if not_in_db:
+            page.para(safe(join_names(b['name'] for b in not_in_db)) + (' is' if len(not_in_db) == 1 else ' are')
+                      + ' not in our business database, so the count shown includes only AI answer names a reviewer matched to '
+                      + ('it' if len(not_in_db) == 1 else 'them') + '.', 'small')
     else:
-        gap_sentence = ''
+        page.para('No competitors were named for this audit, so there is nothing to compare here. The next page shows the '
+                  'businesses the AI assistants recommended most often for your questions.')
     page.para('An answer can include several businesses. These figures describe the selected test, not local market '
-              'share, business quality or actual booking performance.' + gap_sentence
-              + (' This report does not show that any page, review or listing caused another business\'s higher visibility.'
-                 if level >= 3 else ''))
+              'share, business quality or actual booking performance.', 'small')
+    page.end()
+
+    page.start(5, 'What the AI assistants think', 'Who AI treats as your competitors',
+               f'For the {n_questions} question{"s" if n_questions != 1 else ""} we tested, these are the businesses the assistants recommended most often.')
+    page.eyebrow_row('Most often recommended | appearances in the test')
+    bars(visible)
+    named_ids = set(d.get('named_ids') or [])
+    both = [b for b in visible if b['id'] in named_ids]
+    new_names = [b for b in visible if b['id'] not in named_ids]
+    ahead = sorted((b for b in visible if b['appearances'] > target_count), key=lambda b: b['appearances'])
+    def were(count):
+        return 'was' if count == 1 else 'were'
+
+    if named and visible:
+        if len(both) == len(visible):
+            overlap = 'This business was also on your list.' if len(visible) == 1 else 'All of these were also on your list.'
+        elif not both:
+            overlap = 'None of these were on your list.'
+        else:
+            overlap = f'{len(both)} of these {len(visible)} {were(len(both))} also on your list: {safe(join_names(b["name"] for b in both))}.'
+    else:
+        overlap = ''
+    difference = ''
+    if named and new_names and level < 3:
+        difference = (f' The assistants also treat {safe(join_names(b["name"] for b in new_names))} as '
+                      f'{"alternatives" if len(new_names) != 1 else "an alternative"} for these questions, which you did not name.')
+    if ahead:
+        gap_sentence = (f' The nearest business above {safe(name)} was {safe(ahead[0]["name"])}, '
+                        f'{ahead[0]["appearances"] - target_count} appearance{"s" if ahead[0]["appearances"] - target_count != 1 else ""} ahead.')
+    elif visible and any(b['appearances'] == target_count for b in visible):
+        gap_sentence = f' {safe(name)} was level with the most visible businesses shown.'
+    else:
+        gap_sentence = f' {safe(name)} had the most appearances of the businesses shown.'
+    page.para((overlap + difference + gap_sentence).strip())
+    page.para('An answer can include several businesses. These figures describe the selected test, not local market share, '
+              'business quality or actual booking performance. This report does not show that any page, review or listing '
+              'caused another business\'s higher visibility.', 'small')
+    page.end()
+
+    # ---------------------------------------------------------------- page 6
+    page.start(6, 'Providers and evidence', 'What sits behind the recommendations',
+               'How the providers compared, and what we looked at to shape the suggested actions.')
     page.heading('Your results differed by provider')
     counts = [p['appearances'] for p in providers]
     if all(c == counts[0] for c in counts):
@@ -436,26 +504,31 @@ def _render(payload, level):
         ('<b>' + ('&nbsp;' * 4).join(f'{safe(p["name"])}: {p["appearances"]} of {p["complete"]}' for p in providers) + '</b>', 'body'),
         (provider_note, 'body'),
     ])
-    if level < 3:
-        page.heading('What we can learn from competitors')
-        page.para('The other businesses give useful examples to investigate. This report does not show that a particular '
-                  'page, review or listing caused their higher visibility.')
+    page.heading('What we can learn from competitors')
+    layers = d.get('evidence_layers') or []
+    if layers:
+        looked = ' and '.join(layers)
+        page.para(f'The businesses recommended most often give useful examples to investigate. We looked at their {looked}, alongside '
+                  'yours, to shape the actions in this report. This report does not show that a particular page, review or '
+                  'listing caused their higher visibility.')
+    else:
+        page.para('The businesses recommended most often give useful examples to investigate. This report does not show that a '
+                  'particular page, review or listing caused their higher visibility.')
     if d.get('evidence'):
-        page.heading('What we checked on your website' if level < 4 else 'What we checked (observations only, not causes)')
+        page.heading('What we checked')
         for e in d['evidence']:
             page.para('<b>' + safe(e['id']) + ':</b> ' + safe(e['observation']) + '<br/><b>Source:</b> ' + safe(compact_source(e['source']) if level >= 2 else e['source']), 'small', 7)
-        if level < 4:
-            page.para('These observations do not establish why an AI provider included a business.', 'small')
+        page.para('These observations do not establish why an AI provider included a business.', 'small')
     else:
         page.para('No sourced website or review observations were supplied for this summary. Compare relevant pages and '
                   'customer information before claiming that a competitor has stronger evidence. Missing evidence is not '
                   'poor performance.', 'small')
     page.end()
 
-    # ---------------------------------------------------------------- page 5
+    # ---------------------------------------------------------------- page 7
     any_verified = any(a['status'] == 'verified_gap' for a in d['actions'])
-    page.start(5, 'Your action plan', 'Three practical priorities',
-               'These are proposed checks and improvements. Where an action rests on an observation, its source is shown on page 4.'
+    page.start(7, 'Your action plan', 'Three practical priorities',
+               'These are proposed checks and improvements. Where an action rests on an observation, its source is shown on page 6.'
                if any_verified else
                'These are proposed checks and improvements. This audit does not establish that the suggested information is currently missing.')
     for i, a in enumerate(d['actions'], 1):
@@ -472,15 +545,15 @@ def _render(payload, level):
             page.para('<b>Check and improve:</b> ' + safe(a['task']), 'body', 12)
         else:
             page.para('<b>Action for a documented gap:</b> ' + safe(a['task']), 'body', 6)
-            page.para('<b>Evidence:</b> ' + safe(', '.join(a['evidence_ids'])) + ' (observations on page 4).', 'small', 6)
+            page.para('<b>Evidence:</b> ' + safe(', '.join(a['evidence_ids'])) + ' (observations on page 6).', 'small', 6)
         page.para('<b>Suggested owner:</b> ' + safe(a['owner']), 'small', 0)
         page.para('<b>Done when:</b> ' + sentence(a['done_when']), 'small', 20)
     page.para('These actions aim to make the business easier to understand and choose. Their effect on future AI answers '
               'is unproven; no change in recommendations is guaranteed.', 'small')
     page.end()
 
-    # ---------------------------------------------------------------- page 6
-    page.start(6, 'Delivery and follow-up', 'How to put this into practice',
+    # ---------------------------------------------------------------- page 8
+    page.start(8, 'Delivery and follow-up', 'How to put this into practice',
                'Agree the priorities, check and improve the information, then repeat the test using a comparable approach.')
     page.heading('A simple delivery sequence')
     page.para('<b>Weeks 1-2 | Confirm and check.</b> Agree which customer needs matter most commercially, review the '

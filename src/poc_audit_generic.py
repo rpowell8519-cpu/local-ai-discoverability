@@ -396,6 +396,11 @@ def assemble_generic_report_payload(
             "Comparison businesses chosen from the most visible in the AI answers and the businesses the owner named",
             *disclosure_lines(subjects, decisions_input),
             *(
+                f"Recommendations do not draw on the {'website' if key == 'website' else 'review text'} comparison: {note} "
+                "A reviewer accepted going ahead without it."
+                for key, note in dict(decisions_input.get("evidence_waivers") or {}).items()
+            ),
+            *(
                 ("Wording for this kind of business (" + str(decisions_input["type_wording"].get("label") or "custom") +
                  ") was drafted by an AI from the owner's brief and approved by the reviewer; it shapes how actions are phrased, not what was measured.",)
                 if decisions_input.get("type_wording") else ()

@@ -190,6 +190,7 @@ def test_the_review_cannot_be_completed_with_undecided_names_or_unlinked_questio
 def test_decisions_are_saved_once_every_choice_is_made():
     at, saved, stack = run_page(revision())
     with stack:
+        waive_missing_evidence(at)
         next(r for r in at.radio if str(r.key).startswith("target_name_choice_")).set_value("yes")
         for other in at.radio:
             if "name_choice" in str(other.key) and not str(other.key).startswith("target_"):
@@ -248,6 +249,7 @@ COMPLETE = {
         ["Co-working", "Private offices", "Meeting rooms", "Event space", "Co-working", "Team away days", "Children’s parties"], 1)},
     "cohort_place_ids": ["place-plusx", "place-runway"],
     "name_links": {"place-plusx": {"rejected": ["Plus X Innovation Hub"]}, "place-platf9rm": {"confirmed": ["PLATF9RM"]}},
+    "evidence_waivers": {"website": "The client's website has no usable saved audit.", "reviews": "No review text saved."},
 }
 
 
@@ -429,7 +431,7 @@ def test_the_build_label_changes_so_the_team_can_tell_which_version_is_live():
     at, _, stack = run_page(revision())
     with stack:
         captions = " ".join(c.value for c in at.caption)
-        assert "Build: Accessible AI Report Generator v3.6.0" in captions
+        assert "Build: Accessible AI Report Generator v3.7.0" in captions
 
 
 # ---------------------------------------------------------------- reviews saved before the new checks
@@ -457,6 +459,7 @@ def test_a_review_completed_before_the_new_checks_is_flagged_up_front_and_genera
 def test_completing_the_review_lifts_the_pause_without_reloading_anything_else():
     at, saved, stack = run_page(revision(OLD_REVIEW, complete=True))
     with stack:
+        waive_missing_evidence(at)
         next(r for r in at.radio if str(r.key).startswith("target_name_choice_")).set_value("yes")
         for other in at.radio:
             if "name_choice" in str(other.key) and not str(other.key).startswith("target_"):
@@ -582,7 +585,14 @@ def test_the_review_cannot_be_completed_while_a_competitor_name_is_undecided():
         saved.assert_not_called()
 
 
+def waive_missing_evidence(at):
+    for box in at.checkbox:
+        if str(box.key).startswith("waive_"):
+            box.set_value(True)
+
+
 def decide_everything(at):
+    waive_missing_evidence(at)
     for radio in at.radio:
         if str(radio.key).startswith("target_name_choice_") or "name_choice" in str(radio.key):
             radio.set_value("yes" if "PLATF9RM" in radio.label or "WRAP" in radio.label else "no")
@@ -852,3 +862,44 @@ def test_the_report_types_offered_come_from_one_list_and_each_has_its_own_button
         radio.set_value("summary").run()
         assert "Generate client summary from saved evidence" in [b.label for b in at.button]
         assert "Generate report from saved evidence" not in [b.label for b in at.button]
+
+
+# ------------------------------------------------------------ website and review evidence are required, or knowingly waived
+def test_a_review_cannot_be_completed_while_the_evidence_is_missing_and_not_waived():
+    at, saved, stack = run_page(revision())
+    with stack:
+        boxes = [b for b in at.checkbox if str(b.key).startswith("waive_")]
+        assert {str(b.key).split("_")[1] for b in boxes} == {"website", "reviews"} and not any(b.value for b in boxes)
+        decide_everything(at)
+        for b in [b for b in at.checkbox if str(b.key).startswith("waive_")]:
+            b.set_value(False)
+        at.run()
+        button(at, "Complete report review").click().run()
+        saved.assert_not_called()
+        assert any("the missing evidence" in e.value for e in at.error)
+
+
+def test_waiving_the_missing_evidence_is_saved_with_the_reason_and_disclosed_later():
+    at, saved, stack = run_page(revision())
+    with stack:
+        decide_everything(at)
+        button(at, "Complete report review").click().run()
+        waivers = saved.call_args.kwargs["reviewer_decisions"]["evidence_waivers"]
+        assert set(waivers) == {"website", "reviews"} and all(waivers.values())
+
+
+def test_a_completed_review_with_no_waiver_and_no_evidence_is_paused_with_the_reason():
+    decisions = {k: v for k, v in COMPLETE.items() if k != "evidence_waivers"}
+    at, _, stack = run_page(revision(decisions, complete=True))
+    with stack:
+        text = warnings_text(at)
+        assert "add the evidence for the website comparison (step 4), or accept going ahead without it" in text
+        assert "Generating is paused" in text
+
+
+def test_a_layer_that_has_its_evidence_is_never_asked_about():
+    result = {"layers": {"website": {"status": "used", "note": "ok"}, "propositions": {"status": "used", "note": "ok"},
+                         "reviews": {"status": "used", "note": "ok"}}, "leaders": [], "candidates": [], "strengths": [], "basis": ""}
+    at, _, stack = run_page(revision(), extra=[mock.patch("src.evidence_analysis.analyse_evidence", lambda **_: result)])
+    with stack:
+        assert not [b for b in at.checkbox if str(b.key).startswith("waive_")]

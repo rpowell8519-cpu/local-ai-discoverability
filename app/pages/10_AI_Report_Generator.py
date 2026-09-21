@@ -129,7 +129,7 @@ from src.report_generator_readiness import (  # noqa: E402
 )
 
 
-BUILD_VERSION = "Accessible AI Report Generator v3.6.0 (website topics for new business types)"
+BUILD_VERSION = "Accessible AI Report Generator v3.7.0 (competitor pages, required evidence)"
 REPORT_STATE_KEY = "accessible_ai_report_generator_result"
 SUMMARY_STATE_KEY = "accessible_ai_client_summary_result"
 
@@ -1030,8 +1030,9 @@ if next_step["key"] == "benchmark":
 st.subheader("4. Add website and review evidence")
 with st.container(border=True):
     st.write(
-        "Use these only when the evidence exists. Missing reviews or a business without a website "
-        "should not stop the report; the limitation will be stated clearly."
+        "Website and review evidence for the client and the most visible businesses is what the recommendations are based on, "
+        "in every report type. Collect it here. Where it genuinely does not exist (no website, no reviews), you can accept "
+        "going ahead without it in step 5, and the report will say so."
     )
     saved_cohort_ids = list(
         dict((durable_audit or {}).get("reviewer_decisions") or {}).get("cohort_place_ids") or []
@@ -1388,6 +1389,19 @@ if ai_ready and definition is None:
         review_update_reasons.append(
             f"decide which of the {len(open_recommendations)} recommendation(s) from the evidence to include"
         )
+    # Website and review evidence power every recommendation, so each layer must be present or knowingly waived.
+    evidence_layer_labels = {"website": "website comparison", "reviews": "review text comparison"}
+    saved_waivers = dict(existing_decisions.get("evidence_waivers") or {})
+    missing_layers = {
+        key: (str(((evidence_analysis or {}).get("layers") or {}).get(key, {}).get("note") or "The comparison could not be run."))
+        for key in evidence_layer_labels
+        if evidence_analysis is None or ((evidence_analysis.get("layers") or {}).get(key) or {}).get("status") != "used"
+    }
+    for key in missing_layers:
+        if key not in saved_waivers:
+            review_update_reasons.append(
+                f"add the evidence for the {evidence_layer_labels[key]} (step 4), or accept going ahead without it in step 5"
+            )
     identity_plan = plan_subjects(
         target_id=selected_place_id,
         target_name=str(business["business_name"]),
@@ -1922,6 +1936,19 @@ if ai_ready and definition is None:
             value=str(existing_decisions.get("review_notes") or ""),
             help="Saved with the report setup but not printed as client-facing evidence.",
         )
+        waiver_choices: dict[str, bool] = {}
+        if missing_layers:
+            st.markdown("**Evidence the recommendations could not draw on**")
+            st.caption(
+                "Recommendations are grounded in the client's website and reviews compared with the most visible businesses. "
+                "Add the missing evidence in step 4 if it exists. Only where it genuinely does not exist, accept going ahead "
+                "without it: the report will say so."
+            )
+            for key, note in missing_layers.items():
+                waiver_choices[key] = st.checkbox(
+                    f"Go ahead without the {evidence_layer_labels[key]}. {note}",
+                    value=key in saved_waivers, key=f"waive_{key}_{selected_place_id}",
+                )
         review_columns = st.columns(2)
         save_draft = review_columns[0].form_submit_button("Save review draft", use_container_width=True)
         complete_review = review_columns[1].form_submit_button(
@@ -1937,7 +1964,8 @@ if ai_ready and definition is None:
         order for order, choice in question_choices.items() if not choice
     ] if checking else []
     open_recs = [cid for cid, choice in recommendation_choices.items() if choice == "undecided"] if checking else []
-    if complete_review and (open_names or unchosen_owners or unlinked_questions or open_recs):
+    open_waivers = [key for key, accepted in waiver_choices.items() if not accepted] if checking else []
+    if complete_review and (open_names or unchosen_owners or unlinked_questions or open_recs or open_waivers):
         problems = []
         if unchosen_owners:
             problems.append(
@@ -1956,6 +1984,11 @@ if ai_ready and definition is None:
             titles = {c["id"]: c["title"] for c in evidence_candidates}
             problems.append(
                 "which recommendations from the evidence to include: " + ", ".join(f"“{titles[cid]}”" for cid in open_recs)
+            )
+        if open_waivers:
+            problems.append(
+                "the missing evidence: add it in step 4, or tick to go ahead without the "
+                + " and the ".join(evidence_layer_labels[key] for key in open_waivers)
             )
         st.error(
             "Before completing the review, decide " + "; and ".join(problems)
@@ -1978,6 +2011,7 @@ if ai_ready and definition is None:
             "owner_competitor_places": chosen_places,
             "name_links": links,
             "type_wording": dict(existing_decisions.get("type_wording") or {}),
+            "evidence_waivers": {key: missing_layers[key] for key, accepted in waiver_choices.items() if accepted},
             "recommendation_decisions": {cid: choice for cid, choice in recommendation_choices.items() if choice != "undecided"},
             "approved_recommendations": [
                 {**candidate, "action": (recommendation_wording.get(candidate["id"]) or candidate["action"]).strip()[:380]}

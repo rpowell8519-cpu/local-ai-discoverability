@@ -36,7 +36,7 @@ def test_summary_and_full_report_agree_on_every_count(payload):
 
 def test_renders_six_pages_with_the_measured_result(payload):
     reader = PdfReader(BytesIO(render_client_summary_pdf(summary(payload))))
-    assert len(reader.pages) == 6
+    assert len(reader.pages) == 8
     assert "12 of 24" in "\n".join(page.extract_text() for page in reader.pages)
 
 
@@ -179,7 +179,7 @@ def test_the_summary_shows_the_observation_its_source_and_a_verified_action(payl
     assert "OAI-SearchBot (ChatGPT search)" in text
     assert "https://example.co.uk/robots.txt, read on 21 September 2026" in text
     assert "Action for a documented gap" in text and "LET AI SEARCH TOOLS VISIT YOUR WEBSITE" in text
-    assert "robots.txt" in text and len(PdfReader(BytesIO(render_client_summary_pdf(data))).pages) == 6
+    assert "robots.txt" in text and len(PdfReader(BytesIO(render_client_summary_pdf(data))).pages) == 8
 
 
 def test_an_all_clear_observation_is_shown_but_no_gap_is_claimed(payload):
@@ -277,7 +277,7 @@ def test_no_listing_data_means_the_contact_check_is_skipped(payload):
 def test_a_verified_action_is_justified_by_its_observation_not_by_a_topic_count(payload):
     data = summary(_with_website(payload, "01273 654321"), site_findings=[CRAWLER_GAP], website_checked=True)
     page_five = " ".join(
-        PdfReader(BytesIO(render_client_summary_pdf(data))).pages[4].extract_text().split()
+        PdfReader(BytesIO(render_client_summary_pdf(data))).pages[6].extract_text().split()
     )
     assert "Why: robots.txt asks these AI search crawlers not to visit the site" in page_five
     assert "Why: The website and the Google listing disagree" in page_five
@@ -311,3 +311,80 @@ def test_a_label_reads_as_a_topic_and_the_exact_question_is_kept_in_full(payload
     data = summary(payload)
     assert data["questions"][0]["text"] == build_owner_report(payload)["questions"][0]["prompt"]  # never altered
     assert all(q["label"][0].isupper() for q in data["questions"])
+
+
+# ---------------------------------------------------------------- two pages on competitors
+def with_owner_competitors(payload, *entries):
+    payload["report"]["owner_competitors"] = [dict(e) for e in entries]
+    return payload
+
+
+MATCHED = {"owner_name": "Colour Studio", "google_place_id": "synthetic-other", "business_name": "Example Colour Studio",
+           "match_status": "matched", "recommendations": 24}
+UNLISTED = {"owner_name": "Unlisted Rival", "google_place_id": None, "business_name": "Unlisted Rival",
+            "match_status": "not_in_system", "recommendations": 0}
+
+
+def test_the_summary_lists_the_competitors_the_owner_named_as_the_reviewer_matched_them(payload):
+    data = summary(with_owner_competitors(payload, MATCHED, UNLISTED))
+    assert data["named_ids"] == ["synthetic-other", "unresolved:unlisted rival"]
+    assert data["unverified_ids"] == ["unresolved:unlisted rival"]
+    names = {b["id"]: b["name"] for b in data["businesses"]}
+    assert names["synthetic-other"] == "Example Colour Studio" and names["unresolved:unlisted rival"] == "Unlisted Rival"
+
+
+def test_the_summary_lists_the_businesses_the_ai_recommended_most_whether_or_not_they_were_named(payload):
+    data = summary(with_owner_competitors(payload, UNLISTED))
+    assert data["visible_ids"] == ["synthetic-other"]      # verified, not the client, most recommended first
+    assert "synthetic-other" not in data["named_ids"] and len(data["businesses"]) == 3   # client, the named one, the AI's pick
+
+
+def test_a_business_that_is_both_named_and_highly_visible_appears_once_in_the_data_and_on_both_pages(payload):
+    data = summary(with_owner_competitors(payload, MATCHED))
+    assert [b["id"] for b in data["businesses"]].count("synthetic-other") == 1
+    assert data["named_ids"] == data["visible_ids"] == ["synthetic-other"]
+    pages = [" ".join(p.extract_text().split()) for p in PdfReader(BytesIO(render_client_summary_pdf(data))).pages]
+    assert "Example Colour Studio" in pages[3] and "Example Colour Studio" in pages[4]
+    assert "This business was also on your list." in pages[4]
+
+
+def test_page_four_tells_the_owner_how_they_compared_with_the_competitors_they_named(payload):
+    pages = [" ".join(p.extract_text().split()) for p in PdfReader(BytesIO(render_client_summary_pdf(summary(with_owner_competitors(payload, MATCHED, UNLISTED))))).pages]
+    assert "Who you told us you compete with" in pages[3]
+    assert "Of the 2 businesses you named, 1 appeared more often than Example Salon and 1 less often." in pages[3]
+    assert "Unlisted Rival is not in our business database, so the count shown includes only AI answer names a reviewer matched to it." in pages[3]
+
+
+def test_page_four_says_so_when_no_competitors_were_named(payload):
+    text = " ".join(PdfReader(BytesIO(render_client_summary_pdf(summary(payload)))).pages[3].extract_text().split())
+    assert "No competitors were named for this audit" in text
+
+
+def test_page_five_is_the_ai_view_and_page_six_holds_providers_and_what_was_checked(payload):
+    pages = [" ".join(p.extract_text().split()) for p in PdfReader(BytesIO(render_client_summary_pdf(summary(payload, site_findings=[CRAWLER_GAP], website_checked=True)))).pages]
+    assert "Who AI treats as your competitors" in pages[4] and "MOST OFTEN RECOMMENDED" in pages[4]
+    assert "Your results differed by provider" in pages[5] and "What we checked" in pages[5] and "We looked at their" not in pages[5]
+    assert "observations on page 6" in pages[6]        # the action plan points at the page that holds the evidence
+
+
+def test_the_contract_refuses_named_lists_that_point_at_the_client_or_nothing(payload):
+    from src.client_summary import ReportValidationError, validate_report
+    data = summary(with_owner_competitors(payload, MATCHED))
+    for field, bad in (("named_ids", [data["target_id"]]), ("visible_ids", ["nobody"]), ("unverified_ids", ["synthetic-other", "x"])):
+        broken = {**data, field: bad}
+        with pytest.raises(ReportValidationError):
+            validate_report(broken)
+    with pytest.raises(ReportValidationError, match="subset"):
+        validate_report({**data, "named_ids": [], "unverified_ids": ["synthetic-other"]})
+
+
+def test_the_summary_says_what_the_actions_were_drawn_from_only_when_they_were():
+    from tests.test_evidence_recommendations_in_reports import payload_with, summary_for
+    used = summary_for(payload_with())                       # approved recommendations, websites and reviews both used
+    assert used["evidence_layers"] == ["websites", "customer reviews"]
+    text = " ".join(" ".join(p.extract_text().split()) for p in PdfReader(BytesIO(render_client_summary_pdf(used))).pages)
+    assert "We looked at their websites and customer reviews, alongside yours, to shape the actions" in text
+    none = summary_for(payload_with(()))
+    assert none["evidence_layers"] == []
+    text = " ".join(" ".join(p.extract_text().split()) for p in PdfReader(BytesIO(render_client_summary_pdf(none))).pages)
+    assert "We looked at their" not in text

@@ -133,6 +133,24 @@ Crawl-time behaviour (which pages are fetched first, when the crawl stops early:
 `COVERAGE_TARGETS` in `website_audit.py`) is still generic for unknown types; only change it if a real
 run shows key pages were not fetched. Saved text is capped at 8000 characters a page.
 
+### Client summary (LS): eight pages, two on competitors
+
+Pages 4 and 5 tell one story: "you told us your competitors were X" (page 4: the owner's named
+competitors as the reviewer matched them to the database, with the client) and "the AI assistants
+think your competitors are Y" (page 5: the nine verified businesses recommended most, plus the
+client, with which were also named). Data: `named_ids`, `unverified_ids` (named, not in the database;
+their count includes only reviewer-matched AI names) and `visible_ids` on the contract, both drawn from
+`build_owner_report` (`owners`, `market`). Page 6 holds providers and "what we checked"; it says the
+actions draw on competitors' websites/reviews only when approved evidence recommendations exist
+(`evidence_layers`). Actions are page 7, delivery page 8.
+
+### Website and review evidence are required for every report
+
+They power the recommendations even where a report does not print them. In step 5 each missing layer
+(`website`, `reviews`) must be added in step 4 or explicitly waived by the reviewer
+(`reviewer_decisions["evidence_waivers"]`, with the reason); completing the review, and generating,
+are blocked otherwise. Waivers are disclosed in the report's methodology.
+
 ### Recommendations from the evidence (reviewer-approved)
 
 Recommendations are grounded in what was saved for the client and for the businesses the AI actually

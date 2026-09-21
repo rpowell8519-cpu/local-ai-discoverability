@@ -18,14 +18,13 @@ def pages(data):
 
 def test_the_first_real_wrap_run_renders_instead_of_failing_on_page_4():
     # Regression: "Page 4 is too long" stopped the very first live report.
-    assert pages(wrap_summary()) == 6
+    assert pages(wrap_summary()) == 8
 
 
-def test_wrap_needs_only_the_first_condensing_step_and_loses_no_content():
+def test_wrap_now_fits_without_any_condensing_because_competitors_have_two_pages():
+    # Formerly one page held every comparison, the providers and the evidence and needed the first condensing step.
     validated = renderer.validate_report(wrap_summary())
-    with pytest.raises(ReportLayoutError):
-        renderer._render(validated, 0)
-    text = " ".join(" ".join(p.extract_text().split()) for p in PdfReader(BytesIO(renderer._render(validated, 1))).pages)
+    text = " ".join(" ".join(p.extract_text().split()) for p in PdfReader(BytesIO(renderer._render(validated, 0))).pages)
     for expected in ("PLATF9RM Brighton", "Runway East Brighton", "Plus X Innovation Brighton", "E1:", "E2:", "wrap.space/robots.txt"):
         assert expected in text
 
@@ -56,7 +55,7 @@ def test_content_at_the_contract_maximum_still_renders(change):
         d["evidence"] = long_evidence
     if change in ("limitations", "everything"):
         d["limitations"] = long_limits
-    assert pages(d) == 6
+    assert pages(d) == 8
 
 
 def test_content_that_truly_cannot_fit_is_refused_with_a_clear_message_not_clipped():
@@ -64,7 +63,7 @@ def test_content_that_truly_cannot_fit_is_refused_with_a_clear_message_not_clipp
     for a in d["actions"]:
         a.update(title=("Long action title " * 5)[:75].strip(), task=("Detailed task description with several words. " * 10)[:380],
                  owner=("Responsible person " * 6)[:100], done_when=("Completion criteria with words. " * 8)[:200])
-    with pytest.raises(ReportLayoutError, match="Page 5 is too long"):
+    with pytest.raises(ReportLayoutError, match="Page 7 is too long"):
         render_pdf(d)
 
 
@@ -86,7 +85,7 @@ def test_every_real_action_and_finding_combination_fits(group, findings, label_l
     numbered = [dict(f, id=f"E{i}") for i, f in enumerate(FINDINGS[findings], 1)]
     d["actions"] = build_actions(measured, business_group=group, findings=numbered)
     d["evidence"] = [{"id": f["id"], "observation": f["observation"], "source": f["source"]} for f in numbered]
-    assert pages(d) == 6
+    assert pages(d) == 8
 
 
 def test_a_tile_label_is_measured_not_guessed_so_long_question_wording_never_breaks_page_1():
@@ -117,14 +116,14 @@ def with_eight_businesses(long_names=False):
 
 def test_the_business_plus_seven_others_renders_with_all_eight_bars():
     d = with_eight_businesses()
-    assert len(d["businesses"]) == 8 and pages(d) == 6
-    text = " ".join(" ".join(p.extract_text().split()) for p in PdfReader(BytesIO(render_pdf(d))).pages[3:4])
+    assert len(d["businesses"]) == 8 and pages(d) == 8
+    text = " ".join(" ".join(p.extract_text().split()) for p in PdfReader(BytesIO(render_pdf(d))).pages[4:5])
     for name in ("Freedom Works", "Projects Nile House", "The Skiff", "PLATF9RM"):
         assert name in text
 
 
 def test_eight_businesses_with_maximum_length_names_still_render():
-    assert pages(with_eight_businesses(long_names=True)) == 6
+    assert pages(with_eight_businesses(long_names=True)) == 8
 
 
 def test_eight_businesses_with_the_worst_findings_the_real_checks_can_produce_still_render():
@@ -140,7 +139,7 @@ def test_eight_businesses_with_the_worst_findings_the_real_checks_can_produce_st
     d["evidence"] = [{"id": f["id"], "observation": f["observation"], "source": f["source"]} for f in findings]
     d["limitations"] = ["2 business name(s) in the answers could not be matched to a verified business and are not shown.",
                         "A reviewer confirmed that the AI answers “WRAP” and “Wrap Brighton” refer to this business."]
-    assert pages(d) == 6
+    assert pages(d) == 8
 
 
 def test_an_impossible_combination_is_refused_cleanly_never_clipped():
@@ -149,19 +148,19 @@ def test_an_impossible_combination_is_refused_cleanly_never_clipped():
                       "source": ("https://example.co.uk/a/very/long/path/to/a/page " * 5)[:200]} for i in (1, 2, 3)]
     d["limitations"] = [("A limitation at the maximum permitted length for this contract. " * 5)[:240] for _ in range(4)]
     try:
-        assert pages(d) == 6            # fitting is fine
+        assert pages(d) == 8            # fitting is fine
     except ReportLayoutError as error:
         assert "too long" in str(error)  # refusing with a clear message is the only other acceptable outcome
 
 
 def test_an_owner_named_business_with_no_appearances_is_shown_with_a_zero_bar():
     d = with_eight_businesses()
-    text = " ".join(" ".join(p.extract_text().split()) for p in PdfReader(BytesIO(render_pdf(d))).pages[3:4])
+    text = " ".join(" ".join(p.extract_text().split()) for p in PdfReader(BytesIO(render_pdf(d))).pages[4:5])
     assert "Freedom Works" in text  # 0 appearances, but the owner asked about it, so it is not dropped
 
 
 def test_more_than_seven_comparison_businesses_is_refused_by_the_contract():
     d = with_eight_businesses()
-    d["businesses"].append({"id": "one-too-many", "name": "Ninth Business", "appearances": 1})
-    with pytest.raises(Exception, match="expected 1-8 items"):
+    d["businesses"] += [{"id": f"too-many-{i}", "name": f"Business {i}", "appearances": 1} for i in range(11)]
+    with pytest.raises(Exception, match="expected 1-18 items"):
         render_pdf(d)

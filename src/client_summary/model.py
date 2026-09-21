@@ -1,9 +1,14 @@
-"""Validated contract for the six-page client summary. No network or AI calls.
+"""Validated contract for the eight-page client summary. No network or AI calls.
 
 Vendored from the streamlit-client-report package supplied on 2026-09-21."""
 from copy import deepcopy
 from datetime import date
 from collections import Counter
+
+MAX_BUSINESSES = 18   # the client, up to eight the owner named, and up to nine the AI recommended most
+MAX_NAMED = 8
+MAX_VISIBLE = 9
+
 
 class ReportValidationError(ValueError):
     pass
@@ -91,7 +96,7 @@ def validate_report(payload):
         text(p.get('name'), 'provider.name', 40)
         text(p.get('model'), 'provider.model', 80)
         if count(p.get('complete'), 'provider.complete') != expected_provider:
-            fail('This six-page baseline requires a complete, balanced test. Resolve failed/missing runs before exporting.')
+            fail('This baseline requires a complete, balanced test. Resolve failed/missing runs before exporting.')
         count(p.get('appearances'), 'provider.appearances', expected_provider)
     for q in questions.values():
         text(q.get('label'), 'question.label', 65)
@@ -103,7 +108,7 @@ def validate_report(payload):
     appearances = sum(q['appearances'] for q in questions.values())
     if sum(p['appearances'] for p in providers.values()) != appearances:
         fail('Question and provider appearance totals do not agree.')
-    businesses = indexed(collection(d.get('businesses'), 'businesses', 1, 8), 'businesses')
+    businesses = indexed(collection(d.get('businesses'), 'businesses', 1, MAX_BUSINESSES), 'businesses')
     if d['target_id'] not in businesses:
         fail('businesses must include target_id.')
     if businesses[d['target_id']].get('name') != d['business_name']:
@@ -113,6 +118,20 @@ def validate_report(payload):
         count(b.get('appearances'), 'business.appearances', total)
     if businesses[d['target_id']]['appearances'] != appearances:
         fail('Target business total does not match the question results.')
+    for field, limit in (('named_ids', MAX_NAMED), ('visible_ids', MAX_VISIBLE), ('unverified_ids', MAX_NAMED)):
+        ids = d.get(field)
+        if ids is None:
+            continue
+        if not isinstance(ids, list) or len(ids) > limit or len(set(ids)) != len(ids):
+            fail(f'{field}: expected up to {limit} distinct business IDs.')
+        if any(not isinstance(i, str) or i not in businesses or i == d['target_id'] for i in ids):
+            fail(f'{field} must list businesses supplied in businesses, other than the client.')
+    layers = d.get('evidence_layers')
+    if layers is not None:
+        if not isinstance(layers, list) or len(layers) > 3 or any(x not in ('websites', 'customer reviews') for x in layers):
+            fail("evidence_layers: expected a list drawn from 'websites' and 'customer reviews'.")
+    if any(i not in (d.get('named_ids') or []) for i in d.get('unverified_ids') or []):
+        fail('unverified_ids must be a subset of named_ids.')
     evidence = indexed(collection(d.get('evidence', []), 'evidence', 0, 3), 'evidence')
     for e in evidence.values():
         text(e.get('observation'), 'evidence.observation', 220)
@@ -166,7 +185,7 @@ def from_records(metadata, records):
         fail('Supply metadata object and a list of canonical response records.')
     d = deepcopy(metadata)
     text(d.get('target_id'), 'target_id', 80)
-    indexed(collection(d.get('businesses'), 'businesses', 1, 8), 'businesses')
+    indexed(collection(d.get('businesses'), 'businesses', 1, MAX_BUSINESSES), 'businesses')
     ps = indexed(collection(d.get('providers'), 'providers', 1, 3), 'providers')
     qs = indexed(collection(d.get('questions'), 'questions', 1, 8), 'questions')
     reps = count(d.get('repetitions'), 'repetitions', 20)
@@ -199,7 +218,7 @@ def from_records(metadata, records):
         for obj in (ps[pid], qs[qid]):
             obj['complete'] += 1
             obj['appearances'] += int(d['target_id'] in names)
-    for b in collection(d.get('businesses'), 'businesses', 1, 8):
+    for b in collection(d.get('businesses'), 'businesses', 1, MAX_BUSINESSES):
         b['appearances'] = counts[b['id']]
     d['evidence_basis'] = 'saved_response_records'
     return validate_report(d)
