@@ -22,9 +22,12 @@ PHRASE_LIMIT = 90
 DETAILS_LIMIT = 170
 LABEL_LIMIT = 40
 MAX_THEMES = 8
+MAX_SITE_CHECKS = 8
 TERMS_PER_THEME = (3, 8)
 THEME_CATEGORIES = ("Service", "Experience", "Value", "Journey", "Problems")
 _FORBIDDEN = re.compile(r"(https?://|www\.|@|£|\$|\d|guarantee|best in|award|#1)", re.IGNORECASE)
+# A search phrase may contain a number ("10-session pass"); it must not carry a price, link or claim.
+_FORBIDDEN_TERM = re.compile(r"(https?://|www\.|@|£|\$|guarantee|best in|award|#1)", re.IGNORECASE)
 
 
 class InvalidWordingError(ValueError):
@@ -50,7 +53,7 @@ def _theme(raw: Mapping[str, Any]) -> dict[str, Any]:
     terms = []
     for term in raw.get("terms") or []:
         clean = " ".join(str(term).casefold().split())
-        if 2 <= len(clean) <= 40 and not _FORBIDDEN.search(clean) and clean not in terms:
+        if 2 <= len(clean) <= 40 and not _FORBIDDEN_TERM.search(clean) and clean not in terms:
             terms.append(clean)
     low, high = TERMS_PER_THEME
     if len(terms) < low:
@@ -59,12 +62,36 @@ def _theme(raw: Mapping[str, Any]) -> dict[str, Any]:
     return {"key": key, "label": label, "category": category, "terms": terms[:high]}
 
 
+def _terms(values: Any, *, name: str, label: str, minimum: int, maximum: int) -> list[str]:
+    terms: list[str] = []
+    for term in values or []:
+        clean = " ".join(str(term).casefold().split())
+        if 2 <= len(clean) <= 40 and not _FORBIDDEN_TERM.search(clean) and clean not in terms:
+            terms.append(clean)
+    if len(terms) < minimum:
+        raise InvalidWordingError(f"Website topic “{label}” needs at least {minimum} {name}.")
+    return terms[:maximum]
+
+
+def _site_check(raw: Mapping[str, Any]) -> dict[str, Any]:
+    label = _phrase(raw.get("label"), "website topic", LABEL_LIMIT)
+    return {
+        "key": "type_check_" + re.sub(r"[^a-z0-9]+", "_", label.casefold()).strip("_"),
+        "label": label,
+        "page_terms": _terms(raw.get("page_terms"), name="phrases a page on it would contain", label=label, minimum=2, maximum=6),
+        "url_terms": _terms(raw.get("url_terms"), name="URL words", label=label, minimum=0, maximum=3),
+    }
+
+
 def validate_wording(raw: Mapping[str, Any]) -> dict[str, Any]:
     """The wording as it will be saved and used, or InvalidWordingError."""
 
     themes = [_theme(item) for item in list(raw.get("review_themes") or [])[:MAX_THEMES]]
     if len({t["key"] for t in themes}) != len(themes):
         raise InvalidWordingError("Two review themes have the same name.")
+    checks = [_site_check(item) for item in list(raw.get("site_checks") or [])[:MAX_SITE_CHECKS]]
+    if len({c["key"] for c in checks}) != len(checks):
+        raise InvalidWordingError("Two website topics have the same name.")
     return {
         "label": _phrase(raw.get("label"), "kind of business", LABEL_LIMIT),
         "booking": _phrase(raw.get("booking"), "how customers book", PHRASE_LIMIT),
@@ -72,6 +99,7 @@ def validate_wording(raw: Mapping[str, Any]) -> dict[str, Any]:
         "questions": _phrase(raw.get("questions"), "questions customers ask", PHRASE_LIMIT),
         "details": _phrase(raw.get("details"), "details a listing should show", DETAILS_LIMIT),
         "review_themes": themes,
+        "site_checks": checks,
     }
 
 
@@ -101,6 +129,10 @@ def build_prompt(*, business_type: str, known_for: str = "", priorities: list[st
         f'  "review_themes": up to {MAX_THEMES} objects {{"label", "category", "terms"}} for what customers of this kind of business '
         f'say in reviews. category is one of {", ".join(THEME_CATEGORIES)}; terms are 3-8 lower-case phrases a review would '
         "actually contain. Include a mix of positives and problems.\n"
+        f'  "site_checks": up to {MAX_SITE_CHECKS} objects {{"label", "page_terms", "url_terms"}}: things a customer of this kind of '
+        "business looks for on its website that a competitor's site would plausibly cover (for example a service, a way to buy "
+        'a gift, or what to know before a first visit). label is short; page_terms are 2-6 lower-case phrases a page on it would '
+        'contain; url_terms are 0-3 lower-case words that would appear in its web address.\n'
     )
 
 
@@ -159,6 +191,38 @@ def to_profile(wording: Mapping[str, Any] | None, group: str | None = None) -> B
         booking=str(wording.get("booking") or base.booking), pricing=str(wording.get("pricing") or base.pricing),
         questions=str(wording.get("questions") or base.questions),
     )
+
+
+def to_audit_checks(wording: Mapping[str, Any] | None) -> list[dict[str, Any]]:
+    """Website checks for the type, in the shape the website benchmark evaluates over saved pages."""
+
+    return [
+        {
+            "key": check["key"], "label": check["label"], "category": "Type-specific coverage", "weight": 3,
+            "page_terms": list(check["page_terms"]), "url_terms": list(check["url_terms"]),
+            "recommendation": f"Cover “{check['label']}” on its own page or clear section.",
+        }
+        for check in (wording or {}).get("site_checks") or []
+    ]
+
+
+def site_checks_to_text(checks: list[Mapping[str, Any]]) -> str:
+    return "\n".join(f"{c['label']} | {'; '.join(c['page_terms'])} | {'; '.join(c['url_terms'])}" for c in checks)
+
+
+def site_checks_from_text(text: str) -> list[dict[str, Any]]:
+    """The editor's lines, `label | phrase; phrase | urlword; urlword` (the last part may be empty)."""
+
+    checks = []
+    for line in str(text or "").splitlines():
+        if not line.strip():
+            continue
+        parts = [p.strip() for p in line.split("|")]
+        if len(parts) != 3:
+            raise InvalidWordingError(f"Website topic line “{line.strip()[:50]}” should look like: label | phrase; phrase | url word; url word")
+        checks.append({"label": parts[0], "page_terms": [t for t in parts[1].split(";") if t.strip()],
+                       "url_terms": [t for t in parts[2].split(";") if t.strip()]})
+    return checks
 
 
 def to_review_themes(wording: Mapping[str, Any] | None) -> list[dict[str, Any]]:

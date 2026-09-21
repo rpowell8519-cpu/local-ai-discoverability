@@ -126,7 +126,12 @@ limits) and used only after the reviewer edits/saves it (`reviewer_decisions["ty
 schema change; saving asks for the review to be completed again). It shapes how actions are phrased
 and adds review themes; it never changes measurements. The report discloses it. Tests inject the
 AI call, so none pay. Platforms/directories are deliberately not drafted (a model could invent them).
-Website audit profiles used at crawl time are still generic per group.
+Website topics for the type (`site_checks`: label, page phrases, URL words) are checked over the
+page text already saved for the client and its leaders (`to_audit_checks` → `get_audit_profile(extra_checks=)`),
+so nothing is re-crawled; a topic that is one of the owner's priorities is left to the proposition layer.
+Crawl-time behaviour (which pages are fetched first, when the crawl stops early: `GROUP_PRIORITY_TERMS`,
+`COVERAGE_TARGETS` in `website_audit.py`) is still generic for unknown types; only change it if a real
+run shows key pages were not fetched. Saved text is capped at 8000 characters a page.
 
 ### Recommendations from the evidence (reviewer-approved)
 

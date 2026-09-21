@@ -548,6 +548,7 @@ PROFILE_LABELS = {
 
 def get_audit_profile(
     primary_group: str,
+    extra_checks: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     group = str(primary_group or "generic")
 
@@ -566,5 +567,6 @@ def get_audit_profile(
         "checks": [
             *BASELINE_CHECKS,
             *vertical_checks,
+            *(extra_checks or []),
         ],
     }

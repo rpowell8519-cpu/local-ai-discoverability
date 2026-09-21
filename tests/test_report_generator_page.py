@@ -429,7 +429,7 @@ def test_the_build_label_changes_so_the_team_can_tell_which_version_is_live():
     at, _, stack = run_page(revision())
     with stack:
         captions = " ".join(c.value for c in at.caption)
-        assert "Build: Accessible AI Report Generator v3.5.1" in captions
+        assert "Build: Accessible AI Report Generator v3.6.0" in captions
 
 
 # ---------------------------------------------------------------- reviews saved before the new checks
@@ -786,6 +786,7 @@ SAUNA_WORDING = {
     "label": "sauna", "booking": "book a session or a private hire", "pricing": "session and group prices",
     "questions": "what to bring and age limits", "details": "opening times, session types and capacity",
     "review_themes": [{"label": "Heat", "category": "Experience", "terms": ["too hot", "lovely heat", "steam"]}],
+    "site_checks": [{"label": "Gift vouchers", "page_terms": ["gift voucher", "gift card"], "url_terms": ["gift"]}],
 }
 
 
@@ -814,6 +815,7 @@ def test_a_reviewer_can_draft_check_and_save_wording_for_an_unknown_type():
             assert not at.exception, [e.value for e in at.exception]
             decisions = saved.call_args.kwargs["reviewer_decisions"]
             assert decisions["type_wording"]["booking"] == "book a session or a private hire" and saved.call_args.kwargs["complete"] is False
+            assert decisions["type_wording"]["site_checks"][0]["page_terms"] == ["gift voucher", "gift card"]
 
 
 def test_wording_that_breaks_the_rules_is_not_saved_and_the_reason_is_shown():

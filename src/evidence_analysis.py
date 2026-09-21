@@ -30,7 +30,7 @@ from src.client_summary.actions import profile_for
 from src.recommendation_synthesis import build_recommendation_synthesis
 from src.review_analysis import build_review_benchmark
 from src.review_profiles import get_review_profile
-from src.type_wording import to_profile, to_review_themes
+from src.type_wording import to_audit_checks, to_profile, to_review_themes
 from src.vertical_audit_profiles import get_audit_profile
 from src.website_benchmark import USABLE_AUDIT_STATUSES, build_website_benchmark, evaluate_business
 
@@ -64,13 +64,29 @@ def _named(names: list[str]) -> str:
     return ", ".join(names[:-1]) + " and " + names[-1] if len(names) > 1 else "".join(names)
 
 
+def _covered_by_priority(label: str, propositions) -> bool:
+    """Whether a website topic is one of the owner's own priorities (so it is not recommended twice)."""
+
+    from src.ai_recommendation_intelligence import normalise_name
+    wanted = normalise_name(label)
+    return any(wanted and (wanted in normalise_name(p) or normalise_name(p) in wanted) for p in propositions or [])
+
+
 def _unavailable(layers: dict[str, dict[str, Any]], key: str, why: str) -> None:
     layers[key] = {"status": "unavailable", "note": why}
 
 
 # ---------------------------------------------------------------- wording, by signal and business type
-def _website_wording(key: str, profile) -> dict[str, str] | None:
+def _website_wording(key: str, profile, label: str = "") -> dict[str, str] | None:
     """Action wording for a website signal, in the language of this kind of business."""
+
+    if key.startswith("type_check_"):
+        return {
+            "title": f"Cover “{label}” on the website",
+            "action": f"Add a page or clear section on “{label}”: what is offered, what a customer needs to know, and how to book or buy. "
+                      "Use the words customers use and link it from the main navigation.",
+            "done_when": f"A customer searching the site for “{label}” lands on a page that answers it, linked from the main navigation",
+        }
 
     if key == "booking":
         return {
@@ -111,6 +127,7 @@ def _website_wording(key: str, profile) -> dict[str, str] | None:
 def _website_candidates(
     *, fb: pd.DataFrame, te: pd.DataFrame, evals: Mapping[str, Mapping[str, Any]], names: Mapping[str, str],
     reads: Mapping[str, dict[str, Any]], target_id: str, target_name: str, leader_ids: list[str], profile, layer_note: str,
+    propositions: list[str] = (),
 ) -> list[dict[str, Any]]:
     recommended = {str(row["signal"]) for row in te.to_dict("records") if str(row.get("disposition")) == "Recommend"}
     scores = {str(row["signal"]): row for row in te.to_dict("records")}
@@ -119,7 +136,9 @@ def _website_candidates(
         label, key = str(row["check"]), str(row["key"])
         if label not in recommended or row.get("target_found"):
             continue
-        wording = _website_wording(key, profile)
+        if key.startswith("type_check_") and _covered_by_priority(label, propositions):
+            continue  # the owner's own priority already gets its own recommendation
+        wording = _website_wording(key, profile, label)
         if wording is None:
             continue
         having = [pid for pid in leader_ids if evals.get(pid, {}).get(key, {}).get("found")]
@@ -273,7 +292,7 @@ def analyse_evidence(
             else:
                 try:
                     cohort_frame = usable[usable["google_place_id"].astype(str).isin([target_id, *usable_leader_ids])]
-                    audit_profile = get_audit_profile(primary_group)
+                    audit_profile = get_audit_profile(primary_group, extra_checks=to_audit_checks(type_wording))
                     ws = build_website_benchmark(target_google_place_id=target_id, audits=cohort_frame,
                                                  pages_by_run=dict(pages_by_run), profile=audit_profile)
                     if "error" in ws:
@@ -298,7 +317,8 @@ def analyse_evidence(
                     actions, te = syn["actions"], syn["technical_evidence"]
                     candidates += _website_candidates(
                         fb=ws["feature_benchmark"], te=te, evals=evals, names=names, reads=reads, target_id=target_id,
-                        target_name=target_name, leader_ids=usable_leader_ids, profile=profile, layer_note=layer_note)
+                        target_name=target_name, leader_ids=usable_leader_ids, profile=profile, layer_note=layer_note,
+                        propositions=propositions)
                     if pb is not None and not pb.empty:
                         candidates += _proposition_candidates(actions=actions, pb=pb, cov=cov, names=names, reads=reads, target_id=target_id,
                                                               target_name=target_name, profile=profile, layer_note=layer_note)

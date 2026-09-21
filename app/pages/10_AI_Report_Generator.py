@@ -129,7 +129,7 @@ from src.report_generator_readiness import (  # noqa: E402
 )
 
 
-BUILD_VERSION = "Accessible AI Report Generator v3.5.1 (report types in one list)"
+BUILD_VERSION = "Accessible AI Report Generator v3.6.0 (website topics for new business types)"
 REPORT_STATE_KEY = "accessible_ai_report_generator_result"
 SUMMARY_STATE_KEY = "accessible_ai_client_summary_result"
 
@@ -1680,6 +1680,11 @@ if ai_ready and definition is None:
             "What reviewers of this kind of business talk about (one per line: label | category | phrase; phrase; phrase)",
             value=type_wording_tools.themes_to_text(working.get("review_themes") or []), key=f"tw_themes_{selected_place_id}_{version}",
         )
+        tw_checks = st.text_area(
+            "Website topics to check on this business's site and its competitors' (one per line: label | phrase; phrase | url word; url word)",
+            value=type_wording_tools.site_checks_to_text(working.get("site_checks") or []), key=f"tw_checks_{selected_place_id}_{version}",
+            help="These are looked for in the website pages already saved, so nothing is re-crawled. A topic that is one of the owner's priorities is not recommended twice.",
+        )
         save_col, clear_col = st.columns(2)
         with save_col:
             if st.button("Save this wording for the report", key=f"type_wording_save_{selected_place_id}"):
@@ -1687,6 +1692,7 @@ if ai_ready and definition is None:
                     wording = type_wording_tools.validate_wording({
                         "label": tw_label, "booking": tw_booking, "pricing": tw_pricing, "questions": tw_questions,
                         "details": tw_details, "review_themes": type_wording_tools.themes_from_text(tw_themes),
+                        "site_checks": type_wording_tools.site_checks_from_text(tw_checks),
                     })
                 except type_wording_tools.InvalidWordingError as exc:
                     st.error(f"Not saved: {exc}")
