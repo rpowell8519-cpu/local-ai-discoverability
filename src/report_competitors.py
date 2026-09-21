@@ -121,3 +121,19 @@ def match_owner_competitors(
             ) if accepted else "Identity needs confirmation",
         })
     return matches
+
+
+def resolve_run_location(service_areas: Iterable[str], city: Any) -> str:
+    """Where the AI providers should assume the customer is searching from.
+
+    The owner's stated service areas take priority, then the business's own city. There is
+    deliberately no default: a wrong location silently skews every result, so an empty
+    answer means the run must not start.
+    """
+
+    areas = [str(area).strip() for area in service_areas if str(area).strip()]
+    if areas:
+        return ", ".join(areas)
+    if city is None or (isinstance(city, float) and city != city):
+        return ""
+    return str(city).strip()

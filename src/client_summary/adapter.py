@@ -79,6 +79,8 @@ def build_client_summary_report(
     location: str | None = None,
     owner_questions: Iterable[str] = (),
     reviewer_action_titles: Iterable[str] = (),
+    site_findings: Iterable[Mapping[str, Any]] = (),
+    website_checked: bool = False,
 ) -> dict[str, Any]:
     """Return validated client-summary data for a saved, complete benchmark."""
 
@@ -115,7 +117,10 @@ def build_client_summary_report(
         for q in report["questions"]
     ]
     group = business_group or owner_config.get("primary_group")
-    actions = build_actions(measured, business_group=group, reviewer_titles=reviewer_action_titles)
+    findings = sorted(site_findings, key=lambda f: not f.get("gap"))[:3]
+    actions = build_actions(
+        measured, business_group=group, reviewer_titles=reviewer_action_titles, findings=findings
+    )
 
     models = _provider_models(report["responses"])
     providers = [
@@ -152,6 +157,10 @@ def build_client_summary_report(
 
     owner_searches = {" ".join(str(item).split()).casefold() for item in owner_questions}
     limitations: list[str] = []
+    if website_checked and not any(f.get("kind") == "crawler_access" for f in findings):
+        limitations.append(
+            "The website's robots.txt could not be read, so whether AI search crawlers can visit the site was not tested."
+        )
     unresolved = [row for row in report["market"] if not row["verified"]]
     if unresolved:
         limitations.append(
@@ -184,7 +193,10 @@ def build_client_summary_report(
         "providers": providers,
         "questions": questions,
         "businesses": businesses,
-        "evidence": [],
+        "evidence": [
+            {"id": str(f["id"]), "observation": str(f["observation"]), "source": str(f["source"])}
+            for f in findings
+        ],
         "actions": actions,
         "limitations": limitations[:4],
     }

@@ -66,9 +66,17 @@ give the summary its own counting or its own evidence.
   runs, layout overflow).
 - `src/client_summary/adapter.py` maps the saved answers onto that contract, labels each
   question with the owner priority it tests, and picks the comparison businesses to show.
-- `src/client_summary/actions.py` chooses exactly three actions, all `suggested_check`, from the
-  measured results. Business types only change which details and platforms are named. A
-  `verified_gap` action needs an observation and a source; nothing produces one yet.
+- `src/client_summary/actions.py` chooses exactly three actions from the measured results.
+  Topic actions are `suggested_check`: a low count alone never shows a page is missing
+  something. Business types only change which details and platforms are named. A
+  `verified_gap` action needs an observation and a source, and comes first.
+- `src/site_checks.py` produces those observations. Today it has one check: whether the
+  site's robots.txt blocks the AI search crawlers (OAI-SearchBot, Claude-SearchBot,
+  PerplexityBot, Googlebot, Bingbot; training crawlers are a business choice and are not
+  flagged). It reads only robots.txt through the audit's public-address-only fetcher. A file
+  that cannot be read is "unknown" and becomes a stated limitation, never a gap. It cannot
+  see firewall or CDN rules, so it says what robots.txt says and no more. The full report
+  (RP) does not use these findings yet.
 - The summary needs every planned answer, at least two questions and at most eight. When it
   cannot be produced the message says what to fix; the full report can still be produced.
 
@@ -132,6 +140,15 @@ the report generator, and the decision is stored in `reviewer_decisions`
 (`confirmed_target_names`, `rejected_target_names`), so no schema change is needed.
 Confirmed names are credited through `slot_adjudications` and disclosed in the report's
 methodology. Generation refuses to run while a look-alike name is undecided.
+
+### Location of a run
+
+The AI platforms search as if the customer is in a stated place. `resolve_run_location`
+(`src/report_competitors.py`) uses the owner's service areas, then the business's own city,
+and there is deliberately no default: an empty result blocks the run. A wrong location
+silently skews every result, and the page once defaulted to "Brighton and Hove" for every
+business. Do not reintroduce a default. `src/llm_providers/` still contains that fallback for
+callers that pass no location; the report generator never does.
 
 ### Question-to-priority links and comparison evidence
 

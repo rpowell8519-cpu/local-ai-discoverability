@@ -1,10 +1,11 @@
 """Three practical actions for the client summary, chosen from the measured results.
 
-Every action is a suggested check, never a verified gap: a low appearance count does not
-show that a page is missing information, and nothing here has inspected a website. The
-wording follows what the research supports (accurate details, consistent listings,
-crawlers not blocked) and promises no change in AI answers. Business types differ only in
-which details and platforms are named.
+An action is a suggested check unless a site check has observed something specific: then it
+is a verified gap that carries the observation and where it was seen (see
+src/site_checks.py). A low appearance count alone never shows that a page is missing
+information, so topic actions stay suggested checks. The wording follows what the research
+supports (accurate details, consistent listings, crawlers not blocked) and promises no
+change in AI answers. Business types differ only in which details and platforms are named.
 """
 from __future__ import annotations
 
@@ -58,6 +59,8 @@ _OWNER_TOPIC = "Business owner supplies the facts; website provider publishes th
 _DONE_TOPIC = "A customer can find the details and complete an enquiry or booking; the team has tested that route"
 _OWNER_DETAILS = "Business owner, with the website provider"
 _DONE_DETAILS = "Details agree everywhere they appear, and the website provider has confirmed AI search crawlers can visit the site"
+_DONE_DETAILS_CHECKED = "Details agree everywhere they appear"
+_CRAWLER_CLAUSE = " Ask your website provider to confirm AI search crawlers are not blocked."
 
 
 def profile_for(business_group: str | None) -> BusinessProfile:
@@ -81,11 +84,14 @@ def build_actions(
     *,
     business_group: str | None = None,
     reviewer_titles: Iterable[str] = (),
+    findings: Sequence[Mapping[str, Any]] = (),
 ) -> list[dict[str, Any]]:
     """Return exactly three actions.
 
-    questions: dicts with id, label, appearances, answers. The two weakest topics each get
-    an information check; the third keeps details consistent, linked to the strongest topic.
+    questions: dicts with id, label, appearances, answers. A verified gap from a site check
+    comes first, because it can make every other improvement moot. The weakest topics then
+    each get an information check, and the last action keeps details consistent, linked to
+    the strongest topic. findings: observations from src/site_checks.py.
     """
 
     if len(questions) < 2:
@@ -94,7 +100,27 @@ def build_actions(
     weakest_first = sorted(questions, key=lambda q: (_rate(q), str(q["id"])))
     strongest = max(questions, key=lambda q: (_rate(q), -questions.index(q)))
     actions = []
-    for position, question in enumerate(weakest_first[:2], 1):
+    crawler_gap = next((f for f in findings if f.get("kind") == "crawler_access" and f.get("gap")), None)
+    crawler_checked = any(f.get("kind") == "crawler_access" for f in findings)
+    if crawler_gap:
+        blocked = ", ".join(crawler_gap.get("blocked_labels") or ["AI search tools"])
+        actions.append(
+            {
+                "id": "action-1",
+                "title": "Let AI search tools visit your website",
+                "question_id": weakest_first[0]["id"],
+                "status": "verified_gap",
+                "evidence_ids": [crawler_gap["id"]],
+                "task": (
+                    f"Ask your website provider to change the site's robots.txt so it no longer blocks {blocked}. "
+                    "Then check that hosting or security settings do not block automated visitors either."
+                ),
+                "owner": "Website provider, with the business owner's approval",
+                "done_when": "robots.txt no longer blocks these crawlers, and the provider has confirmed hosting and security settings allow them",
+            }
+        )
+    for question in weakest_first[: 2 - len(actions)]:
+        position = len(actions) + 1
         label = str(question["label"]).strip()
         actions.append(
             {
@@ -121,10 +147,10 @@ def build_actions(
             "task": (
                 "Check that your name, address, phone number, opening times, services and links match on your "
                 f"website and on {profile.platforms}. Correct differences and remove duplicate or out-of-date "
-                "listings. Ask your website provider to confirm AI search crawlers are not blocked."
+                "listings." + ("" if crawler_checked else _CRAWLER_CLAUSE)
             ),
             "owner": _OWNER_DETAILS,
-            "done_when": _DONE_DETAILS,
+            "done_when": _DONE_DETAILS_CHECKED if crawler_checked else _DONE_DETAILS,
         }
     )
     for action, title in zip(actions, [str(t).strip() for t in reviewer_titles if str(t).strip()]):

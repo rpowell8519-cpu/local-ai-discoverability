@@ -75,9 +75,11 @@ from src.poc_audit_generic import (  # noqa: E402
 )
 from src.report_audit_candidates import load_report_candidates  # noqa: E402
 from src.report_identity import find_possible_target_names  # noqa: E402
+from src.site_checks import check_ai_crawler_access, crawler_finding  # noqa: E402
 from src.report_priorities import NOT_LINKED, suggest_priority_map  # noqa: E402
 from src.report_competitors import (  # noqa: E402
     catchment_radius_miles,
+    resolve_run_location,
     classify_location,
     match_owner_competitors,
 )
@@ -750,6 +752,15 @@ if next_step["key"] == "benchmark":
         "Gemini": secret_value("GEMINI_API_KEY"),
     }
     available_providers = [name for name, key in api_keys.items() if key]
+    run_location = resolve_run_location(
+        dict(saved_brief.get("owner_context") or {}).get("service_areas") or [],
+        business.get("city"),
+    )
+    if not run_location:
+        st.error(
+            "This business has no city on record and no service area was entered, so the AI platforms would not "
+            "know where the customer is searching from. Add a service area in the owner context above."
+        )
     with ai_controls[1]:
         st.metric("AI platforms connected", f"{len(available_providers)} / 3")
     call_count = len(selected_questions) * int(repetitions) * len(available_providers)
@@ -779,6 +790,7 @@ if next_step["key"] == "benchmark":
             or len(selected_questions) == 0
             or len(selected_questions) > 8
             or len(available_providers) != 3
+            or not run_location
         ),
     )
     if run_ai_visibility:
@@ -809,10 +821,7 @@ if next_step["key"] == "benchmark":
                 target_google_place_id=selected_place_id,
                 target_business_name=str(business["business_name"]),
                 primary_group=str(business.get("primary_group") or "generic"),
-                location_context=(
-                    ", ".join(dict(saved_brief.get("owner_context") or {}).get("service_areas") or [])
-                    or "Brighton and Hove"
-                ),
+                location_context=run_location,
                 providers=available_providers,
                 models=models,
                 prompt_count=len(prompt_records),
@@ -843,10 +852,7 @@ if next_step["key"] == "benchmark":
                     for item in business_records
                 ],
                 benchmark_mode="search_grounded",
-                location_context=(
-                    ", ".join(dict(saved_brief.get("owner_context") or {}).get("service_areas") or [])
-                    or "Brighton and Hove"
-                ),
+                location_context=run_location,
                 progress_callback=progress_callback,
                 status_callback=status_callback,
             )
@@ -1506,7 +1512,9 @@ else:
             "Detailed, evidence-led report with the questions, methods and sources in appendices."
             if report_kind == "full"
             else "Six pages in plain language: the result, what was tested, where the business appeared, "
-            "who else appeared, three suggested checks and how to follow up. Same saved evidence and counts as the full report."
+            "who else appeared, three actions and how to follow up. Same saved evidence and counts as the full report. "
+            "When it is generated it also reads the website's robots.txt (a read-only request) to see whether AI search "
+            "crawlers are blocked; any block found becomes a sourced action."
         )
         generate = st.button(
             "Generate report from saved evidence" if report_kind == "full" else "Generate client summary from saved evidence",
@@ -1523,8 +1531,16 @@ else:
                     if definition is not None
                     else assemble_generic_report_payload(durable_audit)
                 )
+                summary_site_url = clean_text((durable_audit or {}).get("manual_website_url")) or clean_text(
+                    business.get("source_website_url")
+                )
+                summary_finding = (
+                    crawler_finding(check_ai_crawler_access(summary_site_url)) if summary_site_url else None
+                )
                 summary_data = build_client_summary_report(
                     summary_payload,
+                    site_findings=[summary_finding] if summary_finding else [],
+                    website_checked=bool(summary_site_url),
                     business_group=str(business.get("primary_group") or ""),
                     owner_questions=list((saved_brief or {}).get("desired_searches") or []),
                     reviewer_action_titles=list(

@@ -376,15 +376,15 @@ def render_pdf(payload):
         ('<b>' + ('&nbsp;' * 4).join(f'{safe(p["name"])}: {p["appearances"]} of {p["complete"]}' for p in providers) + '</b>', 'body'),
         (provider_note, 'body'),
     ])
+    page.heading('What we can learn from competitors')
+    page.para('The other businesses give useful examples to investigate. This report does not show that a particular '
+              'page, review or listing caused their higher visibility.')
     if d.get('evidence'):
-        page.heading('Supporting observations')
+        page.heading('What we checked on your website')
         for e in d['evidence']:
             page.para('<b>' + safe(e['id']) + ':</b> ' + safe(e['observation']) + '<br/><b>Source:</b> ' + safe(e['source']), 'small', 7)
         page.para('These observations do not establish why an AI provider included a business.', 'small')
     else:
-        page.heading('What we can learn from competitors')
-        page.para('The other businesses give useful examples to investigate. This report does not show that a particular '
-                  'page, review or listing caused their higher visibility.')
         page.para('No sourced website or review observations were supplied for this summary. Compare relevant pages and '
                   'customer information before claiming that a competitor has stronger evidence. Missing evidence is not '
                   'poor performance.', 'small')

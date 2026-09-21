@@ -43,3 +43,28 @@ def test_owner_competitor_with_zero_visibility_is_retained() -> None:
     assert matches[0]["recommendations"] == 0
     assert matches[0]["visibility_status"] == "Not recommended in this benchmark"
     assert matches[1]["match_status"] == "needs_confirmation"
+
+
+def test_run_location_prefers_service_areas_then_the_businesss_city():
+    from src.report_competitors import resolve_run_location
+
+    assert resolve_run_location(["Leeds", " Harrogate "], "Manchester") == "Leeds, Harrogate"
+    assert resolve_run_location([], "Manchester") == "Manchester"
+    assert resolve_run_location(["", "  "], " Bath ") == "Bath"
+
+
+def test_run_location_has_no_default_so_a_run_cannot_start_in_the_wrong_place():
+    from src.report_competitors import resolve_run_location
+
+    assert resolve_run_location([], None) == ""
+    assert resolve_run_location([], float("nan")) == ""
+    assert resolve_run_location([], "  ") == ""
+
+
+def test_report_page_has_no_hardcoded_local_default():
+    from pathlib import Path
+
+    page = Path(__file__).resolve().parents[1] / "app" / "pages" / "10_AI_Report_Generator.py"
+    source = page.read_text()
+    assert 'or "Brighton and Hove"' not in source
+    assert "location_context=run_location" in source

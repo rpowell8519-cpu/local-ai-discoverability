@@ -124,3 +124,75 @@ def test_summary_needs_two_questions_to_choose_actions():
 def test_actions_make_no_uplift_promise():
     text = " ".join(a["task"] + a["done_when"] for a in build_actions(QUESTIONS)).casefold()
     assert not any(word in text for word in ("guarantee", "rank higher", "more customers", "increase your"))
+
+
+CRAWLER_GAP = {
+    "id": "E1", "kind": "crawler_access", "gap": True, "blocked_labels": ["ChatGPT search", "Perplexity"],
+    "observation": "robots.txt asks these AI search crawlers not to visit the site: OAI-SearchBot (ChatGPT search), PerplexityBot (Perplexity).",
+    "source": "https://example.co.uk/robots.txt, read on 21 September 2026",
+}
+CRAWLER_OK = {
+    "id": "E1", "kind": "crawler_access", "gap": False, "blocked_labels": [],
+    "observation": "robots.txt does not block the main AI search crawlers (ChatGPT search, Claude search, Perplexity, Google Search, Bing and Copilot).",
+    "source": "https://example.co.uk/robots.txt, read on 21 September 2026",
+}
+
+
+def test_a_blocked_crawler_becomes_the_first_action_and_a_verified_gap():
+    actions = build_actions(QUESTIONS, business_group="pub", findings=[CRAWLER_GAP])
+    assert len(actions) == 3
+    first = actions[0]
+    assert first["status"] == "verified_gap" and first["evidence_ids"] == ["E1"]
+    assert "ChatGPT search, Perplexity" in first["task"]
+    assert [a["status"] for a in actions[1:]] == ["suggested_check", "suggested_check"]
+    assert [a["id"] for a in actions] == ["action-1", "action-2", "action-3"]
+    assert "robots.txt" not in actions[2]["task"] and "crawlers" not in actions[2]["task"]
+
+
+def test_an_all_clear_check_removes_the_generic_crawler_request_but_is_not_an_action():
+    actions = build_actions(QUESTIONS, business_group="pub", findings=[CRAWLER_OK])
+    assert {a["status"] for a in actions} == {"suggested_check"}
+    assert "crawlers" not in actions[2]["task"] and "crawlers" not in actions[2]["done_when"]
+
+
+def test_without_a_check_the_consistency_action_still_asks_the_provider_to_confirm():
+    actions = build_actions(QUESTIONS, business_group="pub")
+    assert "crawlers are not blocked" in actions[2]["task"]
+
+
+def test_verified_actions_fit_the_contract():
+    for action in build_actions(QUESTIONS, findings=[CRAWLER_GAP]):
+        assert len(action["title"]) <= TITLE_LIMIT and len(action["task"]) <= TASK_LIMIT
+        assert len(action["owner"]) <= OWNER_LIMIT and len(action["done_when"]) <= DONE_LIMIT
+
+
+def test_the_summary_shows_the_observation_its_source_and_a_verified_action(payload):
+    data = summary(payload, site_findings=[CRAWLER_GAP], website_checked=True)
+    assert [e["id"] for e in data["evidence"]] == ["E1"]
+    assert data["actions"][0]["status"] == "verified_gap"
+    text = " ".join(
+        page.extract_text() for page in PdfReader(BytesIO(render_client_summary_pdf(data))).pages
+    )
+    text = " ".join(text.split())
+    assert "OAI-SearchBot (ChatGPT search)" in text
+    assert "https://example.co.uk/robots.txt, read on 21 September 2026" in text
+    assert "Action for a documented gap" in text and "LET AI SEARCH TOOLS VISIT YOUR WEBSITE" in text
+    assert "robots.txt" in text and len(PdfReader(BytesIO(render_client_summary_pdf(data))).pages) == 6
+
+
+def test_an_all_clear_observation_is_shown_but_no_gap_is_claimed(payload):
+    data = summary(payload, site_findings=[CRAWLER_OK], website_checked=True)
+    assert data["evidence"][0]["id"] == "E1"
+    assert all(a["status"] == "suggested_check" for a in data["actions"])
+    assert not any("could not be read" in item for item in data["limitations"])
+
+
+def test_an_unreadable_robots_file_is_a_limitation_never_a_gap(payload):
+    data = summary(payload, site_findings=[], website_checked=True)
+    assert data["evidence"] == [] and all(a["status"] == "suggested_check" for a in data["actions"])
+    assert any("could not be read" in item for item in data["limitations"])
+
+
+def test_no_website_means_no_limitation_about_crawlers(payload):
+    data = summary(payload, site_findings=[], website_checked=False)
+    assert not any("robots.txt" in item for item in data["limitations"])
