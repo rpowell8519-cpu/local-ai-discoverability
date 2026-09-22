@@ -6,8 +6,10 @@ nobody has written that for (a sauna, a dog groomer), the generic wording ("enqu
 reads the result, so a draft is never used until a reviewer has checked it and chosen to use it.
 
 Nothing here calls a network. `draft_type_wording` takes the function that does, so tests never pay.
-The checks below apply to a draft and to anything a reviewer edits: a wrong or over-long value is
-refused with a plain reason, never silently repaired.
+The checks below apply to a draft and to anything a reviewer edits: content that should not be
+drafted at all (a number, price, link or claim) is refused with a plain reason; a value that is
+merely too long is shortened at a word boundary, the same rule the client summary uses elsewhere,
+never thrown away over a few characters.
 """
 from __future__ import annotations
 
@@ -34,15 +36,22 @@ class InvalidWordingError(ValueError):
     """The wording is unusable, with the reason in plain words."""
 
 
+def _shorten(text: str, limit: int) -> str:
+    """Cut at a word boundary with an ellipsis, the same rule the client summary uses; never rejects for length alone."""
+
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1].rsplit(" ", 1)[0].rstrip(",;:- ") + "…"
+
+
 def _phrase(value: Any, name: str, limit: int) -> str:
     text = " ".join(str(value or "").split()).strip(" .;")
     if not text:
         raise InvalidWordingError(f"“{name}” is empty.")
-    if len(text) > limit:
-        raise InvalidWordingError(f"“{name}” is {len(text)} characters; the limit is {limit}.")
+    # Content that should not be drafted at all is a hard failure; a merely long draft is shortened, not thrown away.
     if _FORBIDDEN.search(text):
         raise InvalidWordingError(f"“{name}” contains a number, price, link or claim that should not be drafted: “{text}”.")
-    return text
+    return _shorten(text, limit)
 
 
 def _theme(raw: Mapping[str, Any]) -> dict[str, Any]:

@@ -6,7 +6,8 @@ import pytest
 from src.client_summary.actions import build_actions, has_builtin_profile, profile_for
 from src.evidence_analysis import analyse_evidence, select_leaders
 from src.type_wording import (
-    InvalidWordingError, build_prompt, draft_type_wording, parse_draft, themes_from_text, themes_to_text, to_profile, validate_wording,
+    DETAILS_LIMIT, InvalidWordingError, build_prompt, draft_type_wording, parse_draft, themes_from_text, themes_to_text, to_profile,
+    validate_wording,
 )
 from tests import evidence_fixture as F
 
@@ -44,13 +45,21 @@ def test_the_prompt_gives_the_ai_only_the_briefing_and_forbids_inventing_facts()
 @pytest.mark.parametrize("field, value", [
     ("booking", "book online for £15 a session"),
     ("pricing", ""),
-    ("questions", "x" * 120),
     ("details", "see https://example.com"),
     ("booking", "book the best in Brighton"),
 ])
-def test_a_draft_that_invents_prices_links_or_claims_or_is_the_wrong_size_is_refused(field, value):
+def test_a_draft_that_invents_prices_links_or_claims_is_refused(field, value):
     with pytest.raises(InvalidWordingError):
         parse_draft(reply(**{field: value}))
+
+
+def test_a_draft_that_is_merely_too_long_is_shortened_not_rejected():
+    # Regression: the model drafted "details" at 176 characters against a 170 limit, and the whole
+    # draft was thrown away instead of trimmed, the one field a reviewer could easily have shortened.
+    wording = parse_draft(reply(details=("opening times, session types, capacity and how to book, plus gift vouchers " * 3)[:176]))
+    assert len(wording["details"]) <= DETAILS_LIMIT and wording["details"].endswith("…")
+    long_questions = parse_draft(reply(questions="x" * 120))["questions"]
+    assert len(long_questions) == 90 and long_questions.endswith("…")
 
 
 def test_a_reply_with_no_usable_wording_or_thin_themes_is_refused():
