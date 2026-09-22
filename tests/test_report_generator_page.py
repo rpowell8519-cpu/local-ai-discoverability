@@ -826,12 +826,40 @@ def test_a_reviewer_can_draft_check_and_save_wording_for_an_unknown_type():
             assert not at.exception, [e.value for e in at.exception]
             fake.assert_called_once()
             assert next(t for t in at.text_input if str(t.key).startswith("tw_booking_")).value == "book a session or a private hire"
-            saved.assert_not_called()  # a draft is not used until the reviewer saves it
+            # The raw draft is saved right away, so a reload does not lose a paid call, but it is not "type_wording"
+            # (what the report reads) until the reviewer actually saves it below.
+            draft_save = saved.call_args.kwargs["reviewer_decisions"]
+            assert "type_wording" not in draft_save and draft_save["type_wording_draft"]["booking"] == "book a session or a private hire"
+            saved.reset_mock()
             next(b for b in at.button if str(b.key).startswith("type_wording_save_")).click().run()
             assert not at.exception, [e.value for e in at.exception]
             decisions = saved.call_args.kwargs["reviewer_decisions"]
             assert decisions["type_wording"]["booking"] == "book a session or a private hire" and saved.call_args.kwargs["complete"] is False
             assert decisions["type_wording"]["site_checks"][0]["page_terms"] == ["gift voucher", "gift card"]
+            assert "type_wording_draft" not in decisions  # approved, so the pending copy is cleared
+
+
+def test_a_reload_before_saving_does_not_lose_the_paid_draft():
+    # The reviewer drafted with AI, then reloaded the browser before pressing "Save" (a fresh session:
+    # st.session_state is gone, only what was persisted to the revision survives).
+    with mock.patch("src.client_summary.actions._GROUPS", {}):
+        at, saved, stack = run_page(revision({"type_wording_draft": SAUNA_WORDING}))
+        with stack:
+            assert not at.exception, [e.value for e in at.exception]
+            assert any("A draft from before is shown below" in c.value for c in at.caption)
+            assert next(t for t in at.text_input if str(t.key).startswith("tw_booking_")).value == "book a session or a private hire"
+            next(b for b in at.button if str(b.key).startswith("type_wording_save_")).click().run()
+            decisions = saved.call_args.kwargs["reviewer_decisions"]
+            assert decisions["type_wording"]["booking"] == "book a session or a private hire" and "type_wording_draft" not in decisions
+
+
+def test_going_back_to_general_wording_clears_a_pending_draft_too():
+    with mock.patch("src.client_summary.actions._GROUPS", {}):
+        at, saved, stack = run_page(revision({"type_wording": SAUNA_WORDING, "type_wording_draft": SAUNA_WORDING}))
+        with stack:
+            next(b for b in at.button if str(b.key).startswith("type_wording_clear_")).click().run()
+            decisions = saved.call_args.kwargs["reviewer_decisions"]
+            assert "type_wording" not in decisions and "type_wording_draft" not in decisions
 
 
 def test_wording_that_breaks_the_rules_is_not_saved_and_the_reason_is_shown():

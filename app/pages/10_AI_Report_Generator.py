@@ -1674,7 +1674,8 @@ if ai_ready and definition is None:
     # Wording for a kind of business nobody has written specific wording for.
     type_group = str(business.get("primary_group") or "generic")
     saved_type_wording = dict(existing_decisions.get("type_wording") or {})
-    if saved_type_wording or not has_builtin_profile(type_group):
+    saved_draft = dict(existing_decisions.get("type_wording_draft") or {})
+    if saved_type_wording or saved_draft or not has_builtin_profile(type_group):
         st.markdown("**Wording for this kind of business**")
         st.caption(
             "There is no built-in wording for this kind of business, so reports use general wording (“enquire or book”, "
@@ -1683,14 +1684,16 @@ if ai_ready and definition is None:
             "have read it and pressed save. Saving asks for the review to be completed again."
         )
         draft_key = f"type_wording_draft_{selected_place_id}"
-        working = st.session_state.get(draft_key) or saved_type_wording
+        working = st.session_state.get(draft_key) or saved_draft or saved_type_wording
+        if saved_draft and not st.session_state.get(draft_key):
+            st.caption("A draft from before is shown below (it is saved automatically as you draft, so reloading the page does not lose it).")
         claude_key = secret_value("ANTHROPIC_API_KEY")
         if not claude_key:
             st.info("The AI service is not connected, so wording can only be typed in by hand.")
         elif st.button("Draft wording with AI (one short paid request)", key=f"type_wording_go_{selected_place_id}"):
             try:
                 with st.spinner("Drafting wording…"):
-                    st.session_state[draft_key] = type_wording_tools.draft_type_wording(
+                    drafted = type_wording_tools.draft_type_wording(
                         type_wording_tools.call_claude(claude_key, DEFAULT_MODELS["Claude"]),
                         business_type=str(business.get("raw_category") or type_group).replace("_", " "),
                         known_for=str(saved_brief.get("known_for") or ""),
@@ -1702,6 +1705,15 @@ if ai_ready and definition is None:
             except Exception as exc:
                 st.error(f"The AI service could not be reached ({type(exc).__name__}). Nothing was changed.")
             else:
+                st.session_state[draft_key] = drafted
+                # Saved immediately so the paid draft survives a reload; it is not used in the report until "Save" below.
+                try:
+                    save_reviewer_decisions_revision(
+                        target_google_place_id=selected_place_id,
+                        reviewer_decisions={**existing_decisions, "type_wording_draft": drafted}, complete=False,
+                    )
+                except Exception:
+                    pass  # the draft still shows for this session even if the background save failed
                 st.rerun()
         version = abs(hash(str(working))) % 100000
         tw_label = st.text_input("Kind of business", value=str(working.get("label") or ""), key=f"tw_label_{selected_place_id}_{version}")
@@ -1733,7 +1745,11 @@ if ai_ready and definition is None:
                     try:
                         save_reviewer_decisions_revision(
                             target_google_place_id=selected_place_id,
-                            reviewer_decisions={**existing_decisions, "type_wording": wording}, complete=False,
+                            reviewer_decisions={
+                                **{k: v for k, v in existing_decisions.items() if k != "type_wording_draft"},
+                                "type_wording": wording,
+                            },
+                            complete=False,
                         )
                     except Exception as exc:
                         st.error("The wording could not be saved.")
@@ -1743,11 +1759,12 @@ if ai_ready and definition is None:
                         st.cache_data.clear()
                         st.rerun()
         with clear_col:
-            if saved_type_wording and st.button("Go back to the general wording", key=f"type_wording_clear_{selected_place_id}"):
+            if (saved_type_wording or saved_draft) and st.button("Go back to the general wording", key=f"type_wording_clear_{selected_place_id}"):
                 try:
                     save_reviewer_decisions_revision(
                         target_google_place_id=selected_place_id,
-                        reviewer_decisions={k: v for k, v in existing_decisions.items() if k != "type_wording"}, complete=False,
+                        reviewer_decisions={k: v for k, v in existing_decisions.items() if k not in ("type_wording", "type_wording_draft")},
+                        complete=False,
                     )
                 except Exception as exc:
                     st.error("The change could not be saved.")
