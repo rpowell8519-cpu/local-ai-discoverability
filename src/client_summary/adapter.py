@@ -110,9 +110,10 @@ def _comparison_evidence(owner_config: Mapping[str, Any], approved: list[dict[st
     if not approved or not basis or taken >= 3:
         return []
     dates = sorted({str(e["read_on"]) for a in approved for e in a.get("evidence", []) if e.get("read_on")})
+    observation = _shorten(basis.split(", read between")[0], 218)
     return [{
         "id": f"E{taken + 1}",
-        "observation": _shorten(basis.split(", read between")[0], 218) + ".",
+        "observation": observation if observation.endswith("…") else observation + ".",
         "source": _shorten("Saved website audits" + (f", read {dates[0]}" + (f" to {dates[-1]}" if dates[-1] != dates[0] else "") if dates else ""), 200),
     }]
 

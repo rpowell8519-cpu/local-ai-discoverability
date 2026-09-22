@@ -184,3 +184,16 @@ def test_the_summary_uses_approved_business_type_wording_for_its_topic_checks():
     payload["report"]["owner_report"].update(type_wording=wording, primary_group="wellness")
     tasks = " ".join(a["task"] for a in summary_for(payload)["actions"])
     assert "opening times, session types and capacity" in tasks
+
+
+def test_the_comparison_basis_line_never_doubles_its_closing_punctuation_when_shortened():
+    # Regression: a live WRAP report showed "…." — the shortener's own ellipsis plus an unconditional
+    # trailing period appended on top of it.
+    payload = payload_with()
+    long_basis = ("Saved website pages of WRAP- Coworking, Meeting Rooms & Offices and 3 of the 5 most visible businesses "
+                  "(Plus X Innovation Brighton, Runway East Brighton | Office Space and PLATF9RM Brighton - Coworking, "
+                  "Offices & Events, all read across several separate saved audit runs on different dates)"
+                  ", read between 2026-09-08 and 2026-09-10")
+    payload["report"]["owner_report"]["recommendation_basis"]["basis"] = long_basis
+    comparison = next(e for e in summary_for(payload)["evidence"] if "most visible businesses" in e["observation"])
+    assert not comparison["observation"].endswith("….") and comparison["observation"].endswith("…")
