@@ -87,12 +87,14 @@ from src.business_lookup import near_misses, search_businesses  # noqa: E402
 from src.business_matching import (  # noqa: E402
     TARGET_KEY,
     UndecidedNamesError,
+    conflicting_confirmations,
     default_owner_match,
     owner_competitor_candidates,
     owner_key,
     plan_subjects,
     undecided_items,
 )
+from src.client_summary.pdf import join_names  # noqa: E402
 from src.report_identity import (  # noqa: E402
     UndecidedTargetNamesError,
     find_possible_target_names,
@@ -2017,7 +2019,22 @@ if ai_ready and definition is None:
     ] if checking else []
     open_recs = [cid for cid, choice in recommendation_choices.items() if choice == "undecided"] if checking else []
     open_waivers = [key for key, accepted in waiver_choices.items() if not accepted] if checking else []
-    if complete_review and (open_names or unchosen_owners or unlinked_questions or open_recs or open_waivers):
+    target_items = [item for item in name_choices if item["subject"].key == TARGET_KEY] if checking else []
+    chosen_places = ({name: ("" if choice == "__none__" else choice) for name, choice in owner_place_choices.items() if choice != ""}
+                     if checking else {})
+    links: dict[str, dict[str, list[str]]] = {}
+    if checking:
+        for item in name_choices:
+            if item["subject"].key == TARGET_KEY or item["choice"] == "undecided":
+                continue
+            owner = item["subject"].owner_name
+            key = (chosen_places.get(owner) or owner_key(owner)) if owner else item["subject"].key
+            entry = links.setdefault(key, {"confirmed": [], "rejected": []})
+            entry["confirmed" if item["choice"] == "yes" else "rejected"].append(item["name"])
+    conflicts = conflicting_confirmations(identity_plan, {
+        "confirmed_target_names": [i["name"] for i in target_items if i["choice"] == "yes"], "name_links": links,
+    }) if checking else []
+    if complete_review and (open_names or unchosen_owners or unlinked_questions or open_recs or open_waivers or conflicts):
         problems = []
         if unchosen_owners:
             problems.append(
@@ -2042,21 +2059,16 @@ if ai_ready and definition is None:
                 "the missing evidence: add it in step 4, or tick to go ahead without the "
                 + " and the ".join(evidence_layer_labels[key] for key in open_waivers)
             )
+        if conflicts:
+            problems.append(
+                "these names, each confirmed for more than one business — confirm at most one, and reject the rest: "
+                + "; ".join(f"“{c['name']}” for {join_names(c['businesses'])}" for c in conflicts)
+            )
         st.error(
             "Before completing the review, decide " + "; and ".join(problems)
             + ". Your other changes have not been saved."
         )
     elif checking:
-        target_items = [item for item in name_choices if item["subject"].key == TARGET_KEY]
-        chosen_places = {name: ("" if choice == "__none__" else choice) for name, choice in owner_place_choices.items() if choice != ""}
-        links: dict[str, dict[str, list[str]]] = {}
-        for item in name_choices:
-            if item["subject"].key == TARGET_KEY or item["choice"] == "undecided":
-                continue
-            owner = item["subject"].owner_name
-            key = (chosen_places.get(owner) or owner_key(owner)) if owner else item["subject"].key
-            entry = links.setdefault(key, {"confirmed": [], "rejected": []})
-            entry["confirmed" if item["choice"] == "yes" else "rejected"].append(item["name"])
         reviewer_decisions = {
             "confirmed_target_names": [i["name"] for i in target_items if i["choice"] == "yes"],
             "rejected_target_names": [i["name"] for i in target_items if i["choice"] == "no"],

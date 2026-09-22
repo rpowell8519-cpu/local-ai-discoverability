@@ -246,6 +246,23 @@ def name_adjudications(
     return result
 
 
+def conflicting_confirmations(subjects: Iterable[Subject], decisions: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """AI answer names confirmed for more than one business: a genuine ambiguity, not a resolved match.
+
+    "WERKS" can plausibly be either of two different real businesses, so it is offered as a candidate
+    for both; a reviewer confirming "yes" to both leaves it claimed by neither and would only fail much
+    later, unhelpfully, when the report is assembled (`name_adjudications` raises `ConflictingNameLinksError`).
+    Checked at the point the reviewer saves, so the fix is immediate: confirm at most one, reject the rest.
+    """
+
+    seen: dict[str, list[str]] = {}
+    for subject in subjects:
+        confirmed, _ = decisions_for(decisions, subject)
+        for raw in confirmed:
+            seen.setdefault(str(raw), []).append(subject.label)
+    return [{"name": name, "businesses": labels} for name, labels in seen.items() if len(set(labels)) > 1]
+
+
 def confirmed_names_by_place(subjects: Iterable[Subject], decisions: Mapping[str, Any]) -> dict[str, list[str]]:
     """Confirmed names per database business, for crediting counts before a report is built."""
 

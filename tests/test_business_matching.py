@@ -3,8 +3,8 @@ import pytest
 
 from src.business_matching import (
     CONFIRMED_METHOD, ConflictingNameLinksError, NOT_IN_SYSTEM, TARGET_KEY, UndecidedNamesError,
-    confirmed_names_by_place, decisions_for, default_owner_match, name_adjudications, owner_competitor_candidates,
-    owner_competitor_entries, owner_key, plan_subjects, undecided_items,
+    confirmed_names_by_place, conflicting_confirmations, decisions_for, default_owner_match, name_adjudications,
+    owner_competitor_candidates, owner_competitor_entries, owner_key, plan_subjects, undecided_items,
 )
 
 TARGET_ID = "ChIJwrap"
@@ -180,3 +180,31 @@ def test_a_business_already_in_the_report_is_not_offered_twice():
 
 def test_without_the_database_list_nothing_extra_is_offered():
     assert outside([{"business_name": "FOUNDRY", "recommendations": 9}], records=[]) == []
+
+
+# ---- a name that genuinely could be either of two listed businesses ("WERKS" -> Pier Werks / Werks Central)
+WERKS_RECORDS = [*RECORDS, {"google_place_id": "pierwerks", "business_name": "Pier Werks", "city": "Brighton", "address": None},
+                 {"google_place_id": "werkscentral", "business_name": "Werks Central", "city": "Brighton", "address": None}]
+
+
+def test_a_name_that_could_be_either_of_two_businesses_is_offered_against_both():
+    found = outside([{"business_name": "WERKS", "recommendations": 4}], records=WERKS_RECORDS)
+    assert {s.label for s in found} == {"Pier Werks", "Werks Central"}
+    assert all(n["name"] == "WERKS" for s in found for n in s.names)
+
+
+def test_confirming_it_for_both_is_caught_before_saving_not_only_when_the_report_is_built():
+    subjects = plan_subjects(target_id=TARGET_ID, target_name=NAMES[TARGET_ID], unresolved=[{"business_name": "WERKS", "recommendations": 4}],
+                             owner_names=[], owner_places={}, cohort_ids=["plusx"], names_by_id=NAMES, records=WERKS_RECORDS)
+    decisions = {"name_links": {"pierwerks": {"confirmed": ["WERKS"]}, "werkscentral": {"confirmed": ["WERKS"]}}}
+    conflicts = conflicting_confirmations(subjects, decisions)
+    assert conflicts == [{"name": "WERKS", "businesses": ["Pier Werks", "Werks Central"]}]
+    with pytest.raises(ConflictingNameLinksError, match="WERKS"):
+        name_adjudications(subjects, decisions, {})
+
+
+def test_confirming_it_for_only_one_is_not_a_conflict():
+    subjects = plan_subjects(target_id=TARGET_ID, target_name=NAMES[TARGET_ID], unresolved=[{"business_name": "WERKS", "recommendations": 4}],
+                             owner_names=[], owner_places={}, cohort_ids=["plusx"], names_by_id=NAMES, records=WERKS_RECORDS)
+    decisions = {"name_links": {"pierwerks": {"confirmed": ["WERKS"]}, "werkscentral": {"rejected": ["WERKS"]}}}
+    assert conflicting_confirmations(subjects, decisions) == []

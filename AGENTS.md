@@ -116,6 +116,15 @@ in `name_links`, gate the review, credited by place ID); the page and the genera
 same database list or the two would disagree. A confirmed business can be added to the
 comparison after saving.
 
+The same AI name can genuinely resemble two different real businesses ("WERKS" → Pier Werks and
+Werks Central) and is deliberately offered against both, so a person decides rather than a
+first-match guess hiding the right one. A reviewer confirming "yes" to more than one used to only
+fail much later and unhelpfully, when the report was assembled (`name_adjudications` raises
+`ConflictingNameLinksError`). `conflicting_confirmations(subjects, decisions)` checks the same
+thing at the point the reviewer saves, and the page blocks "Complete report review" with a plain
+message naming the name and every business it is confirmed for, so the fix is immediate: confirm
+at most one, reject the rest.
+
 ### Wording for a business type with none of its own (AI-drafted, reviewer-approved)
 
 `src/type_wording.py`. Built-in wording exists only for the groups in `client_summary/actions.py`

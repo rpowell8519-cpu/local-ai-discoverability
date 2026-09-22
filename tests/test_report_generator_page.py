@@ -138,6 +138,8 @@ CANDIDATES = {
 
 def run_page(audit, *, extra=(), secrets=None):
     """Return an AppTest that has run the page against the stubbed data layer."""
+    import streamlit as st
+    st.cache_data.clear()  # @st.cache_data persists across AppTest runs in one process; each test starts clean
     stack = ExitStack()
     saved = mock.Mock(return_value={"revision": 4})
     patches = [
@@ -1034,3 +1036,78 @@ def test_a_business_the_ai_never_recommended_is_never_studied_however_the_owner_
         assert not at.exception, [e.value for e in at.exception]
         ids = [str(o) for o in collect_options(at)[0].options] if collect_options(at) else []
         assert not any("Freedom" in o for o in ids)
+
+
+# ------------------------------------------------------------ a name that could be either of two businesses
+WERKS_BUSINESSES = [*BUSINESSES, ("place-pierwerks", "Pier Werks", ""), ("place-werkscentral", "Werks Central", "")]
+
+
+class _WerksConnection(_Connection):
+    def execute(self, statement, params=None):
+        sql = " ".join(str(statement).lower().split())
+        if "from business_features bf" in sql and "lateral" in sql:
+            return _Result(
+                {
+                    "google_place_id": pid, "business_name": name, "raw_category": "Coworking space",
+                    "raw_type": "Coworking space", "primary_group": "coworking", "business_format": "",
+                    "city": "Brighton", "address": "1 Test Street, Brighton",
+                    "latitude": 50.8225, "longitude": -0.1372, "source_website_url": site,
+                }
+                for pid, name, site in WERKS_BUSINESSES
+            )
+        return super().execute(statement, params)
+
+
+class _WerksEngine:
+    def connect(self):
+        return _WerksConnection()
+
+
+WERKS_CANDIDATES = {**CANDIDATES, "unresolved": [{"business_name": "WERKS", "recommendations": 4}]}
+
+
+def test_a_name_that_could_be_either_of_two_businesses_cannot_be_confirmed_for_both():
+    # Regression: confirming "WERKS" for both Pier Werks and Werks Central only failed much later,
+    # confusingly, when the PDF was generated ("WERKS is confirmed for two different businesses").
+    at, saved, stack = run_page(revision(), extra=[
+        mock.patch("src.database.get_engine", return_value=_WerksEngine()),
+        mock.patch("src.report_audit_candidates.load_report_candidates", return_value=WERKS_CANDIDATES),
+    ])
+    with stack:
+        assert not at.exception, [e.value for e in at.exception]
+        waive_missing_evidence(at)
+        for box in at.selectbox:
+            if str(box.key).startswith("question_priority_") and box.value == "":
+                box.set_value("Private offices")
+        werks_radios = [r for r in at.radio if "name_choice" in str(r.key) and "WERKS" in r.label]
+        assert len(werks_radios) == 2  # offered against both Pier Werks and Werks Central
+        for radio in werks_radios:
+            radio.set_value("yes")
+        at.run()
+        button(at, "Complete report review").click().run()
+        assert not at.exception, [e.value for e in at.exception]
+        saved.assert_not_called()
+        message = next(e.value for e in at.error)
+        assert "“WERKS” for Pier Werks and Werks Central" in message and "confirm at most one" in message
+
+
+def test_confirming_it_for_only_one_of_the_two_completes_normally():
+    at, saved, stack = run_page(revision(), extra=[
+        mock.patch("src.database.get_engine", return_value=_WerksEngine()),
+        mock.patch("src.report_audit_candidates.load_report_candidates", return_value=WERKS_CANDIDATES),
+    ])
+    with stack:
+        waive_missing_evidence(at)
+        for box in at.selectbox:
+            if str(box.key).startswith("question_priority_") and box.value == "":
+                box.set_value("Private offices")
+        werks_radios = [r for r in at.radio if "name_choice" in str(r.key) and "WERKS" in r.label]
+        werks_radios[0].set_value("yes")
+        werks_radios[1].set_value("no")
+        at.run()
+        button(at, "Complete report review").click().run()
+        assert not at.exception, [e.value for e in at.exception]
+        saved.assert_called_once()
+        links = saved.call_args.kwargs["reviewer_decisions"]["name_links"]
+        confirmed = [key for key, entry in links.items() if "WERKS" in entry.get("confirmed", [])]
+        assert confirmed == ["place-pierwerks"]
