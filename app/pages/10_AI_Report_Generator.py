@@ -1175,8 +1175,15 @@ with st.container(border=True):
                     matching_api_reviews = api_reviews[
                         api_reviews["place_id"].fillna("").astype(str).eq(selected_place_id)
                     ].copy() if not api_reviews.empty else api_reviews
-                    if matching_api_reviews.empty:
-                        st.info(f"The request is currently {response.get('status') or 'processing'}; no reviews are ready yet.")
+                    finished = str(response.get("status") or "").strip().casefold() == "success"
+                    if matching_api_reviews.empty and not finished:
+                        st.info(f"The request is currently {response.get('status') or 'processing'}; check again in a moment.")
+                    elif matching_api_reviews.empty:
+                        st.warning(
+                            "Outscraper finished, but returned no reviews with text for this business. Only reviews with "
+                            "text are used as evidence; a star rating with no text is not enough."
+                        )
+                        st.session_state.pop(request_key, None)
                     else:
                         imported = import_reviews(
                             matching_api_reviews,
@@ -1620,8 +1627,17 @@ if ai_ready and definition is None:
                     response = get_request_result(api_key=review_key, request_id=pending["id"])
                     frame = flatten_google_reviews_response(response.get("data"))
                     frame = frame[frame["place_id"].fillna("").astype(str).isin(pending["places"])].copy() if not frame.empty else frame
-                    if frame.empty:
-                        st.info(f"The request is currently {response.get('status') or 'processing'}; no reviews are ready yet.")
+                    finished = str(response.get("status") or "").strip().casefold() == "success"
+                    if frame.empty and not finished:
+                        st.info(f"The request is currently {response.get('status') or 'processing'}; check again in a moment.")
+                    elif frame.empty:
+                        st.warning(
+                            "Outscraper finished, but returned no reviews with text for these businesses. Only reviews "
+                            "with text are used as evidence; a business with only star-rating reviews and no text will "
+                            "never have anything to import here. If that's a genuine limitation, accept going ahead "
+                            "without review evidence for it in the section below."
+                        )
+                        st.session_state.pop(batch_key, None)
                     else:
                         imported = import_reviews(frame, source_file_name=api_import_source_name(pending["id"]))
                         st.session_state.pop(batch_key, None)

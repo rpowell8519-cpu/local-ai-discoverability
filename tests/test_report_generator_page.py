@@ -778,6 +778,37 @@ def test_businesses_with_no_review_text_can_be_collected_in_one_request_with_the
         assert any("Review collection started" in s.value for s in at.success)
 
 
+def test_a_finished_request_with_no_reviewable_text_says_so_plainly_and_stops_offering_to_check():
+    # Regression: a business with a single star-only Google review (no text) never has anything to
+    # import, but the check kept saying "not ready yet" as if it were still running.
+    submit = mock.Mock(return_value={"id": "req-1"})
+    checked = mock.Mock(return_value={"status": "Success", "data": []})
+    at, _, stack = run_page(revision(NAMES_DECIDED), secrets={"OUTSCRAPER_API_KEY": "test-key"},
+                            extra=[mock.patch("src.outscraper_reviews.submit_google_reviews", submit),
+                                   mock.patch("src.outscraper_reviews.get_request_result", checked)])
+    with stack:
+        next(b for b in at.button if str(b.key).startswith("collect_reviews_go_")).click().run()
+        next(b for b in at.button if str(b.key).startswith("collect_reviews_check_")).click().run()
+        assert not at.exception, [e.value for e in at.exception]
+        assert any("Outscraper finished, but returned no reviews with text" in w.value for w in at.warning)
+        at.run()  # a fresh rerun, not another click: the popped session state should now stay popped
+        assert not [b for b in at.button if str(b.key).startswith("collect_reviews_check_")]  # nothing left to check
+
+
+def test_a_request_still_running_says_to_check_again_and_keeps_the_check_button():
+    submit = mock.Mock(return_value={"id": "req-1"})
+    checked = mock.Mock(return_value={"status": "Pending", "data": []})
+    at, _, stack = run_page(revision(NAMES_DECIDED), secrets={"OUTSCRAPER_API_KEY": "test-key"},
+                            extra=[mock.patch("src.outscraper_reviews.submit_google_reviews", submit),
+                                   mock.patch("src.outscraper_reviews.get_request_result", checked)])
+    with stack:
+        next(b for b in at.button if str(b.key).startswith("collect_reviews_go_")).click().run()
+        next(b for b in at.button if str(b.key).startswith("collect_reviews_check_")).click().run()
+        assert not at.exception, [e.value for e in at.exception]
+        assert any("check again in a moment" in i.value for i in at.info)
+        assert [b for b in at.button if str(b.key).startswith("collect_reviews_check_")]  # still there to press again
+
+
 def test_a_request_over_the_cost_ceiling_cannot_be_sent():
     at, _, stack = run_page(revision(NAMES_DECIDED), secrets={"OUTSCRAPER_API_KEY": "test-key"},
                             extra=[mock.patch("src.outscraper_reviews.review_pull_within_cost_ceiling", lambda **_: (False, 99.0))])

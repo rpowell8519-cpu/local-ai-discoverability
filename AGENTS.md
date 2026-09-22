@@ -145,6 +145,14 @@ recommendations and the required-evidence waivers appear only once names and own
 decided and saved; a first "Complete" with names still open saves a draft and says what comes next.
 Other comparison businesses appear in counts only and need no pages or reviews.
 
+Checking an Outscraper request distinguishes a finished request from one still running by its
+`status` (`get_request_result`, matched case-insensitively to `"success"`): still running says so
+and stays checkable; finished with nothing to import (e.g. a business whose only Google review has
+a star rating and no text — reviews without text are never imported) says so plainly and clears the
+pending request, rather than repeating "not ready yet" forever. Real Outscraper jobs keep running
+after a page reload, but the app's own in-progress-request id lives only in `st.session_state` and
+is lost on reload; a lost id cannot be recovered, and resubmitting pays again.
+
 ### Client summary (LS): eight pages, two on competitors
 
 Pages 4 and 5 tell one story: "you told us your competitors were X" (page 4: the owner's named
