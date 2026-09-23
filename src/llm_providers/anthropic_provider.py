@@ -11,6 +11,9 @@ from src.llm_providers.base import (
 )
 
 
+# Used by Streamlit pages to refresh a provider retained across deployments.
+REQUIRED_SEARCH_VERSION = 1
+
 ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
 
 
@@ -32,6 +35,9 @@ def call_anthropic(
         "messages": [{"role": "user", "content": prompt}],
     }
     if benchmark_mode == "search_grounded":
+        # Enabling the tool alone leaves search optional. These benchmarks
+        # require live search, so do not let Claude answer from memory.
+        request_body["tool_choice"] = {"type": "tool", "name": "web_search"}
         request_body["tools"] = [{
             "type": "web_search_20260318",
             "name": "web_search",

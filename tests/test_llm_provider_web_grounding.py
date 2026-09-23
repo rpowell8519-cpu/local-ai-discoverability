@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import inspect
+import pytest
 from unittest.mock import Mock, patch
 
 from src.ai_discovery_repository import create_discovery_run
 from src.ai_visibility_repository import create_visibility_run
 from src.ai_visibility_runner import SUPPORTED_BENCHMARK_MODES
 from src.llm_providers.anthropic_provider import call_anthropic
+from src.llm_providers.base import ProviderError
 from src.llm_providers.gemini_provider import call_gemini
 from src.llm_providers.openai_provider import call_openai
 
@@ -63,10 +65,37 @@ def test_claude_consumer_web_enables_localised_search() -> None:
         )
 
     tool = post.call_args.kwargs["json"]["tools"][0]
+    assert post.call_args.kwargs["json"]["tool_choice"] == {"type": "tool", "name": "web_search"}
     assert tool["type"] == "web_search_20260318"
     assert tool["max_uses"] == 3
     assert tool["user_location"]["city"] == "Brighton"
     assert result.text == "1. Example"
+
+
+def test_claude_still_rejects_an_ungrounded_answer() -> None:
+    payload = {
+        "stop_reason": "end_turn",
+        "content": [{"type": "text", "text": "1. Example"}],
+        "usage": {},
+    }
+    with patch("src.llm_providers.anthropic_provider.requests.post", return_value=_response(payload)):
+        with pytest.raises(ProviderError, match="without completing a live web search"):
+            call_anthropic(api_key="test", model="test-model", prompt="Nurseries?",
+                           benchmark_mode="search_grounded")
+
+
+def test_claude_memory_benchmark_does_not_enable_or_force_search() -> None:
+    payload = {
+        "stop_reason": "end_turn",
+        "content": [{"type": "text", "text": "1. Example"}],
+        "usage": {},
+    }
+    with patch("src.llm_providers.anthropic_provider.requests.post", return_value=_response(payload)) as post:
+        result = call_anthropic(api_key="test", model="test-model", prompt="Nurseries?",
+                                benchmark_mode="model_memory")
+    assert "tool_choice" not in post.call_args.kwargs["json"]
+    assert "tools" not in post.call_args.kwargs["json"]
+    assert result.response_complete
 
 
 def test_gemini_consumer_web_uses_google_search_interaction() -> None:

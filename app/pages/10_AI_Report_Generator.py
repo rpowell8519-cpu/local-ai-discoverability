@@ -33,7 +33,11 @@ import src.llm_providers.openai_provider as openai_provider  # noqa: E402
 repository_mode = inspect.signature(visibility_repository.create_visibility_run).parameters.get("benchmark_mode")
 if repository_mode is None or repository_mode.default != "search_grounded":
     visibility_repository = importlib.reload(visibility_repository)
-if getattr(visibility_runner, "SUPPORTED_BENCHMARK_MODES", frozenset()) != frozenset({"model_memory", "search_grounded"}):
+if (
+    getattr(visibility_runner, "SUPPORTED_BENCHMARK_MODES", frozenset()) != frozenset({"model_memory", "search_grounded"})
+    or getattr(anthropic_provider, "REQUIRED_SEARCH_VERSION", 0) != 1
+    or visibility_runner.call_anthropic is not anthropic_provider.call_anthropic
+):
     provider_base = importlib.reload(provider_base)
     openai_provider = importlib.reload(openai_provider)
     anthropic_provider = importlib.reload(anthropic_provider)
@@ -115,6 +119,15 @@ from src.report_audit_workflow import (  # noqa: E402
     EvidenceState,
     workflow_summary,
 )
+import src.report_audit_repository as report_audit_repository  # noqa: E402
+
+# A running Streamlit worker may retain the pre-history module after deployment.
+# Refresh it before importing the new API, just as for the benchmark API above.
+if any(not hasattr(report_audit_repository, name) for name in (
+    "list_report_audit_revisions", "restore_report_audit_revision",
+)):
+    report_audit_repository = importlib.reload(report_audit_repository)
+
 from src.report_audit_repository import (  # noqa: E402
     attach_benchmark_revision,
     get_latest_report_audit,
