@@ -115,6 +115,15 @@ from src.report_audit_workflow import (  # noqa: E402
     EvidenceState,
     workflow_summary,
 )
+import src.report_audit_repository as report_audit_repository  # noqa: E402
+
+# A running Streamlit worker may retain the pre-history module after deployment.
+# Refresh it before importing the new API, just as for the benchmark API above.
+if any(not hasattr(report_audit_repository, name) for name in (
+    "list_report_audit_revisions", "restore_report_audit_revision",
+)):
+    report_audit_repository = importlib.reload(report_audit_repository)
+
 from src.report_audit_repository import (  # noqa: E402
     attach_benchmark_revision,
     get_latest_report_audit,
