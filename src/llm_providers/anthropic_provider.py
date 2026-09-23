@@ -32,6 +32,9 @@ def call_anthropic(
         "messages": [{"role": "user", "content": prompt}],
     }
     if benchmark_mode == "search_grounded":
+        # Enabling the tool alone leaves search optional. These benchmarks
+        # require live search, so do not let Claude answer from memory.
+        request_body["tool_choice"] = {"type": "tool", "name": "web_search"}
         request_body["tools"] = [{
             "type": "web_search_20260318",
             "name": "web_search",
