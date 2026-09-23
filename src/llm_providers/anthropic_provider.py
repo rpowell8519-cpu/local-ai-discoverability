@@ -11,6 +11,9 @@ from src.llm_providers.base import (
 )
 
 
+# Used by Streamlit pages to refresh a provider retained across deployments.
+REQUIRED_SEARCH_VERSION = 1
+
 ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
 
 
