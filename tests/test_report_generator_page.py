@@ -441,7 +441,7 @@ def test_the_build_label_changes_so_the_team_can_tell_which_version_is_live():
     at, _, stack = run_page(revision())
     with stack:
         captions = " ".join(c.value for c in at.caption)
-        assert "Build: Accessible AI Report Generator v3.9.0" in captions
+        assert "Build: Accessible AI Report Generator v3.10.0" in captions
 
 
 # ---------------------------------------------------------------- reviews saved before the new checks
@@ -1161,3 +1161,54 @@ def test_a_failed_switch_is_reported_plainly_and_nothing_else_changes():
         next(b for b in at.button if str(b.key).startswith("revision_restore_")).click().run()
         assert any("could not be restored" in e.value for e in at.error)  # st.exception(exc) also shows, deliberately
         saved.assert_not_called()
+
+
+# ------------------------------------------------------------ reusing an already-completed AI Visibility run
+EXTRA_RUN_ID = "22222222-2222-2222-2222-222222222222"
+
+
+class _ExtraRunConnection(_Connection):
+    def execute(self, statement, params=None):
+        sql = " ".join(str(statement).lower().split())
+        if "from ai_visibility_runs" in sql:
+            return _Result([
+                {"id": RUN_ID, "started_at": dt.datetime(2026, 9, 21), "completed_at": dt.datetime(2026, 9, 21),
+                 "prompt_count": 7, "repeat_count": 3},
+                {"id": EXTRA_RUN_ID, "started_at": dt.datetime(2026, 9, 22), "completed_at": dt.datetime(2026, 9, 22, 14, 30),
+                 "prompt_count": 8, "repeat_count": 3},
+            ])
+        return super().execute(statement, params)
+
+
+class _ExtraRunEngine:
+    def connect(self):
+        return _ExtraRunConnection()
+
+
+def test_a_completed_run_not_attached_to_the_report_can_be_reused_free_of_charge():
+    # The report's benchmark_run_id is None, so step 3 (paid) would normally show; a second, already-completed
+    # run exists for this business (e.g. finished on the specialist page after a resume) and can be reused instead.
+    attach = mock.Mock(return_value={"revision": 4})
+    at, saved, stack = run_page({**revision(), "benchmark_run_id": None},
+                                extra=[mock.patch("src.database.get_engine", return_value=_ExtraRunEngine()),
+                                       mock.patch("src.report_audit_repository.attach_benchmark_revision", attach)])
+    with stack:
+        assert not at.exception, [e.value for e in at.exception]
+        assert any("Use an already-completed AI Visibility run instead (2 available)" in str(e.label) for e in at.expander)
+        box = next(s for s in at.selectbox if str(s.key).startswith("attach_run_pick_"))
+        assert box.options == [
+            "7 question(s) × 3 repeat(s), completed 21 Sep 2026 00:00",
+            "8 question(s) × 3 repeat(s), completed 22 Sep 2026 14:30",
+        ]
+        box.set_value(EXTRA_RUN_ID)
+        at.run()
+        next(b for b in at.button if str(b.key).startswith("attach_run_go_")).click().run()
+        assert not at.exception, [e.value for e in at.exception]
+        attach.assert_called_once_with(target_google_place_id=TARGET_ID, benchmark_run_id=EXTRA_RUN_ID)
+
+
+def test_with_nothing_else_to_reuse_the_control_is_not_offered():
+    at, _, stack = run_page(revision())  # benchmark_run_id already matches the one completed run
+    with stack:
+        assert not at.exception, [e.value for e in at.exception]
+        assert not any("Use an already-completed AI Visibility run instead" in str(e.label) for e in at.expander)

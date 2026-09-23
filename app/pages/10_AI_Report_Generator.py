@@ -133,7 +133,7 @@ from src.report_generator_readiness import (  # noqa: E402
 )
 
 
-BUILD_VERSION = "Accessible AI Report Generator v3.9.0 (switch between saved versions of a business)"
+BUILD_VERSION = "Accessible AI Report Generator v3.10.0 (reuse a completed AI Visibility run)"
 REPORT_STATE_KEY = "accessible_ai_report_generator_result"
 SUMMARY_STATE_KEY = "accessible_ai_client_summary_result"
 
@@ -891,6 +891,40 @@ if workflow["unchecked_evidence"]:
         "Still to check, but not a blocker: " + " and ".join(workflow["unchecked_evidence"]) + ". "
         "If the evidence genuinely does not exist, the report will say so rather than treating it as a poor result."
     )
+
+unattached_completed_runs = [
+    run for run in evidence["completed_runs"] if str(run["id"]) != saved_benchmark_run_id
+]
+if next_step["key"] == "benchmark" and unattached_completed_runs:
+    with st.expander(f"Use an already-completed AI Visibility run instead ({len(unattached_completed_runs)} available)"):
+        st.caption(
+            "This business already has completed AI Visibility run(s) not currently attached to this report — for "
+            "example one finished on the specialist AI Visibility page after resuming failed calls. Attaching one "
+            "here makes no new paid calls."
+        )
+
+        def _run_label(run: Mapping[str, Any]) -> str:
+            when = run.get("completed_at")
+            try:
+                when_text = when.strftime("%d %b %Y %H:%M")
+            except (AttributeError, ValueError):
+                when_text = str(when) if when else "date not saved"
+            return f"{run.get('prompt_count', '?')} question(s) × {run.get('repeat_count', '?')} repeat(s), completed {when_text}"
+
+        run_labels = {str(run["id"]): _run_label(run) for run in unattached_completed_runs}
+        chosen_run_id = st.selectbox(
+            "Completed run", options=list(run_labels), format_func=run_labels.get,
+            key=f"attach_run_pick_{selected_place_id}",
+        )
+        if st.button("Attach this run to the report", key=f"attach_run_go_{selected_place_id}"):
+            try:
+                attach_benchmark_revision(target_google_place_id=selected_place_id, benchmark_run_id=chosen_run_id)
+            except Exception as exc:
+                st.error("That run could not be attached.")
+                st.exception(exc)
+            else:
+                st.cache_data.clear()
+                st.rerun()
 
 if next_step["key"] == "benchmark":
     st.subheader("3. Run AI Visibility")

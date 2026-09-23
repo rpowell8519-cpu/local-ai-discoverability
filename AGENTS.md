@@ -232,6 +232,21 @@ this: restoring copies an earlier revision's fields into a new one exactly as th
 `reviewer_decisions`, so switching between two configurations never requires redoing step 5's review
 work. The page offers this in step 1 only when a business has more than one saved revision.
 
+### A completed AI Visibility run can be reused without paying again
+
+`finalise_run_from_results` gives a run `status` of `completed`, `partial` (some calls missing, failed
+or truncated) or `failed`. The report generator's own step 3 only calls `attach_benchmark_revision`
+after a fresh run reaches `completed`; if it finishes `partial` it raises before ever attaching, and
+points the reviewer at the specialist AI Visibility page's "Resume/retry N incomplete call(s)" (cheap:
+only the missing calls, not the whole run). That resume finishes the run but still never attaches it —
+there was no way back to the report generator without starting over and paying for everything again.
+
+Step 2 now offers "Use an already-completed AI Visibility run instead" whenever this business has a
+`status = 'completed'` run that isn't the one currently attached (`evidence["completed_runs"]`, already
+loaded for the readiness table). Picking one and attaching it calls `attach_benchmark_revision` with no
+new paid calls. This also covers any other completed run for the business that was never attached in
+the first place.
+
 Specifically:
 - A paid run must not start when a saved brief exists but none of its questions are selected.
   Offer to reload the owner's questions, or require an explicit opt-out.
