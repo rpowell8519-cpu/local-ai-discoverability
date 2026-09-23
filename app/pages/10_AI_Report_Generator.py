@@ -118,6 +118,8 @@ from src.report_audit_workflow import (  # noqa: E402
 from src.report_audit_repository import (  # noqa: E402
     attach_benchmark_revision,
     get_latest_report_audit,
+    list_report_audit_revisions,
+    restore_report_audit_revision,
     save_evidence_states_revision,
     save_owner_brief_revision,
     save_reviewer_decisions_revision,
@@ -131,7 +133,7 @@ from src.report_generator_readiness import (  # noqa: E402
 )
 
 
-BUILD_VERSION = "Accessible AI Report Generator v3.8.0 (evidence for the most visible only)"
+BUILD_VERSION = "Accessible AI Report Generator v3.9.0 (switch between saved versions of a business)"
 REPORT_STATE_KEY = "accessible_ai_report_generator_result"
 SUMMARY_STATE_KEY = "accessible_ai_client_summary_result"
 
@@ -333,6 +335,13 @@ def load_run_prompt_seed(run_id: str) -> list[dict[str, Any]]:
             {"run_id": run_id},
         ).mappings().all()
     return [dict(row) for row in rows]
+
+
+@st.cache_data(ttl=60)
+def load_revision_history(google_place_id: str) -> list[dict[str, Any]]:
+    """Every saved revision for this business, most recent first."""
+
+    return list_report_audit_revisions(google_place_id)
 
 
 @st.cache_data(ttl=60)
@@ -773,6 +782,40 @@ if durable_audit:
     st.caption(
         f"Saved report setup revision {durable_audit['revision']} is available to other users of the app."
     )
+    other_revisions = [
+        row for row in load_revision_history(selected_place_id) if int(row["revision"]) != int(durable_audit["revision"])
+    ]
+    if other_revisions:
+        with st.expander(f"Switch to a different saved version of this report ({len(other_revisions) + 1} saved)"):
+            st.caption(
+                "This business has been set up more than once, for example for two different customer-intent "
+                "audits of the same business. Nothing here is ever deleted: switching makes an earlier version "
+                "current again, as a new saved revision, and you can switch back the same way. This changes what "
+                "everyone sees when they open this business, including its saved review decisions."
+            )
+            labels = {
+                int(row["revision"]): (
+                    f"Revision {row['revision']} — {clean_text(row.get('revision_reason')) or 'saved'} — "
+                    f"{(clean_text(row.get('known_for')) or 'no known-for text saved')[:70]}"
+                    + (" — review complete" if row.get("reviewer_decisions_complete") else " — review not complete")
+                )
+                for row in other_revisions
+            }
+            chosen_revision = st.selectbox(
+                "An earlier saved version",
+                options=sorted(labels, reverse=True),
+                format_func=labels.get,
+                key=f"revision_pick_{selected_place_id}",
+            )
+            if st.button("Make this the current version", key=f"revision_restore_{selected_place_id}"):
+                try:
+                    restore_report_audit_revision(selected_place_id, int(chosen_revision))
+                except Exception as exc:
+                    st.error("That version could not be restored.")
+                    st.exception(exc)
+                else:
+                    st.cache_data.clear()
+                    st.rerun()
 
 st.subheader("2. What is ready, and what happens next?")
 owner_ready = definition is not None or not owner_brief_missing_fields(saved_brief)

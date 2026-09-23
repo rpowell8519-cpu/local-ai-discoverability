@@ -145,6 +145,7 @@ def run_page(audit, *, extra=(), secrets=None):
     patches = [
         mock.patch("src.database.get_engine", return_value=_Engine()),
         mock.patch("src.report_audit_repository.get_latest_report_audit", return_value=audit),
+        mock.patch("src.report_audit_repository.list_report_audit_revisions", return_value=[audit] if audit else []),
         mock.patch("src.report_audit_candidates.load_report_candidates", return_value=CANDIDATES),
         mock.patch("src.report_audit_repository.save_reviewer_decisions_revision", saved),
         *extra,
@@ -368,6 +369,7 @@ def test_a_search_kept_while_in_data_admin_is_restored_on_return():
     for patch in (
         mock.patch("src.database.get_engine", return_value=_Engine()),
         mock.patch("src.report_audit_repository.get_latest_report_audit", return_value=revision()),
+        mock.patch("src.report_audit_repository.list_report_audit_revisions", return_value=[revision()]),
         mock.patch("src.report_audit_candidates.load_report_candidates", return_value=CANDIDATES),
     ):
         stack.enter_context(patch)
@@ -439,7 +441,7 @@ def test_the_build_label_changes_so_the_team_can_tell_which_version_is_live():
     at, _, stack = run_page(revision())
     with stack:
         captions = " ".join(c.value for c in at.caption)
-        assert "Build: Accessible AI Report Generator v3.8.0" in captions
+        assert "Build: Accessible AI Report Generator v3.9.0" in captions
 
 
 # ---------------------------------------------------------------- reviews saved before the new checks
@@ -1111,3 +1113,51 @@ def test_confirming_it_for_only_one_of_the_two_completes_normally():
         links = saved.call_args.kwargs["reviewer_decisions"]["name_links"]
         confirmed = [key for key, entry in links.items() if "WERKS" in entry.get("confirmed", [])]
         assert confirmed == ["place-pierwerks"]
+
+
+# ------------------------------------------------------------ switching between saved versions of a business
+def test_with_only_one_saved_version_nothing_extra_is_offered():
+    at, _, stack = run_page(revision(), extra=[
+        mock.patch("src.report_audit_repository.list_report_audit_revisions", return_value=[revision()]),
+    ])
+    with stack:
+        assert not at.exception, [e.value for e in at.exception]
+        assert not any("Switch to a different saved version" in str(getattr(e, "label", "")) for e in at.expander)
+
+
+NURSERY_HISTORY_ROW = {
+    "id": "audit-nursery", "revision": 5, "target_google_place_id": TARGET_ID, "target_business_name": TARGET_NAME,
+    "known_for": "On-site childcare and nursery places in Brighton", "revision_reason": "Owner brief updated",
+    "reviewer_decisions_complete": False,
+}
+
+
+def test_an_earlier_saved_version_can_be_switched_to_and_back():
+    current = revision()
+    restore = mock.Mock(return_value={"revision": 6})
+    at, saved, stack = run_page(current, extra=[
+        mock.patch("src.report_audit_repository.list_report_audit_revisions", return_value=[current, NURSERY_HISTORY_ROW]),
+        mock.patch("src.report_audit_repository.restore_report_audit_revision", restore),
+    ])
+    with stack:
+        assert not at.exception, [e.value for e in at.exception]
+        box = next(s for s in at.selectbox if str(s.key).startswith("revision_pick_"))
+        assert box.value == 5
+        [label] = box.options
+        assert "On-site childcare and nursery places in Brighton" in label and "review not complete" in label
+        next(b for b in at.button if str(b.key).startswith("revision_restore_")).click().run()
+        assert not at.exception, [e.value for e in at.exception]
+        restore.assert_called_once_with(TARGET_ID, 5)
+
+
+def test_a_failed_switch_is_reported_plainly_and_nothing_else_changes():
+    current = revision()
+    restore = mock.Mock(side_effect=ValueError("Revision 5 was not found for this business."))
+    at, saved, stack = run_page(current, extra=[
+        mock.patch("src.report_audit_repository.list_report_audit_revisions", return_value=[current, NURSERY_HISTORY_ROW]),
+        mock.patch("src.report_audit_repository.restore_report_audit_revision", restore),
+    ])
+    with stack:
+        next(b for b in at.button if str(b.key).startswith("revision_restore_")).click().run()
+        assert any("could not be restored" in e.value for e in at.error)  # st.exception(exc) also shows, deliberately
+        saved.assert_not_called()

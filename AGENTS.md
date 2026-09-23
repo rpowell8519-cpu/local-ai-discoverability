@@ -219,6 +219,19 @@ from session state. A new browser session silently fell back to generic generate
 and still allowed a paid benchmark to start, producing a report that measured the wrong
 questions. See `load_durable_owner_brief` in `app/pages/8_AI_Visibility.py`.
 
+### Switching between two saved configurations for one business
+
+`get_latest_report_audit` always returns the single latest revision, and `save_owner_brief_revision`
+resets `benchmark_run_id` and `reviewer_decisions` on every save — so a business that genuinely needs
+two independent tracks (for example WRAP's coworking audit and a later nursery-audience audit) cannot
+just have its brief edited in place without losing the other track's saved review decisions from view.
+Nothing is destroyed (revisions are append-only), but there was no way back to an earlier one.
+
+`list_report_audit_revisions` / `restore_report_audit_revision` (`report_audit_repository.py`) fix
+this: restoring copies an earlier revision's fields into a new one exactly as they were, including its
+`reviewer_decisions`, so switching between two configurations never requires redoing step 5's review
+work. The page offers this in step 1 only when a business has more than one saved revision.
+
 Specifically:
 - A paid run must not start when a saved brief exists but none of its questions are selected.
   Offer to reload the owner's questions, or require an explicit opt-out.

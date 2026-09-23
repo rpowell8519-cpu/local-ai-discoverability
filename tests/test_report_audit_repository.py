@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from src.report_audit_repository import (
     attach_benchmark_revision,
     get_latest_report_audit,
@@ -225,3 +227,130 @@ def test_unavailable_evidence_is_saved_without_removing_benchmark():
     assert result["website_evidence_state"] == "unavailable"
     assert result["review_evidence_state"] == "unavailable"
     assert result["reviewer_decisions_complete"] is False
+
+
+# ---------------------------------------------------------------- revision history and restore
+from src.report_audit_repository import list_report_audit_revisions, restore_report_audit_revision  # noqa: E402
+
+
+class HistoryResult:
+    def __init__(self, rows):
+        self.rows = list(rows)
+
+    def mappings(self):
+        return self
+
+    def all(self):
+        return self.rows
+
+    def first(self):
+        return self.rows[0] if self.rows else None
+
+    def one(self):
+        return self.rows[0]
+
+
+class HistoryConnection:
+    """A store of revisions by number, so restore can be tested against genuinely different rows."""
+
+    def __init__(self, revisions):
+        self.by_revision = {int(row["revision"]): dict(row) for row in revisions}
+        self.insert = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    def _latest(self):
+        return self.by_revision[max(self.by_revision)] if self.by_revision else None
+
+    def execute(self, statement, parameters):
+        sql = str(statement)
+        if "insert into report_audit_revisions" in sql:
+            self.insert = parameters
+            row = dict(parameters)
+            self.by_revision[row["revision"]] = row
+            return HistoryResult([row])
+        if "revision = :revision" in sql:
+            row = self.by_revision.get(int(parameters["revision"]))
+            return HistoryResult([row] if row else [])
+        if "order by revision desc" in sql:
+            return HistoryResult([self.by_revision[n] for n in sorted(self.by_revision, reverse=True)])
+        raise AssertionError(f"Unexpected query: {sql[:80]}")
+
+
+class HistoryEngine:
+    def __init__(self, revisions=()):
+        self.connection = HistoryConnection(revisions)
+
+    def connect(self):
+        return self.connection
+
+    def begin(self):
+        return self.connection
+
+
+COWORKING_REVISION = {
+    "id": "audit-coworking", "revision": 3, "target_business_name": "WRAP",
+    "known_for": "A friendly coworking space", "desired_searches": ["Best coworking in Brighton"],
+    "owner_competitors": ["PLATF9RM"], "benchmark_run_id": "run-coworking",
+    "website_evidence_state": "available", "review_evidence_state": "available",
+    "reviewer_decisions": {"confirmed_target_names": ["WRAP"]}, "reviewer_decisions_complete": True,
+    "owner_context": {"priority_services": ["Coworking"]}, "manual_website_url": "https://wrap.example",
+}
+NURSERY_REVISION = {
+    "id": "audit-nursery", "revision": 5, "target_business_name": "WRAP",
+    "known_for": "On-site childcare in Brighton", "desired_searches": ["Best nursery in Hove"],
+    "owner_competitors": ["Hopscotch"], "benchmark_run_id": "run-nursery",
+    "website_evidence_state": "not_checked", "review_evidence_state": "not_checked",
+    "reviewer_decisions": {}, "reviewer_decisions_complete": False,
+    "owner_context": {"priority_services": ["Nursery places"]}, "manual_website_url": "https://wrap.example",
+}
+
+
+def test_the_full_history_is_listed_most_recent_first_and_nothing_is_left_out():
+    engine = HistoryEngine([COWORKING_REVISION, NURSERY_REVISION])
+    history = list_report_audit_revisions("place-wrap", engine=engine)
+    assert [row["revision"] for row in history] == [5, 3]
+    assert history[1]["known_for"] == "A friendly coworking space"
+
+
+def test_restoring_an_earlier_revision_copies_every_field_of_it_exactly():
+    engine = HistoryEngine([COWORKING_REVISION, NURSERY_REVISION])
+    result = restore_report_audit_revision("place-wrap", 3, engine=engine)
+    assert result["revision"] == 6 and result["supersedes_revision_id"] == "audit-nursery"
+    assert result["revision_reason"] == "Restored from revision 3"
+    assert result["known_for"] == "A friendly coworking space"
+    assert result["benchmark_run_id"] == "run-coworking"
+    assert json.loads(result["reviewer_decisions"]) == {"confirmed_target_names": ["WRAP"]}
+    assert result["reviewer_decisions_complete"] is True
+    assert json.loads(result["owner_context"]) == {"priority_services": ["Coworking"]}
+
+
+def test_nothing_is_lost_by_restoring_the_earlier_one_can_be_restored_again():
+    # The whole point: switching between two saved configurations never destroys either.
+    engine = HistoryEngine([COWORKING_REVISION, NURSERY_REVISION])
+    restore_report_audit_revision("place-wrap", 3, engine=engine)  # -> revision 6, a copy of 3
+    back = restore_report_audit_revision("place-wrap", 5, engine=engine)  # -> revision 7, a copy of 5 (nursery)
+    assert back["known_for"] == "On-site childcare in Brighton" and back["revision"] == 7
+    assert len(list_report_audit_revisions("place-wrap", engine=engine)) == 4
+
+
+def test_restoring_a_revision_that_does_not_exist_is_refused_plainly():
+    engine = HistoryEngine([COWORKING_REVISION])
+    try:
+        restore_report_audit_revision("place-wrap", 99, engine=engine)
+    except ValueError as exc:
+        assert "Revision 99 was not found" in str(exc)
+    else:
+        raise AssertionError("A missing revision was silently accepted")
+
+
+def test_restoring_the_only_revision_is_revision_one_with_no_predecessor():
+    engine = HistoryEngine([])
+    row = {**COWORKING_REVISION, "revision": 1}
+    engine.connection.by_revision[1] = row
+    result = restore_report_audit_revision("place-wrap", 1, engine=engine)
+    assert result["revision"] == 2 and result["supersedes_revision_id"] == "audit-coworking"

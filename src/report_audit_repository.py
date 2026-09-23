@@ -25,6 +25,21 @@ _LATEST = text(
 
 _LATEST_FOR_UPDATE = text(str(_LATEST) + " for update")
 
+_HISTORY = text(
+    """
+    select * from report_audit_revisions
+    where target_google_place_id = :target_google_place_id
+    order by revision desc
+    """
+)
+
+_BY_REVISION = text(
+    """
+    select * from report_audit_revisions
+    where target_google_place_id = :target_google_place_id and revision = :revision
+    """
+)
+
 _INSERT = text(
     """
     insert into report_audit_revisions (
@@ -54,6 +69,73 @@ def get_latest_report_audit(
             _LATEST, {"target_google_place_id": target_google_place_id}
         ).mappings().first()
     return dict(row) if row else None
+
+
+def list_report_audit_revisions(
+    target_google_place_id: str, *, engine: Engine | None = None
+) -> list[dict[str, Any]]:
+    """Every saved revision for this business, most recent first.
+
+    Revisions are never edited or deleted, so a business that has been through this twice for two
+    different purposes (say, two different customer-intent audits) has all of both still here, even
+    though only the most recent is "current". Used to offer switching back to an earlier one.
+    """
+
+    database = engine or get_engine()
+    with database.connect() as connection:
+        rows = connection.execute(
+            _HISTORY, {"target_google_place_id": target_google_place_id}
+        ).mappings().all()
+    return [dict(row) for row in rows]
+
+
+def restore_report_audit_revision(
+    target_google_place_id: str,
+    revision: int,
+    *,
+    created_by: str = "streamlit_report_generator",
+    engine: Engine | None = None,
+) -> dict[str, Any]:
+    """Make an earlier revision current again, as a new revision that copies it exactly.
+
+    Every field, including the saved reviewer decisions, comes from the chosen revision untouched;
+    nothing is merged with whatever is current now. This is an ordinary append like every other
+    save here, so the revision being switched away from is not lost and can be returned to the
+    same way later.
+    """
+
+    database = engine or get_engine()
+    with database.begin() as connection:
+        latest = connection.execute(
+            _LATEST_FOR_UPDATE, {"target_google_place_id": target_google_place_id}
+        ).mappings().first()
+        chosen = connection.execute(
+            _BY_REVISION, {"target_google_place_id": target_google_place_id, "revision": revision}
+        ).mappings().first()
+        if chosen is None:
+            raise ValueError(f"Revision {revision} was not found for this business.")
+        parameters = {
+            "id": str(uuid.uuid4()),
+            "schema_version": WORKFLOW_SCHEMA_VERSION,
+            "target_google_place_id": target_google_place_id,
+            "target_business_name": chosen["target_business_name"],
+            "revision": int(latest["revision"]) + 1 if latest else 1,
+            "supersedes_revision_id": str(latest["id"]) if latest else None,
+            "revision_reason": f"Restored from revision {chosen['revision']}",
+            "known_for": chosen["known_for"],
+            "desired_searches": json.dumps(list(chosen["desired_searches"] or [])),
+            "owner_competitors": json.dumps(list(chosen["owner_competitors"] or [])),
+            "benchmark_run_id": chosen["benchmark_run_id"],
+            "website_evidence_state": chosen["website_evidence_state"],
+            "review_evidence_state": chosen["review_evidence_state"],
+            "reviewer_decisions": json.dumps(dict(chosen["reviewer_decisions"] or {})),
+            "reviewer_decisions_complete": bool(chosen["reviewer_decisions_complete"]),
+            "owner_context": json.dumps(dict(chosen.get("owner_context") or {})),
+            "manual_website_url": chosen.get("manual_website_url"),
+            "created_by": created_by,
+        }
+        row = connection.execute(_INSERT, parameters).mappings().one()
+    return dict(row)
 
 
 def save_owner_brief_revision(
