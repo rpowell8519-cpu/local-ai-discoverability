@@ -24,6 +24,8 @@ from src.review_analysis import build_review_benchmark
 from src.review_profiles import get_review_profile
 
 
+ZERO_APPEARANCE_COMPARISONS_VERSION = 1
+
 PROVIDER_LABELS = {
     "openai": "OpenAI",
     "anthropic": "Claude",
@@ -252,8 +254,12 @@ def _review_diagnostic(
     return {key: value.to_dict("records") for key, value in benchmark.items()}
 
 
-def _market_row(market: list[dict[str, Any]], place_id: str) -> dict[str, Any]:
+def _market_row(market: list[dict[str, Any]], place_id: str, *, allow_zero: bool = False) -> dict[str, Any]:
     matches = [row for row in market if str(row.get("google_place_id")) == place_id]
+    # A selected comparison business need not occur in any AI answer. Keep
+    # its zero in the comparison without adding it to the observed market.
+    if not matches and allow_zero:
+        return {"google_place_id": place_id, "recommendations": 0, "share_of_recommendation": 0.0}
     if len(matches) != 1:
         raise ValueError(f"Canonical market has {len(matches)} rows for {place_id}")
     return matches[0]
@@ -390,7 +396,7 @@ def _build_report(
         )
     cohort_rows = []
     for member in config["cohort"]:
-        row = _market_row(market, member["google_place_id"])
+        row = _market_row(market, member["google_place_id"], allow_zero=True)
         matching = [
             item for item in business_slots
             if str(item.get("google_place_id")) == member["google_place_id"]
@@ -460,7 +466,7 @@ def _build_report(
         if str(dimension.get("label") or "").casefold().startswith("recommendations in"):
             dimension["values"] = {
                 business_name: str(
-                    int(_market_row(market, str(place_id))["recommendations"])
+                    int(_market_row(market, str(place_id), allow_zero=str(place_id) in {str(member["google_place_id"]) for member in config["cohort"]})["recommendations"])
                 )
                 for business_name, place_id in config["matrix_business_place_ids"].items()
             }
