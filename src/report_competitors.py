@@ -8,10 +8,12 @@ from typing import Any, Iterable, Mapping
 
 # Walk-in businesses whose customers do not travel far: salons, cafes, pubs and
 # their close peers. Everything else uses the wider default until decided otherwise.
+# A nursery is chosen even more locally than a salon (daily drop-off), so it uses the
+# same tight radius rather than the wide default meant for something like a workspace.
 LOCAL_WALK_IN_GROUPS = frozenset({
     "bar", "bars", "cafe", "cafes", "food_drink", "hair_beauty",
     "hospitality_food_drink", "pub", "pubs", "restaurant", "restaurants",
-    "salon", "salons",
+    "salon", "salons", "childcare_nurseries",
 })
 WALK_IN_CATCHMENT_MILES = 3.0
 DEFAULT_CATCHMENT_MILES = 15.0

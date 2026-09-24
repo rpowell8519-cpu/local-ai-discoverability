@@ -47,6 +47,7 @@ GROUP_LABELS = {
     "nightlife_entertainment": "Nightlife & entertainment",
     "workspaces": "Workspaces",
     "cleaning_services": "Cleaning services",
+    "childcare_nurseries": "Nurseries & childcare",
     "other": "Other local business",
 }
 
@@ -299,6 +300,35 @@ GROUP_RULES = {
             "janitorial service",
         },
     },
+    "childcare_nurseries": {
+        "category_values": {
+            "day care center",
+            "child care agency",
+            "preschool",
+            "nursery school",
+            "montessori school",
+        },
+        "type_values": {
+            "day care center",
+            "child care agency",
+            "preschool",
+            "nursery school",
+            "montessori school",
+            "babysitter",
+            "child care",
+        },
+        "subtype_values": {
+            "day care center",
+            "child care agency",
+            "preschool",
+            "nursery school",
+            "montessori school",
+            "babysitter",
+            "child care",
+            "before and after school program",
+            "childminder",
+        },
+    },
 }
 
 
@@ -337,6 +367,10 @@ GROUP_RELATIONSHIPS = {
     },
     "cleaning_services": {
         "cleaning_services": 1.00,
+    },
+    "childcare_nurseries": {
+        "childcare_nurseries": 1.00,
+        "workspaces": 0.15,
     },
 }
 

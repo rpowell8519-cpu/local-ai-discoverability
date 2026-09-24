@@ -255,6 +255,29 @@ Specifically:
 - Derive report status from `report_journey()` in `src/report_generator_readiness.py` rather
   than reimplementing readiness rules per page.
 
+## Business taxonomy groups
+
+`business_features.primary_group` is set directly from `classify_groups` (`feature_extraction.py`)
+at import time — its keys (`bars_pubs`, `coffee_cafes`, `hair_services`, `beauty_wellness`,
+`restaurants`, `nightlife_entertainment`, `workspaces`, `cleaning_services`, `childcare_nurseries`,
+`other`) are the *real* values stored for a business, defined in `src/taxonomy.py`
+(`GROUP_LABELS`/`GROUP_RULES`).
+
+**Known live gap, found while adding `childcare_nurseries`:** `client_summary/actions.py._GROUPS`
+(built-in wording) and `report_competitors.LOCAL_WALK_IN_GROUPS` (the tight 3-mile catchment) use a
+different, hand-picked vocabulary (`"coworking"`, `"salon"`, `"hair_beauty"`, ...) that does not match
+any of the real `primary_group` values above except `cleaning_services`. Every test fixture across the
+suite also uses that same hand-picked vocabulary, which is why this went uncaught: nothing exercises
+the real taxonomy keys. In its current state, no real business likely ever gets the built-in wording
+or the tight walk-in catchment it should — both silently fall through to the generic default. Flagged
+to the user; not fixed, because it changes report content and catchment for every existing vertical,
+not just the one this session was asked to add. `childcare_nurseries` itself is defined once, in both
+places, with the same key, so it does not have this problem.
+
+A business already imported before a new group like `childcare_nurseries` existed keeps its old
+`primary_group` (import-time classification is not retroactive); Data Admin's "Rebuild business
+features" reprocesses every stored raw record through the current rules and fixes this.
+
 ## Business identity rules
 
 Google Place ID is the canonical local-business identifier across the application.
