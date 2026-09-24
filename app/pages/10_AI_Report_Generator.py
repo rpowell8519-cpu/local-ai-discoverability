@@ -20,6 +20,11 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.append(str(PROJECT_ROOT))
 
 from src.database import get_engine  # noqa: E402
+import src.poc_audit_assembler as report_assembler  # noqa: E402
+
+if getattr(report_assembler, "ZERO_APPEARANCE_COMPARISONS_VERSION", 0) != 1:
+    report_assembler = importlib.reload(report_assembler)
+
 import src.ai_visibility_repository as visibility_repository  # noqa: E402
 import src.ai_visibility_runner as visibility_runner  # noqa: E402
 import src.llm_providers.anthropic_provider as anthropic_provider  # noqa: E402
