@@ -135,6 +135,7 @@ from src.report_audit_repository import (  # noqa: E402
     restore_report_audit_revision,
     save_evidence_states_revision,
     save_owner_brief_revision,
+    save_owner_competitors_revision,
     save_reviewer_decisions_revision,
 )
 from src.report_generator_readiness import (  # noqa: E402
@@ -146,7 +147,7 @@ from src.report_generator_readiness import (  # noqa: E402
 )
 
 
-BUILD_VERSION = "Accessible AI Report Generator v3.10.0 (reuse a completed AI Visibility run)"
+BUILD_VERSION = "Accessible AI Report Generator v3.11.0 (add a competitor mid-review)"
 REPORT_STATE_KEY = "accessible_ai_report_generator_result"
 SUMMARY_STATE_KEY = "accessible_ai_client_summary_result"
 
@@ -1354,6 +1355,33 @@ if ai_ready and definition is None:
         "answers, including any the owner named that the AI never recommended. A reviewer can change it "
         "when there is a clear relevance, location or identity reason."
     )
+    with st.expander(
+        f"Competitors the owner named ({len((saved_brief or {}).get('owner_competitors') or [])})",
+        expanded=not (saved_brief or {}).get("owner_competitors"),
+    ):
+        st.caption(
+            "A client naming a competitor guarantees them a place in the comparison, even where the AI rarely "
+            "or never recommends them, the same way a question can be added below in step 3. Add one per line. "
+            "Saving this does not affect the paid AI Visibility run or anything already reviewed below; the new "
+            "name will need its own match, the same as any other."
+        )
+        owner_competitors_edit = st.text_area(
+            "Named competitors",
+            value="\n".join((saved_brief or {}).get("owner_competitors") or []),
+            key=f"owner_competitors_edit_{selected_place_id}_{(durable_audit or {}).get('revision', 0)}",
+        )
+        if st.button("Save named competitors", key=f"owner_competitors_save_{selected_place_id}"):
+            try:
+                save_owner_competitors_revision(
+                    target_google_place_id=selected_place_id,
+                    owner_competitors=[line.strip(" \t-•") for line in owner_competitors_edit.splitlines() if line.strip(" \t-•")],
+                )
+            except Exception as exc:
+                st.error("The competitor list could not be saved.")
+                st.exception(exc)
+            else:
+                st.cache_data.clear()
+                st.rerun()
     try:
         candidates = load_report_candidates(
             run_id=saved_benchmark_run_id,
@@ -2212,12 +2240,6 @@ if ai_ready and definition is None:
             )
             st.cache_data.clear()
             st.rerun()
-
-if saved_brief and saved_brief.get("owner_competitors"):
-    with st.expander("Optional owner competitor context"):
-        for competitor in saved_brief["owner_competitors"]:
-            st.write(f"- {competitor}")
-        st.caption("These names do not determine which businesses appear in the report.")
 
 st.subheader("6. Generate report")
 if definition is None and not configuration_ready:

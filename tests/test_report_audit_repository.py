@@ -7,6 +7,7 @@ from src.report_audit_repository import (
     get_latest_report_audit,
     save_evidence_states_revision,
     save_owner_brief_revision,
+    save_owner_competitors_revision,
 )
 
 
@@ -354,3 +355,52 @@ def test_restoring_the_only_revision_is_revision_one_with_no_predecessor():
     engine.connection.by_revision[1] = row
     result = restore_report_audit_revision("place-wrap", 1, engine=engine)
     assert result["revision"] == 2 and result["supersedes_revision_id"] == "audit-coworking"
+
+
+# ---------------------------------------------------------------- adding a competitor mid-review
+def test_a_new_competitor_can_be_added_without_disturbing_the_review():
+    engine = Engine({
+        "id": "audit-1", "revision": 4, "target_business_name": "WRAP", "known_for": "Coworking and childcare",
+        "desired_searches": ["Best nursery in Hove"], "owner_competitors": ["Hopscotch"], "benchmark_run_id": "run-1",
+        "website_evidence_state": "available", "review_evidence_state": "available",
+        "reviewer_decisions": {"confirmed_target_names": ["WRAP"], "approved_recommendations": [{"id": "a1"}]},
+        "reviewer_decisions_complete": True, "owner_context": {"priority_services": ["Nursery places"]},
+        "manual_website_url": "https://wrap.example",
+    })
+
+    result = save_owner_competitors_revision(
+        target_google_place_id="place-1", owner_competitors=["Hopscotch", "Hove Village"], engine=engine,
+    )
+
+    assert result["revision"] == 5 and result["supersedes_revision_id"] == "audit-1"
+    assert json.loads(result["owner_competitors"]) == ["Hopscotch", "Hove Village"]
+    assert result["benchmark_run_id"] == "run-1"  # the paid run stays attached
+    assert json.loads(result["reviewer_decisions"]) == {
+        "confirmed_target_names": ["WRAP"], "approved_recommendations": [{"id": "a1"}],
+    }  # nothing already decided is lost
+    assert result["reviewer_decisions_complete"] is False  # the new name still needs a decision
+    assert json.loads(result["owner_context"]) == {"priority_services": ["Nursery places"]}
+
+
+def test_duplicate_and_blank_competitor_names_are_tidied_up():
+    engine = Engine({
+        "id": "audit-1", "revision": 1, "target_business_name": "WRAP", "known_for": "Coworking",
+        "desired_searches": [], "owner_competitors": [], "benchmark_run_id": None,
+        "website_evidence_state": "not_checked", "review_evidence_state": "not_checked",
+        "reviewer_decisions": {}, "owner_context": {}, "manual_website_url": None,
+    })
+    result = save_owner_competitors_revision(
+        target_google_place_id="place-1",
+        owner_competitors=["Hopscotch", "  ", "Hopscotch", "Hove Village "], engine=engine,
+    )
+    assert json.loads(result["owner_competitors"]) == ["Hopscotch", "Hove Village"]
+
+
+def test_naming_a_competitor_before_any_brief_exists_is_refused():
+    engine = Engine()
+    try:
+        save_owner_competitors_revision(target_google_place_id="place-1", owner_competitors=["Hopscotch"], engine=engine)
+    except ValueError as exc:
+        assert "Submit the report owner brief" in str(exc)
+    else:
+        raise AssertionError("A competitor was accepted with no brief to attach it to")

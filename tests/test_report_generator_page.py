@@ -441,7 +441,7 @@ def test_the_build_label_changes_so_the_team_can_tell_which_version_is_live():
     at, _, stack = run_page(revision())
     with stack:
         captions = " ".join(c.value for c in at.caption)
-        assert "Build: Accessible AI Report Generator v3.10.0" in captions
+        assert "Build: Accessible AI Report Generator v3.11.0" in captions
 
 
 # ---------------------------------------------------------------- reviews saved before the new checks
@@ -1212,3 +1212,42 @@ def test_with_nothing_else_to_reuse_the_control_is_not_offered():
     with stack:
         assert not at.exception, [e.value for e in at.exception]
         assert not any("Use an already-completed AI Visibility run instead" in str(e.label) for e in at.expander)
+
+
+# ------------------------------------------------------------ adding a competitor mid-review, without a reset
+def test_named_competitors_can_be_added_from_step_5_without_touching_anything_saved():
+    save_competitors = mock.Mock(return_value={"revision": 20})
+    at, saved, stack = run_page(revision(NAMES_DECIDED, owners=OWNERS), extra=[
+        mock.patch("src.report_audit_repository.save_owner_competitors_revision", save_competitors),
+    ])
+    with stack:
+        assert not at.exception, [e.value for e in at.exception]
+        box = next(t for t in at.text_area if str(t.key).startswith("owner_competitors_edit_"))
+        assert box.value == "PLATF9RM\nFreedom Works\nPLUS X"
+        box.set_value("PLATF9RM\nFreedom Works\nPLUS X\nHopscotch\n\n  ")
+        at.run()
+        next(b for b in at.button if str(b.key).startswith("owner_competitors_save_")).click().run()
+        assert not at.exception, [e.value for e in at.exception]
+        save_competitors.assert_called_once_with(
+            target_google_place_id=TARGET_ID, owner_competitors=["PLATF9RM", "Freedom Works", "PLUS X", "Hopscotch"],
+        )
+        saved.assert_not_called()  # this is a separate, smaller save, never the whole review
+
+
+def test_with_no_owner_competitors_yet_the_box_to_add_them_is_open_by_default():
+    at, _, stack = run_page(revision(NAMES_DECIDED))
+    with stack:
+        assert not at.exception, [e.value for e in at.exception]
+        assert any("Competitors the owner named (0)" in str(e.label) for e in at.expander)
+        box = next(t for t in at.text_area if str(t.key).startswith("owner_competitors_edit_"))
+        assert box.value == ""
+
+
+def test_a_failed_save_of_the_competitor_list_is_reported_plainly():
+    at, saved, stack = run_page(revision(NAMES_DECIDED, owners=OWNERS), extra=[
+        mock.patch("src.report_audit_repository.save_owner_competitors_revision",
+                   mock.Mock(side_effect=ValueError("Submit the report owner brief before naming competitors."))),
+    ])
+    with stack:
+        next(b for b in at.button if str(b.key).startswith("owner_competitors_save_")).click().run()
+        assert any("could not be saved" in e.value for e in at.error)

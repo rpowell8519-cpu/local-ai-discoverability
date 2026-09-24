@@ -247,6 +247,24 @@ loaded for the readiness table). Picking one and attaching it calls `attach_benc
 new paid calls. This also covers any other completed run for the business that was never attached in
 the first place.
 
+### Adding a named competitor mid-review does not reset the review
+
+`save_owner_brief_revision` deliberately resets `benchmark_run_id` and `reviewer_decisions` on every
+save, because any change to `known_for`/`desired_searches` could invalidate what was already measured
+or matched. A client naming one more competitor after the review is under way is a normal, common
+request (a client can feel their input was ignored if their named competitor is never shown), but it
+was going through that same reset — losing every name match, approved recommendation and evidence
+waiver already done, for a change that does not actually affect what was measured.
+
+`save_owner_competitors_revision` is a separate, narrow save: it replaces only `owner_competitors`,
+keeps `benchmark_run_id` and `reviewer_decisions` exactly as they were, and clears only
+`reviewer_decisions_complete` (the new name needs its own match). Offered at the top of step 5, so a
+newly named competitor is immediately available for the name-matching below it in the same page load.
+An owner-named competitor already gets a guaranteed place in the comparison set even at zero AI
+recommendations (`select_comparison_set`'s owner share) — this is what actually forces a client's
+named competitor to appear; the caption near it saying names "do not determine which businesses
+appear" was stale and has been removed.
+
 Specifically:
 - A paid run must not start when a saved brief exists but none of its questions are selected.
   Offer to reload the owner's questions, or require an explicit opt-out.

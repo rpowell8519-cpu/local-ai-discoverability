@@ -138,6 +138,54 @@ def restore_report_audit_revision(
     return dict(row)
 
 
+def save_owner_competitors_revision(
+    *,
+    target_google_place_id: str,
+    owner_competitors: list[str],
+    created_by: str = "streamlit_report_generator",
+    engine: Engine | None = None,
+) -> dict[str, Any]:
+    """Add or change the owner's named competitors, without disturbing anything already reviewed.
+
+    A client naming one more competitor after the review is under way is a normal request, not a
+    reason to redo it: unlike save_owner_brief_revision, this keeps the attached benchmark and every
+    existing reviewer decision (name matches, approved recommendations, evidence waivers) exactly as
+    they were. Only reviewer_decisions_complete is cleared, since the new name still needs its own
+    decision before the review can be completed again.
+    """
+
+    names = list(dict.fromkeys(str(item).strip() for item in owner_competitors if str(item).strip()))
+    database = engine or get_engine()
+    with database.begin() as connection:
+        latest = connection.execute(
+            _LATEST_FOR_UPDATE, {"target_google_place_id": target_google_place_id}
+        ).mappings().first()
+        if not latest:
+            raise ValueError("Submit the report owner brief before naming competitors.")
+        parameters = {
+            "id": str(uuid.uuid4()),
+            "schema_version": WORKFLOW_SCHEMA_VERSION,
+            "target_google_place_id": target_google_place_id,
+            "target_business_name": latest["target_business_name"],
+            "revision": int(latest["revision"]) + 1,
+            "supersedes_revision_id": str(latest["id"]),
+            "revision_reason": "Owner competitors updated",
+            "known_for": latest["known_for"],
+            "desired_searches": json.dumps(list(latest["desired_searches"] or [])),
+            "owner_competitors": json.dumps(names),
+            "benchmark_run_id": latest["benchmark_run_id"],
+            "website_evidence_state": latest["website_evidence_state"],
+            "review_evidence_state": latest["review_evidence_state"],
+            "reviewer_decisions": json.dumps(dict(latest["reviewer_decisions"] or {})),
+            "reviewer_decisions_complete": False,
+            "owner_context": json.dumps(dict(latest.get("owner_context") or {})),
+            "manual_website_url": latest.get("manual_website_url"),
+            "created_by": created_by,
+        }
+        row = connection.execute(_INSERT, parameters).mappings().one()
+    return dict(row)
+
+
 def save_owner_brief_revision(
     *,
     target_google_place_id: str,
