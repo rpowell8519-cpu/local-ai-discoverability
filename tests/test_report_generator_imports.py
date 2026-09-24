@@ -1,4 +1,5 @@
 """Exercise page imports with a module retained from an older deployment."""
+import ast
 import subprocess
 import sys
 from pathlib import Path
@@ -6,8 +7,16 @@ from pathlib import Path
 import pytest
 
 
-@pytest.mark.parametrize("missing", [(), ("list_report_audit_revisions",), ("restore_report_audit_revision",),
-                                    ("list_report_audit_revisions", "restore_report_audit_revision")])
+PAGE = Path(__file__).resolve().parents[1] / "app/pages/10_AI_Report_Generator.py"
+REPOSITORY_IMPORTS = tuple(
+    alias.name
+    for node in ast.parse(PAGE.read_text()).body
+    if isinstance(node, ast.ImportFrom) and node.module == "src.report_audit_repository"
+    for alias in node.names
+)
+
+
+@pytest.mark.parametrize("missing", [(), *((name,) for name in REPOSITORY_IMPORTS), REPOSITORY_IMPORTS])
 def test_page_imports_recover_a_stale_report_repository(missing):
     # Isolate module reloads from Streamlit's process-wide module/cache tracking.
     script = '''
@@ -34,6 +43,7 @@ with mock.patch("importlib.reload", wraps=importlib.reload) as reload:
         reload.assert_not_called()
 assert callable(namespace["list_report_audit_revisions"])
 assert callable(namespace["restore_report_audit_revision"])
+assert callable(namespace["save_owner_competitors_revision"])
 '''
     result = subprocess.run(
         [sys.executable, "-c", f"MISSING = {missing!r}\n" + script],
