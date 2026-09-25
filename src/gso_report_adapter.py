@@ -123,18 +123,24 @@ def _observation_mentions(result: Mapping[str, Any], target_id: str, target_name
                 "recommended": bool(result.get("target_recommended")),
                 "recommendation_position": result.get("target_position"),
             })
-    return [
-        Mention(
+    # Historical scans can contain tied or repeated positions. Keep the first
+    # explicit rank and leave later tied entries unranked rather than inventing order.
+    seen_ranks: set[int] = set()
+    mentions: list[Mention] = []
+    for entry in entries:
+        rank = _optional_int(entry.get("recommendation_position"))
+        if rank is not None and rank in seen_ranks:
+            rank = None
+        if rank is not None:
+            seen_ranks.add(rank)
+        mentions.append(Mention(
             brand_id=entry["google_place_id"],
             recommended=bool(entry.get("recommended")),
-            # The scan only records an ordered position when the name appeared in an
-            # explicitly numbered recommendation. Prose mention order is not a rank.
-            position=_optional_int(entry.get("recommendation_position")),
-            recommendation_position=_optional_int(entry.get("recommendation_position")),
+            position=rank,
+            recommendation_position=rank,
             sentiment="unknown",
-        )
-        for entry in entries
-    ]
+        ))
+    return mentions
 
 
 def _citations(metadata: Mapping[str, Any], domains: list[str]) -> list[Citation]:
