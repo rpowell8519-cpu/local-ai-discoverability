@@ -123,10 +123,8 @@ def _observation_mentions(result: Mapping[str, Any], target_id: str, target_name
                 "recommended": bool(result.get("target_recommended")),
                 "recommendation_position": result.get("target_position"),
             })
-    # Historical scans can contain tied or repeated positions for multiple names in
-    # one answer. The report schema requires ranks to be unique; keep the first
-    # explicit rank and leave later tied entries unranked rather than inventing a
-    # new ordering. The saved answer order and recommendation status remain intact.
+    # Historical scans can contain tied or repeated positions. Keep the first
+    # explicit rank and leave later tied entries unranked rather than inventing order.
     seen_ranks: set[int] = set()
     mentions: list[Mention] = []
     for entry in entries:
@@ -135,15 +133,13 @@ def _observation_mentions(result: Mapping[str, Any], target_id: str, target_name
             rank = None
         if rank is not None:
             seen_ranks.add(rank)
-        mentions.append(
-            Mention(
-                brand_id=entry["google_place_id"],
-                recommended=bool(entry.get("recommended")),
-                position=rank,
-                recommendation_position=rank,
-                sentiment="unknown",
-            )
-        )
+        mentions.append(Mention(
+            brand_id=entry["google_place_id"],
+            recommended=bool(entry.get("recommended")),
+            position=rank,
+            recommendation_position=rank,
+            sentiment="unknown",
+        ))
     return mentions
 
 
