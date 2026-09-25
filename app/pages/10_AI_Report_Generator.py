@@ -70,7 +70,10 @@ from src.review_repository import get_reviews  # noqa: E402
 from src.evidence_analysis import MAX_LEADERS, MIN_LEADERS, analyse_evidence, select_leaders  # noqa: E402
 from src.client_summary.actions import has_builtin_profile  # noqa: E402
 from src.ai_visibility_repository import get_visibility_run, get_run_queries, get_run_results  # noqa: E402
-from src.gso_report_adapter import build_gso_report_from_saved_run  # noqa: E402
+import src.gso_report_adapter as gso_report_adapter  # noqa: E402
+if getattr(gso_report_adapter, "GSO_REPORT_ADAPTER_VERSION", 0) != 2:
+    gso_report_adapter = importlib.reload(gso_report_adapter)
+build_gso_report_from_saved_run = gso_report_adapter.build_gso_report_from_saved_run
 from gso_report.page import render_report as render_gso_report  # noqa: E402
 from gso_report.schema import Report as GSOReport  # noqa: E402
 from src import type_wording as type_wording_tools  # noqa: E402

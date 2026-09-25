@@ -12,6 +12,8 @@ import pandas as pd
 from gso_report.schema import Brand, Citation, Mention, Observation, Prompt, Report
 from gso_report.metrics import kpis
 
+GSO_REPORT_ADAPTER_VERSION = 2
+
 
 _PROVIDERS = {
     "openai": "OpenAI",
