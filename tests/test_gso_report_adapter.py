@@ -63,4 +63,3 @@ def test_reported_zero_requires_measured_citation_metadata():
     stats = kpis(report, report.observations)
     assert stats["Citation evidence coverage %"] == 100.0
     assert stats["Owned-site citation rate %"] == 0.0
-

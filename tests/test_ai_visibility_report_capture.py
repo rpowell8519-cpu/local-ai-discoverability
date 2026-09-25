@@ -38,4 +38,3 @@ def test_missing_citation_metadata_is_unavailable_not_zero():
     result = provider_report_metadata("Gemini", {"steps": []}, "search_grounded")
     assert result["citation_status"] == "unavailable"
     assert result["citations"] == []
-
