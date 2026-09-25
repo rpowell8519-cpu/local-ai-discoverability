@@ -20,6 +20,7 @@ from src.type_wording import to_profile
 from src.client_summary.actions import build_actions
 from src.client_summary.model import from_records
 from src.client_summary.pdf import render_pdf
+from src.client_summary.reviews import build_review_summary
 
 _LABEL_LIMIT = 65
 _NAME_LIMIT = 75
@@ -222,6 +223,8 @@ def build_client_summary_report(
 
     owner_searches = {" ".join(str(item).split()).casefold() for item in owner_questions}
     limitations: list[str] = []
+    if owner_config.get("review_notes"):
+        limitations.append(_shorten(str(owner_config["review_notes"]), 238))
     if website_checked and not any(f.get("kind") == "crawler_access" for f in findings):
         limitations.append(
             "The website's robots.txt could not be read, so whether AI search crawlers can visit the site was not tested."
@@ -263,6 +266,7 @@ def build_client_summary_report(
         "unverified_ids": [key for key, _, verified in named if not verified],
         "visible_ids": [key for key, _ in visible],
         "evidence_layers": _evidence_layers(owner_config, approved),
+        "review_analysis": build_review_summary(report, group),
         "evidence": [
             {"id": str(f["id"]), "observation": str(f["observation"]), "source": str(f["source"])}
             for f in findings

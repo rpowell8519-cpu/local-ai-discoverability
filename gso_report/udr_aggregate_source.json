@@ -1,0 +1,49 @@
+{
+  "client": "UDR Properties",
+  "audit_date": "2026-09-24",
+  "source_run_id": "826a2c4f-eaec-4403-a439-c3aa3f5aa629",
+  "source": "UDR Properties AI visibility report dated 24 September 2026; figures transcribed from its aggregate tables, not independently recounted from raw answers.",
+  "answers": 72,
+  "appearances": 9,
+  "providers": [
+    {"provider": "Claude", "appearances": 1, "answers": 24, "model_as_reported": "claude-sonnet-5"},
+    {"provider": "Gemini", "appearances": 6, "answers": 24, "model_as_reported": "gemini-3.6-flash"},
+    {"provider": "OpenAI", "appearances": 2, "answers": 24, "model_as_reported": "gpt-5.6-terra"}
+  ],
+  "topics": [
+    {"id": "Q1", "label": "Commercial cleaning", "appearances": 0, "answers": 9, "exact_prompt_available": true},
+    {"id": "Q2", "label": "Office cleaning", "appearances": 0, "answers": 9, "exact_prompt_available": false},
+    {"id": "Q3", "label": "End of tenancy cleaning", "appearances": 0, "answers": 9, "exact_prompt_available": false},
+    {"id": "Q4", "label": "Carpet cleaning", "appearances": 0, "answers": 9, "exact_prompt_available": false},
+    {"id": "Q5", "label": "Upholstry cleaning", "appearances": 0, "answers": 9, "exact_prompt_available": false},
+    {"id": "Q6", "label": "Laundery services", "appearances": 2, "answers": 9, "exact_prompt_available": false},
+    {"id": "Q7", "label": "General questions (not tied to one priority)", "appearances": 2, "answers": 9, "exact_prompt_available": false},
+    {"id": "Q8", "label": "Airbnb cleaning", "appearances": 5, "answers": 9, "exact_prompt_available": false}
+  ],
+  "named_competitors": [
+    {"name": "Why Bother Cleaning we'll do it for you", "Claude": 9, "Gemini": 12, "OpenAI": 4, "total": 25},
+    {"name": "Stellar End of Tenancy Cleaning Brighton", "Claude": 4, "Gemini": 7, "OpenAI": 0, "total": 11},
+    {"name": "UDR Properties", "Claude": 1, "Gemini": 6, "OpenAI": 2, "total": 9},
+    {"name": "Daisyfresh cleaning", "Claude": 0, "Gemini": 1, "OpenAI": 4, "total": 5},
+    {"name": "Diamond Cleaning", "Claude": 1, "Gemini": 0, "OpenAI": 2, "total": 3},
+    {"name": "Seb-services Ltd", "Claude": 0, "Gemini": 0, "OpenAI": 0, "total": 0}
+  ],
+  "ai_discovered_businesses": [
+    {"name": "Why Bother Cleaning we'll do it for you", "Claude": 9, "Gemini": 12, "OpenAI": 4, "total": 25},
+    {"name": "Hashtag Clean", "Claude": 6, "Gemini": 6, "OpenAI": 0, "total": 12},
+    {"name": "High Class Cleaning Brighton and Hove", "Claude": 5, "Gemini": 3, "OpenAI": 4, "total": 12},
+    {"name": "Stellar End of Tenancy Cleaning Brighton", "Claude": 4, "Gemini": 7, "OpenAI": 0, "total": 11},
+    {"name": "Carpet Bright UK", "Claude": 5, "Gemini": 4, "OpenAI": 1, "total": 10},
+    {"name": "UDR Properties", "Claude": 1, "Gemini": 6, "OpenAI": 2, "total": 9},
+    {"name": "Carpet Magic", "Claude": 0, "Gemini": 5, "OpenAI": 4, "total": 9},
+    {"name": "St George's Laundry Services", "Claude": 3, "Gemini": 3, "OpenAI": 3, "total": 9},
+    {"name": "Silver Star Cleaning Ltd", "Claude": 4, "Gemini": 1, "OpenAI": 3, "total": 8},
+    {"name": "Time2shine", "Claude": 4, "Gemini": 4, "OpenAI": 0, "total": 8}
+  ],
+  "source_limitations": [
+    "The PDF reports 72 answers and says all were saved, but the raw answer records were not available in the supplied export or current app environment.",
+    "Counts are transcribed from PDF aggregates and have not been independently recalculated from answers.",
+    "The new-format report therefore contains no fabricated per-answer observations; its observation-derived metrics are N/A.",
+    "Exact prompt wording was available in the PDF only for the commercial-cleaning example; other prompt entries are source topic labels."
+  ]
+}

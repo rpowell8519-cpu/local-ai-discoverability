@@ -16,6 +16,7 @@ from src.ai_visibility_repository import (
     get_run_results,
     save_visibility_result,
 )
+from src.ai_visibility_report_capture import provider_report_metadata
 from src.llm_providers.anthropic_provider import (
     call_anthropic,
 )
@@ -28,6 +29,7 @@ from src.llm_providers.openai_provider import (
 
 
 SUPPORTED_BENCHMARK_MODES = frozenset({"model_memory", "search_grounded"})
+GSO_REPORT_CAPTURE_VERSION = 1
 
 
 def _call_provider(
@@ -174,6 +176,7 @@ def _save_provider_outcome(
     known_businesses: list[
         dict[str, str]
     ],
+    benchmark_mode: str = "search_grounded",
 ) -> None:
     if error is not None:
         save_visibility_result(
@@ -198,6 +201,11 @@ def _save_provider_outcome(
             output_tokens=None,
             total_tokens=None,
             reasoning_tokens=None,
+            report_metadata={
+                "citation_status": "unavailable",
+                "citations": [],
+                "refused": False,
+            },
             latency_ms=None,
             finish_reason=(
                 "request_failed"
@@ -226,6 +234,11 @@ def _save_provider_outcome(
             ),
         )
     )
+    report_metadata = provider_report_metadata(
+        provider,
+        getattr(provider_response, "raw", None),
+        benchmark_mode,
+    )
 
     save_visibility_result(
         run_id=run_id,
@@ -248,6 +261,7 @@ def _save_provider_outcome(
         reasoning_tokens=(
             provider_response.reasoning_tokens
         ),
+        report_metadata=report_metadata,
         latency_ms=(
             provider_response.latency_ms
         ),
@@ -404,6 +418,7 @@ def execute_calls(
                     known_businesses=(
                         known_businesses
                     ),
+                    benchmark_mode=benchmark_mode,
                 )
 
                 processed += 1

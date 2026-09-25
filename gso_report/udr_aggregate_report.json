@@ -1,0 +1,180 @@
+{
+  "schema_version": "1.0",
+  "client_id": "udr-properties",
+  "agency": "Source PDF aggregate import",
+  "category": "Professional cleaning services",
+  "market": "Brighton",
+  "start_date": "2026-09-24",
+  "end_date": "2026-09-24",
+  "sample_data": false,
+  "executive_summary": "AGGREGATE IMPORT — not recalculated from answer records. The 24 September 2026 source report states that UDR Properties appeared in 9 of 72 answers (12.5%) and in 3 of 8 topic groups. Provider counts as printed: Claude: 1/24; Gemini: 6/24; OpenAI: 2/24. Topic counts as printed: Commercial cleaning: 0/9; Office cleaning: 0/9; End of tenancy cleaning: 0/9; Carpet cleaning: 0/9; Upholstry cleaning: 0/9; Laundery services: 2/9; General questions (not tied to one priority): 2/9; Airbnb cleaning: 5/9. The response-level metrics in this new-format report are N/A because the 72 individual answers were not present in the supplied export. These source figures have not been independently recounted.",
+  "methodology_notes": "Source: UDR Properties AI visibility report dated 24 September 2026; figures transcribed from its aggregate tables, not independently recounted from raw answers. Source run ID: 826a2c4f-eaec-4403-a439-c3aa3f5aa629. The source describes a balanced panel of 8 question topics × 3 providers × 3 repeats = 72 answers (24 per provider; 9 per topic). That design is transcribed from the source, not independently verified here. The only exact prompt text available in the PDF is the commercial-cleaning example; the other prompt records are topic labels and are explicitly marked as not verbatim. Competitor and provider counts are retained in the separate source aggregate appendix in the Streamlit page. This report has zero answer-level observations; the module-computed mention, recommendation, citation, persistence, accuracy, sentiment and share-of-voice metrics must remain unavailable. Historical model names are reproduced as source metadata, not current API advice.",
+  "brands": [
+    {
+      "id": "carpet-bright-uk",
+      "name": "Carpet Bright UK",
+      "domains": []
+    },
+    {
+      "id": "carpet-magic",
+      "name": "Carpet Magic",
+      "domains": []
+    },
+    {
+      "id": "daisyfresh-cleaning",
+      "name": "Daisyfresh cleaning",
+      "domains": []
+    },
+    {
+      "id": "diamond-cleaning",
+      "name": "Diamond Cleaning",
+      "domains": []
+    },
+    {
+      "id": "hashtag-clean",
+      "name": "Hashtag Clean",
+      "domains": []
+    },
+    {
+      "id": "high-class-cleaning-brighton-and-hove",
+      "name": "High Class Cleaning Brighton and Hove",
+      "domains": []
+    },
+    {
+      "id": "seb-services-ltd",
+      "name": "Seb-services Ltd",
+      "domains": []
+    },
+    {
+      "id": "silver-star-cleaning-ltd",
+      "name": "Silver Star Cleaning Ltd",
+      "domains": []
+    },
+    {
+      "id": "st-george-s-laundry-services",
+      "name": "St George's Laundry Services",
+      "domains": []
+    },
+    {
+      "id": "stellar-end-of-tenancy-cleaning-brighton",
+      "name": "Stellar End of Tenancy Cleaning Brighton",
+      "domains": []
+    },
+    {
+      "id": "time2shine",
+      "name": "Time2shine",
+      "domains": []
+    },
+    {
+      "id": "udr-properties",
+      "name": "UDR Properties",
+      "domains": []
+    },
+    {
+      "id": "why-bother-cleaning-we-ll-do-it-for-you",
+      "name": "Why Bother Cleaning we'll do it for you",
+      "domains": []
+    }
+  ],
+  "prompts": [
+    {
+      "id": "Q1",
+      "text": "Which companies would you recommend for commercial cleaning in Brighton?",
+      "topic": "Commercial cleaning",
+      "intent": "discovery",
+      "location": null,
+      "importance": 3,
+      "effort": 3
+    },
+    {
+      "id": "Q2",
+      "text": "Source topic label: Office cleaning. Exact prompt wording is unavailable in this aggregate export.",
+      "topic": "Office cleaning",
+      "intent": "discovery",
+      "location": null,
+      "importance": 3,
+      "effort": 3
+    },
+    {
+      "id": "Q3",
+      "text": "Source topic label: End of tenancy cleaning. Exact prompt wording is unavailable in this aggregate export.",
+      "topic": "End of tenancy cleaning",
+      "intent": "discovery",
+      "location": null,
+      "importance": 3,
+      "effort": 3
+    },
+    {
+      "id": "Q4",
+      "text": "Source topic label: Carpet cleaning. Exact prompt wording is unavailable in this aggregate export.",
+      "topic": "Carpet cleaning",
+      "intent": "discovery",
+      "location": null,
+      "importance": 3,
+      "effort": 3
+    },
+    {
+      "id": "Q5",
+      "text": "Source topic label: Upholstry cleaning. Exact prompt wording is unavailable in this aggregate export.",
+      "topic": "Upholstry cleaning",
+      "intent": "discovery",
+      "location": null,
+      "importance": 3,
+      "effort": 3
+    },
+    {
+      "id": "Q6",
+      "text": "Source topic label: Laundery services. Exact prompt wording is unavailable in this aggregate export.",
+      "topic": "Laundery services",
+      "intent": "discovery",
+      "location": null,
+      "importance": 3,
+      "effort": 3
+    },
+    {
+      "id": "Q7",
+      "text": "Source topic label: General questions (not tied to one priority). Exact prompt wording is unavailable in this aggregate export.",
+      "topic": "General questions (not tied to one priority)",
+      "intent": "discovery",
+      "location": null,
+      "importance": 3,
+      "effort": 3
+    },
+    {
+      "id": "Q8",
+      "text": "Source topic label: Airbnb cleaning. Exact prompt wording is unavailable in this aggregate export.",
+      "topic": "Airbnb cleaning",
+      "intent": "discovery",
+      "location": null,
+      "importance": 3,
+      "effort": 3
+    }
+  ],
+  "observations": [],
+  "roadmap": [
+    {
+      "horizon": 30,
+      "action": "Verify the contact-number difference reported by the source before changing any listing",
+      "owner": "UDR owner and website/profile managers",
+      "success_measure": "Confirm the intended number and record the pages/profiles checked; update only verified errors.",
+      "evidence": "24 September source report, page 6, finding E1; not independently rechecked.",
+      "status": "planned"
+    },
+    {
+      "horizon": 60,
+      "action": "Choose one priority service and review its existing customer-facing information",
+      "owner": "UDR owner and website manager",
+      "success_measure": "Agree accurate scope, Brighton coverage, quote details and enquiry route for the chosen service.",
+      "evidence": "Source-reported topic aggregates show zero appearances for five service topics; this does not prove the relevant website content is missing.",
+      "status": "planned"
+    },
+    {
+      "horizon": 90,
+      "action": "Repeat the same panel while preserving each answer and its collection settings",
+      "owner": "GSO analyst",
+      "success_measure": "Archive all 72 answers with exact prompts, provider/model, surface, configuration, timestamps and identity review.",
+      "evidence": "The source report is an aggregate-only baseline in the current workspace; a future answer-level comparison requires raw records.",
+      "status": "planned"
+    }
+  ]
+}

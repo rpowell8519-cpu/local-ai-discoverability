@@ -1,4 +1,4 @@
-"""Validated contract for the eight-page client summary. No network or AI calls.
+"""Validated client summary contract, including optional review analysis. No network or AI calls.
 
 Vendored from the streamlit-client-report package supplied on 2026-09-21."""
 from copy import deepcopy
@@ -116,8 +116,53 @@ def validate_report(payload):
     for b in businesses.values():
         text(b.get('name'), 'business.name', 75)
         count(b.get('appearances'), 'business.appearances', total)
+        breakdown = b.get('provider_appearances')
+        if breakdown is not None:
+            if not isinstance(breakdown, dict) or set(breakdown) != set(providers):
+                fail('Business provider breakdown must contain every tested provider.')
+            for pid, value in breakdown.items():
+                count(value, 'business.provider_appearances', providers[pid]['complete'])
+            if sum(breakdown.values()) != b['appearances']:
+                fail('Business provider counts do not sum to its total.')
     if businesses[d['target_id']]['appearances'] != appearances:
         fail('Target business total does not match the question results.')
+    target_breakdown = businesses[d['target_id']].get('provider_appearances')
+    if target_breakdown is not None and any(target_breakdown[pid] != p['appearances'] for pid, p in providers.items()):
+        fail('Target provider breakdown does not match provider results.')
+    review = d.get('review_analysis')
+    if review is not None:
+        if not isinstance(review, dict) or review.get('target_id') != d['target_id']:
+            fail('Review analysis must reference the target business.')
+        text(review.get('source'), 'review.source', 400)
+        samples = indexed(collection(review.get('businesses'), 'review.businesses', 1, 9), 'review.businesses')
+        for sample in samples.values():
+            text(sample.get('name'), 'review.business.name', 200)
+            n = count(sample.get('sample_size'), 'review.sample_size')
+            rated = count(sample.get('rated_count'), 'review.rated_count', n)
+            count(sample.get('low_ratings'), 'review.low_ratings', rated)
+            rating = sample.get('rating')
+            if (rated == 0 and rating is not None) or (rated and (type(rating) not in (float, int) or not 1 <= rating <= 5)):
+                fail('Review mean rating must match the rated sample.')
+            text(sample.get('date_range'), 'review.date_range', 80)
+            if not isinstance(sample.get('themes'), dict):
+                fail('Review themes must be counts by label.')
+            for label, mentions in sample['themes'].items():
+                text(label, 'review.theme.label', 80)
+                count(mentions, 'review.theme.mentions', n)
+        for theme in collection(review.get('themes'), 'review.themes', 1, 6):
+            text(theme.get('label'), 'review.theme.label', 80)
+            target_sample = samples.get(d['target_id'])
+            expected_reviews = target_sample['themes'].get(theme['label']) if target_sample else 0
+            if theme.get('reviews') != expected_reviews:
+                fail('Review theme count disagrees with target sample.')
+            orders = theme.get('question_orders')
+            if not isinstance(orders, list) or len(set(orders)) != len(orders):
+                fail('Review question mapping must be a distinct list.')
+            mapped = [questions.get(f'q{o}') for o in orders]
+            if any(q is None for q in mapped):
+                fail('Review theme references an unknown question.')
+            if theme.get('answers') != sum(q['complete'] for q in mapped) or theme.get('appearances') != sum(q['appearances'] for q in mapped):
+                fail('Review visibility link disagrees with measured questions.')
     for field, limit in (('named_ids', MAX_NAMED), ('visible_ids', MAX_VISIBLE), ('unverified_ids', MAX_NAMED)):
         ids = d.get(field)
         if ids is None:
@@ -194,6 +239,7 @@ def from_records(metadata, records):
     for obj in list(ps.values()) + list(qs.values()):
         obj['complete'] = obj['appearances'] = 0
     ids, cells, counts = set(), set(), Counter()
+    provider_counts = Counter()
     for r in records:
         if not isinstance(r, dict):
             fail('Every record must be an object.')
@@ -215,10 +261,12 @@ def from_records(metadata, records):
         ids.add(rid); cells.add(cell)
         names = set(names)
         counts.update(names)
+        provider_counts.update((bid, pid) for bid in names)
         for obj in (ps[pid], qs[qid]):
             obj['complete'] += 1
             obj['appearances'] += int(d['target_id'] in names)
     for b in collection(d.get('businesses'), 'businesses', 1, MAX_BUSINESSES):
         b['appearances'] = counts[b['id']]
+        b['provider_appearances'] = {pid: provider_counts[b['id'], pid] for pid in ps}
     d['evidence_basis'] = 'saved_response_records'
     return validate_report(d)

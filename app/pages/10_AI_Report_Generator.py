@@ -36,10 +36,15 @@ import src.llm_providers.openai_provider as openai_provider  # noqa: E402
 # Reload the benchmark modules when a deployment changes their public API,
 # before a paid-run control can be displayed.
 repository_mode = inspect.signature(visibility_repository.create_visibility_run).parameters.get("benchmark_mode")
-if repository_mode is None or repository_mode.default != "search_grounded":
+if (
+    repository_mode is None
+    or repository_mode.default != "search_grounded"
+    or getattr(visibility_repository, "GSO_REPORT_METADATA_VERSION", 0) != 1
+):
     visibility_repository = importlib.reload(visibility_repository)
 if (
     getattr(visibility_runner, "SUPPORTED_BENCHMARK_MODES", frozenset()) != frozenset({"model_memory", "search_grounded"})
+    or getattr(visibility_runner, "GSO_REPORT_CAPTURE_VERSION", 0) != 1
     or getattr(anthropic_provider, "REQUIRED_SEARCH_VERSION", 0) != 1
     or visibility_runner.call_anthropic is not anthropic_provider.call_anthropic
 ):
@@ -64,6 +69,10 @@ from src.website_audit_repository import (  # noqa: E402
 from src.review_repository import get_reviews  # noqa: E402
 from src.evidence_analysis import MAX_LEADERS, MIN_LEADERS, analyse_evidence, select_leaders  # noqa: E402
 from src.client_summary.actions import has_builtin_profile  # noqa: E402
+from src.ai_visibility_repository import get_visibility_run, get_run_queries, get_run_results  # noqa: E402
+from src.gso_report_adapter import build_gso_report_from_saved_run  # noqa: E402
+from gso_report.page import render_report as render_gso_report  # noqa: E402
+from gso_report.schema import Report as GSOReport  # noqa: E402
 from src import type_wording as type_wording_tools  # noqa: E402
 from src.review_ingestion import (  # noqa: E402
     import_reviews,
@@ -158,6 +167,8 @@ from src.report_generator_readiness import (  # noqa: E402
 BUILD_VERSION = "Accessible AI Report Generator v3.11.0 (add a competitor mid-review)"
 REPORT_STATE_KEY = "accessible_ai_report_generator_result"
 SUMMARY_STATE_KEY = "accessible_ai_client_summary_result"
+GSO_REPORT_STATE_KEY = "accessible_ai_gso_report_result"
+FOUND_BRIGHTON_REPORT_STATE_KEY = "accessible_found_brighton_report_result"
 
 @dataclass(frozen=True)
 class ReportType:
@@ -177,11 +188,22 @@ REPORT_TYPES = (
     ),
     ReportType(
         "summary", "Client summary (LS)",
-        "Six pages in plain language: the result, what was tested, where the business appeared, "
-        "who else appeared, three actions and how to follow up. Same saved evidence and counts as the full report. "
+        "A plain-language summary: the result, what was tested, appearances for each business by AI tool, "
+        "three actions and how to follow up. When review sets are saved, three extra pages analyse customer "
+        "reviews, compare themes and relate them to measured AI visibility. Same saved evidence and counts as the full report. "
         "When it is generated it also reads the website's robots.txt (a read-only request) to see whether AI search "
         "crawlers are blocked; any block found becomes a sourced action.",
         "Generate client summary from saved evidence",
+    ),
+    ReportType(
+        "gso", "AI Visibility Report (GSO)",
+        "Answer-level visibility, recommendations, citation evidence, competitor benchmarks and opportunities from the selected saved scan.",
+        "Generate AI Visibility Report from saved scan",
+    ),
+    ReportType(
+        "found_brighton", "Found in Brighton AI Report",
+        "A client-ready Word report populated with visibility results from the selected saved scan. Audit worksheet sections are clearly marked as not measured.",
+        "Generate Found in Brighton report from saved scan",
     ),
 )
 AI_VISIBILITY_HANDOFF_KEY = "ai_visibility_report_handoff_target"
@@ -348,7 +370,10 @@ def load_run_prompt_seed(run_id: str) -> list[dict[str, Any]]:
             text(
                 """
                 select distinct on (base_prompt_order)
-                    base_prompt_order, prompt_category, prompt_source, prompt_text
+                    base_prompt_order, prompt_category, prompt_source, prompt_text,
+                    coalesce(to_jsonb(ai_visibility_queries)->>'report_intent', 'discovery') as report_intent,
+                    to_jsonb(ai_visibility_queries)->>'report_importance' as report_importance,
+                    to_jsonb(ai_visibility_queries)->>'report_effort' as report_effort
                 from ai_visibility_queries
                 where run_id = :run_id
                 order by base_prompt_order, repeat_index, prompt_order, id
@@ -961,10 +986,23 @@ if next_step["key"] == "benchmark":
                     "include": True,
                     "intent": "Owner priority",
                     "question": str(question),
+                    "report_intent": "discovery",
+                    "report_importance": "Not rated",
+                    "report_effort": "Not rated",
                 }
                 for question in list(saved_brief.get("desired_searches") or [])
             ]
         )
+    else:
+        # Add GSO fields to question tables created by an earlier Streamlit session.
+        question_state = st.session_state[prompt_state_key].copy()
+        if "report_intent" not in question_state:
+            question_state["report_intent"] = "discovery"
+        if "report_importance" not in question_state:
+            question_state["report_importance"] = "Not rated"
+        if "report_effort" not in question_state:
+            question_state["report_effort"] = "Not rated"
+        st.session_state[prompt_state_key] = question_state
     question_table = st.data_editor(
         st.session_state[prompt_state_key],
         hide_index=True,
@@ -974,6 +1012,15 @@ if next_step["key"] == "benchmark":
             "include": st.column_config.CheckboxColumn("Run"),
             "intent": st.column_config.TextColumn("Intent"),
             "question": st.column_config.TextColumn("Customer question", width="large"),
+            "report_intent": st.column_config.SelectboxColumn(
+                "GSO search intent", options=["discovery", "comparison", "transactional", "branded"], required=True
+            ),
+            "report_importance": st.column_config.SelectboxColumn(
+                "Importance (optional)", options=["Not rated", "1", "2", "3", "4", "5"]
+            ),
+            "report_effort": st.column_config.SelectboxColumn(
+                "Effort (optional)", options=["Not rated", "1", "2", "3", "4", "5"]
+            ),
         },
         key=f"report_ai_question_editor_{selected_place_id}",
     )
@@ -1043,6 +1090,9 @@ if next_step["key"] == "benchmark":
                 "category": str(row.get("intent") or "Owner priority"),
                 "source": "owner_brief",
                 "prompt": str(row["question"]).strip(),
+                "report_intent": str(row.get("report_intent") or "discovery"),
+                "report_importance": row.get("report_importance"),
+                "report_effort": row.get("report_effort"),
             }
             for row in selected_questions.to_dict("records")
         ]
@@ -2388,7 +2438,90 @@ else:
                 )
                 st.caption("Keep the evidence index beside the PDF so its saved-answer links work. It contains original answers and saved research, not newly collected evidence.")
 
-    generate_report, show_report = {"summary": (generate_summary, show_summary), "full": (generate_full, show_full)}[report_kind]
+    def generate_gso():
+        try:
+            with st.spinner("Building the AI Visibility Report from the selected saved scan…"):
+                saved_run = get_visibility_run(report_run_id)
+                report = build_gso_report_from_saved_run(
+                    saved_run,
+                    get_run_queries(report_run_id),
+                    get_run_results(report_run_id),
+                    target_google_place_id=selected_place_id,
+                    client_name=report_client_name,
+                    client_website_url=str(business.get("source_website_url") or "") or None,
+                    category=str(business.get("primary_group") or business.get("raw_category") or "Local business"),
+                    market=str(business.get("city") or saved_run.get("location_context") or "Market not recorded"),
+                )
+        except ValueError as exc:
+            st.error(f"The AI Visibility Report could not be created. {exc}")
+        except Exception as exc:
+            st.error("The AI Visibility Report could not be built from this saved scan. No new AI calls were made.")
+            st.exception(exc)
+        else:
+            st.session_state[GSO_REPORT_STATE_KEY] = {"key": summary_key, "report": report.model_dump(mode="json")}
+
+    def show_gso():
+        saved_gso = st.session_state.get(GSO_REPORT_STATE_KEY)
+        if saved_gso and saved_gso.get("key") == summary_key:
+            st.success("The AI Visibility Report is ready.")
+            render_gso_report(GSOReport.model_validate(saved_gso["report"]), key=f"gso_{selected_place_id}_{report_run_id}")
+
+    def generate_found_brighton():
+        try:
+            with st.spinner("Building the Found in Brighton report from the selected saved scan…"):
+                saved_run = get_visibility_run(report_run_id)
+                report = build_gso_report_from_saved_run(
+                    saved_run,
+                    get_run_queries(report_run_id),
+                    get_run_results(report_run_id),
+                    target_google_place_id=selected_place_id,
+                    client_name=report_client_name,
+                    client_website_url=str(business.get("source_website_url") or "") or None,
+                    category=str(business.get("primary_group") or business.get("raw_category") or "Local business"),
+                    market=str(business.get("city") or saved_run.get("location_context") or "Market not recorded"),
+                )
+                from src.found_brighton_report import generate_filled_report
+
+                docx_bytes = generate_filled_report(
+                    report,
+                    agency="Found in Brighton AI",
+                    website=str(business.get("source_website_url") or ""),
+                )
+        except ValueError as exc:
+            st.error(f"The Found in Brighton report could not be created. {exc}")
+        except Exception as exc:
+            st.error("The Found in Brighton report could not be built from this saved scan. No new AI calls were made.")
+            st.exception(exc)
+        else:
+            st.session_state[FOUND_BRIGHTON_REPORT_STATE_KEY] = {
+                "key": summary_key,
+                "docx": docx_bytes,
+                "filename": re.sub(r"[^a-z0-9]+", "-", report_client_name.lower()).strip("-") or "business",
+            }
+
+    def show_found_brighton():
+        saved = st.session_state.get(FOUND_BRIGHTON_REPORT_STATE_KEY)
+        if saved and saved.get("key") == summary_key:
+            st.success("The Found in Brighton report is ready.")
+            st.download_button(
+                "Download Found in Brighton report (Word)",
+                data=saved["docx"],
+                file_name=f"{saved['filename']}-found-in-brighton-ai-report.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                type="primary",
+                use_container_width=True,
+            )
+            st.caption(
+                "Visibility metrics, tables and charts come from the selected saved scan. "
+                "The report does not rerun AI calls; its other audit worksheets are marked as not measured."
+            )
+
+    generate_report, show_report = {
+        "summary": (generate_summary, show_summary),
+        "full": (generate_full, show_full),
+        "gso": (generate_gso, show_gso),
+        "found_brighton": (generate_found_brighton, show_found_brighton),
+    }[report_kind]
     if generate:
         generate_report()
     show_report()
