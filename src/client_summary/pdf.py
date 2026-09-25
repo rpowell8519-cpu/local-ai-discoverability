@@ -1,4 +1,4 @@
-"""Six-page, in-memory client summary PDF. All data-derived markup is escaped.
+"""In-memory client summary, with three extra pages when saved review sets exist.
 
 Vendored from the streamlit-client-report package supplied on 2026-09-21, then restyled to
 match the approved Garden Bar draft: same palette, stat tiles, callout boxes and bar scaling,
@@ -123,7 +123,8 @@ class Page:
         c.setFont('Helvetica', 8)
         c.setFillColor(GREY)
         c.drawString(LEFT, H - 808, f"AI visibility | Baseline audit: {long_date(d['audit_date'])}")
-        c.drawRightString(RIGHT, H - 808, f'{number} / {TOTAL_PAGES}')
+        extra = 3 if d.get('review_analysis') else 0
+        c.drawRightString(RIGHT, H - 808, f'{number} / {TOTAL_PAGES + extra}')
         self.top = 78
         self.eyebrow(eyebrow)
         self.top = 102
@@ -411,6 +412,14 @@ def _render(payload, level):
 
     def bars(rows):
         ranked = sorted([target_b, *rows], key=lambda b: (-b['appearances'], b['id'] != d['target_id'], b['name']))
+        if all('provider_appearances' in b for b in ranked):
+            table_rows = [[b['name'], *[str(b['provider_appearances'][p['id']]) for p in providers],
+                           str(b['appearances'])] for b in ranked]
+            draw_table(page, ['Business', *[p['name'] for p in providers], 'Total'], table_rows,
+                       [215, *([222 / len(providers)] * len(providers)), 70])
+            page.para('Completed answers per tool: ' + safe('; '.join(f"{p['name']}: {p['complete']}" for p in providers))
+                      + '. Each row adds up to its total; zero means no appearances.', 'small')
+            return
         top_value = max(b['appearances'] for b in ranked)
         for b in ranked:
             is_target = b['id'] == d['target_id']
@@ -590,5 +599,96 @@ def _render(payload, level):
     page.callout('First decision', [(decision, 'body')])
     page.end()
 
+    if d.get('review_analysis'):
+        render_reviews(page, d)
     canvas.save()
     return out.getvalue()
+
+
+def draw_table(page, headers, rows, widths):
+    """Wrapped cells with measured row heights; no truncation or font shrinking."""
+    for index, row in enumerate([headers, *rows]):
+        cells = [Paragraph(('<b>' + safe(value) + '</b>') if index == 0 else safe(value),
+                           page.styles['small']) for value in row]
+        heights = [cell.wrap(width - 12, 800)[1] for cell, width in zip(cells, widths)]
+        height = max(heights) + 14
+        page.need(height)
+        if index % 2 == 0:
+            page.c.setFillColor(PALE)
+            page.c.rect(LEFT, H - page.top - height, WIDTH, height, stroke=0, fill=1)
+        x = LEFT
+        for cell, width, cell_height in zip(cells, widths, heights):
+            cell.drawOn(page.c, x + 6, H - page.top - 7 - cell_height)
+            x += width
+        page.top += height
+    page.top += 14
+
+
+def render_reviews(page, data):
+    review = data['review_analysis']
+    samples = review['businesses']
+    target = next((b for b in samples if b['id'] == data['target_id']), None)
+    page.start(9, 'Customer review evidence', 'What customers say about the businesses',
+               'The selected review comparison uses saved customer text. It is a different set from the most-visible businesses on page 5.')
+    rows = []
+    for sample in samples:
+        n = sample['sample_size']
+        rating = f"{sample['rating']:.2f} / 5 ({sample['rated_count']} rated)" if sample['rating'] is not None else 'Unavailable'
+        rows.append([sample['name'], str(n) if n else 'Unavailable', rating, sample['date_range']])
+    draw_table(page, ['Business', 'Text reviews', 'Sample mean rating', 'Review dates'], rows, [190, 65, 112, 140])
+    if target and target['sample_size']:
+        page.heading('Your review evidence')
+        page.para(f"{safe(data['business_name'])}: {target['sample_size']} usable text reviews, dated {safe(target['date_range'])}. "
+                  f"{target['low_ratings']} of {target['rated_count']} rated reviews scored one or two stars. "
+                  'Ratings describe the saved sample, not the current Google listing or the sentiment of every sentence.')
+    else:
+        page.para('No usable customer review text was saved for your business. Review themes cannot be assessed.')
+    page.heading('How to read the comparison')
+    page.para('The saved sets may cover different dates and sample sizes. Missing text means unavailable, not no reviews or poor service. '
+              'A one-review sample cannot support a reliable view of a business. More reviews or a higher rating does not establish why an AI tool recommended it.', 'body')
+    page.para(safe(review['source']), 'small')
+    page.end()
+    page.start(10, 'Comparing customer evidence', 'Which themes stand out in the reviews?',
+               'The most-mentioned tracked themes for each business. Counts and percentages refer to its own saved text sample.')
+    rows = []
+    for sample in samples:
+        n = sample['sample_size']
+        ranked = sorted(sample['themes'].items(), key=lambda item: (-item[1], item[0]))
+        positive = [(label, count) for label, count in ranked if count]
+        threshold = positive[min(1, len(positive) - 1)][1] if positive else 0
+        leaders = [(label, count) for label, count in positive if count >= threshold]
+        description = '; '.join(f'{label}: {count}/{n} ({100 * count / n:.0f}%)' for label, count in leaders)
+        rows.append([sample['name'], description or ('No tracked terms found' if n else 'Review text unavailable')])
+    draw_table(page, ['Business', 'Leading tracked themes (including ties)'], rows, [205, 302])
+    page.para('These are mentions, not endorsements. Percentages help compare unequal sample sizes, but a small or older sample '
+              'can still mislead. Only the tracked themes are ranked; customers may describe other benefits in different words. '
+              'Use these differences to guide a closer read, not to rank service quality or infer an AI ranking factor.', 'body')
+    page.para(safe(review['source']), 'small')
+    page.end()
+    page.start(11, 'Reviews and AI visibility', 'Does customer proof match the work you want?',
+               'Service mentions in your saved reviews are shown beside appearances for related test questions. These are two separate measurements.')
+    rows = []
+    for theme in review['themes']:
+        n = target['sample_size'] if target else 0
+        proof = f"{theme['reviews']} / {n}" if n else 'Unavailable'
+        visibility = f"{theme['appearances']} / {theme['answers']}" if theme['answers'] else 'Not mapped'
+        questions = ', '.join(f'Q{o}' for o in theme['question_orders']) or '-'
+        rows.append([theme['label'], proof, visibility, questions])
+    draw_table(page, ['Service / theme', 'Reviews mentioning it', 'AI appearances / answers', 'Questions'], rows, [170, 110, 137, 90])
+    page.heading('What this means for your visibility')
+    gaps = [t for t in review['themes'] if t['reviews'] and t['answers'] and not t['appearances']]
+    if gaps:
+        page.para('Customer proof exists for ' + safe(join_names(t['label'] for t in gaps))
+                  + ', despite no appearances in the related test answers. This shows that having relevant reviews alone '
+                  'did not ensure visibility in this test. Check how clearly the existing service pages present that proof.')
+    else:
+        page.para('Compare the service-specific proof with the questions that matter commercially. A theme match shows what customers '
+                  'mentioned; it does not explain the AI result. Where proof or visibility is absent, investigate before calling it a gap.')
+    page.heading('A practical next step')
+    page.para('Choose one priority service. Read its matched reviews in full, including critical feedback. With appropriate permission, '
+              'place accurate customer examples beside the relevant service information. Invite honest feedback across the work you actually deliver; '
+              'do not script praise or ask customers to insert keywords. Repeat the same AI test after changes and track relevant enquiries separately.')
+    page.para('Method: keyword matching, not an assessment of meaning or sentiment. A mention can be positive, negative or incidental; '
+              'no match does not mean the service was never delivered. Themes and linked question groups can overlap, so do not add the rows together. '
+              'The benchmark does not establish whether an AI tool read these reviews or used them to select a business.', 'small')
+    page.end()

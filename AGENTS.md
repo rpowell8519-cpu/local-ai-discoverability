@@ -164,6 +164,17 @@ is lost on reload; a lost id cannot be recovered, and resubmitting pays again.
 
 ### Client summary (LS): eight pages, two on competitors
 
+The summary now appends three review pages when saved review sets exist (11 pages total).
+`client_summary/reviews.py` measures text-sample size, rating and keyword mentions from the
+frozen records. Cleaning reports use six service themes. Related question counts come from
+the same owner report; mentions are not sentiment or causal ranking evidence. The renderer
+shows sample dates, missing evidence and unequal-sample caveats. The original eight-page
+aggregate contract remains supported when no review analysis is supplied.
+
+Every displayed competitor gets a provider breakdown when built from response records.
+`from_records` counts each business once per answer, including per-provider cells, and the
+validator checks cells against totals. Do not infer provider cells for aggregate-only inputs.
+
 Pages 4 and 5 tell one story: "you told us your competitors were X" (page 4: the owner's named
 competitors as the reviewer matched them to the database, with the client) and "the AI assistants
 think your competitors are Y" (page 5: the nine verified businesses recommended most, plus the

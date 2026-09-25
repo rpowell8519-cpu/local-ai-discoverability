@@ -343,6 +343,7 @@ def assemble_generic_report_payload(
             "services": service_groups,
             "location": location,
             "primary_group": str(run.get("primary_group") or "generic"),
+            "review_notes": str(decisions_input.get("review_notes") or ""),
             # Ask the report to build its strengths, gaps and actions from the findings.
             "auto_findings": True,
             "evidence_recommendations": [dict(item) for item in decisions_input.get("approved_recommendations") or []],

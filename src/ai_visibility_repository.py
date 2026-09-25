@@ -6,8 +6,25 @@ from typing import Any
 
 import pandas as pd
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
 
 from src.database import get_engine
+
+GSO_REPORT_METADATA_VERSION = 1
+
+
+def _missing_column(exc: DBAPIError, column: str) -> bool:
+    original = getattr(exc, "orig", None)
+    sqlstate = getattr(original, "sqlstate", None) or getattr(original, "pgcode", None)
+    return sqlstate == "42703" and column in str(exc)
+
+
+def _report_rating(value: Any) -> int | None:
+    try:
+        result = int(value)
+    except (TypeError, ValueError):
+        return None
+    return result if 1 <= result <= 5 else None
 
 
 def create_visibility_run(
@@ -111,7 +128,10 @@ def create_visibility_queries(
             repeat_index,
             prompt_category,
             prompt_source,
-            prompt_text
+            prompt_text,
+            report_intent,
+            report_importance,
+            report_effort
         )
         values (
             :id,
@@ -121,7 +141,10 @@ def create_visibility_queries(
             :repeat_index,
             :prompt_category,
             :prompt_source,
-            :prompt_text
+            :prompt_text,
+            :report_intent,
+            :report_importance,
+            :report_effort
         )
         """
     )
@@ -170,15 +193,37 @@ def create_visibility_queries(
                         prompt.get(
                             "prompt"
                         ),
+                    "report_intent": (
+                        str(prompt.get("report_intent") or "discovery").strip().lower()
+                        if str(prompt.get("report_intent") or "discovery").strip().lower()
+                        in {"discovery", "comparison", "transactional", "branded"}
+                        else "discovery"
+                    ),
+                    "report_importance": _report_rating(prompt.get("report_importance")),
+                    "report_effort": _report_rating(prompt.get("report_effort")),
                 }
             )
 
     if payloads:
-        with engine.begin() as connection:
-            connection.execute(
-                query,
-                payloads,
+        try:
+            with engine.begin() as connection:
+                connection.execute(query, payloads)
+        except DBAPIError as exc:
+            if not (_missing_column(exc, "report_intent") or _missing_column(exc, "report_importance") or _missing_column(exc, "report_effort")):
+                raise
+            legacy_query = text(
+                """
+                insert into ai_visibility_queries (
+                    id, run_id, prompt_order, base_prompt_order, repeat_index,
+                    prompt_category, prompt_source, prompt_text
+                ) values (
+                    :id, :run_id, :prompt_order, :base_prompt_order, :repeat_index,
+                    :prompt_category, :prompt_source, :prompt_text
+                )
+                """
             )
+            with engine.begin() as connection:
+                connection.execute(legacy_query, payloads)
 
     return payloads
 
@@ -199,6 +244,7 @@ def save_visibility_result(
     finish_reason: str | None,
     response_complete: bool,
     status: str,
+    report_metadata: dict[str, Any] | None = None,
     error_message: str | None = None,
 ) -> None:
     engine = get_engine()
@@ -224,6 +270,7 @@ def save_visibility_result(
             finish_reason,
             response_complete,
             status,
+            report_metadata,
             error_message
         )
         values (
@@ -245,6 +292,7 @@ def save_visibility_result(
             :finish_reason,
             :response_complete,
             :status,
+            cast(:report_metadata as jsonb),
             :error_message
         )
         on conflict (
@@ -282,16 +330,15 @@ def save_visibility_result(
                 excluded.response_complete,
             status =
                 excluded.status,
+            report_metadata =
+                excluded.report_metadata,
             error_message =
                 excluded.error_message,
             created_at = now()
         """
     )
 
-    with engine.begin() as connection:
-        connection.execute(
-            query,
-            {
+    parameters = {
                 "run_id": run_id,
                 "query_id": query_id,
                 "provider": provider,
@@ -347,10 +394,53 @@ def save_visibility_result(
                         response_complete
                     ),
                 "status": status,
+                "report_metadata": json.dumps(report_metadata or {
+                    "capture_version": "gso-provider-metadata-v1",
+                    "citation_status": "unavailable",
+                    "citations": [],
+                    "refused": False,
+                }),
                 "error_message":
                     error_message,
-            },
+            }
+    try:
+        with engine.begin() as connection:
+            connection.execute(query, parameters)
+    except DBAPIError as exc:
+        if not _missing_column(exc, "report_metadata"):
+            raise
+        legacy_query = text(
+            """
+            insert into ai_visibility_results (
+                run_id, query_id, provider, model, raw_response, target_mentioned,
+                target_recommended, target_position, mentioned_competitors,
+                mentioned_known_businesses, input_tokens, output_tokens, total_tokens,
+                reasoning_tokens, latency_ms, finish_reason, response_complete,
+                status, error_message
+            ) values (
+                :run_id, :query_id, :provider, :model, :raw_response, :target_mentioned,
+                :target_recommended, :target_position, cast(:mentioned_competitors as jsonb),
+                cast(:mentioned_known_businesses as jsonb), :input_tokens, :output_tokens,
+                :total_tokens, :reasoning_tokens, :latency_ms, :finish_reason,
+                :response_complete, :status, :error_message
+            )
+            on conflict (run_id, query_id, provider) do update set
+                model = excluded.model, raw_response = excluded.raw_response,
+                target_mentioned = excluded.target_mentioned,
+                target_recommended = excluded.target_recommended,
+                target_position = excluded.target_position,
+                mentioned_competitors = excluded.mentioned_competitors,
+                mentioned_known_businesses = excluded.mentioned_known_businesses,
+                input_tokens = excluded.input_tokens, output_tokens = excluded.output_tokens,
+                total_tokens = excluded.total_tokens, reasoning_tokens = excluded.reasoning_tokens,
+                latency_ms = excluded.latency_ms, finish_reason = excluded.finish_reason,
+                response_complete = excluded.response_complete, status = excluded.status,
+                error_message = excluded.error_message, created_at = now()
+            """
         )
+        legacy_parameters = {key: value for key, value in parameters.items() if key != "report_metadata"}
+        with engine.begin() as connection:
+            connection.execute(legacy_query, legacy_parameters)
 
 
 def finish_visibility_run(
@@ -414,6 +504,16 @@ def get_latest_run(
     return dict(row) if row else {}
 
 
+def get_visibility_run(run_id: str) -> dict[str, Any]:
+    """Load the exact benchmark attached to a report, not merely the latest one."""
+
+    engine = get_engine()
+    query = text("select * from ai_visibility_runs where id = :run_id")
+    with engine.connect() as connection:
+        row = connection.execute(query, {"run_id": run_id}).mappings().first()
+    return dict(row) if row else {}
+
+
 def get_run_queries(
     run_id: str,
 ) -> pd.DataFrame:
@@ -422,19 +522,22 @@ def get_run_queries(
     query = text(
         """
         select
-            id,
-            prompt_order,
-            base_prompt_order,
-            repeat_index,
-            prompt_category,
-            prompt_source,
-            prompt_text
-        from ai_visibility_queries
-        where run_id = :run_id
+            q.id,
+            q.prompt_order,
+            q.base_prompt_order,
+            q.repeat_index,
+            q.prompt_category,
+            q.prompt_source,
+            q.prompt_text,
+            coalesce(to_jsonb(q)->>'report_intent', 'discovery') as report_intent,
+            to_jsonb(q)->>'report_importance' as report_importance,
+            to_jsonb(q)->>'report_effort' as report_effort
+        from ai_visibility_queries q
+        where q.run_id = :run_id
         order by
-            base_prompt_order,
-            repeat_index,
-            prompt_order
+            q.base_prompt_order,
+            q.repeat_index,
+            q.prompt_order
         """
     )
 
@@ -473,6 +576,10 @@ def get_run_results(
             r.target_position,
             r.mentioned_competitors,
             r.mentioned_known_businesses,
+            coalesce(to_jsonb(r)->'report_metadata', '{}'::jsonb) as report_metadata,
+            coalesce(to_jsonb(q)->>'report_intent', 'discovery') as report_intent,
+            to_jsonb(q)->>'report_importance' as report_importance,
+            to_jsonb(q)->>'report_effort' as report_effort,
             r.input_tokens,
             r.output_tokens,
             r.total_tokens,

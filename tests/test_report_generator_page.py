@@ -19,6 +19,7 @@ from streamlit.testing.v1 import AppTest  # noqa: E402
 
 from src.owner_services_synthetic import synthetic_owner_services_payload  # noqa: E402
 from src.site_checks import CrawlerAccess  # noqa: E402
+from tests.test_found_brighton_report import measured_report  # noqa: E402
 
 PAGE = str(Path(__file__).resolve().parents[1] / "app" / "pages" / "10_AI_Report_Generator.py")
 TARGET_ID = "place-wrap"
@@ -926,11 +927,45 @@ def test_the_report_types_offered_come_from_one_list_and_each_has_its_own_button
     at, _, stack = run_page(revision(COMPLETE, complete=True))
     with stack:
         radio = next(r for r in at.radio if str(r.key).startswith("report_kind_"))
-        assert list(radio.options) == ["Full evidence report (RP)", "Client summary (LS)"] and radio.value == "full"
+        assert list(radio.options) == [
+            "Full evidence report (RP)",
+            "Client summary (LS)",
+            "AI Visibility Report (GSO)",
+            "Found in Brighton AI Report",
+        ] and radio.value == "full"
         assert "Generate report from saved evidence" in [b.label for b in at.button]
         radio.set_value("summary").run()
         assert "Generate client summary from saved evidence" in [b.label for b in at.button]
         assert "Generate report from saved evidence" not in [b.label for b in at.button]
+        radio.set_value("gso").run()
+        assert "Generate AI Visibility Report from saved scan" in [b.label for b in at.button]
+        assert "Generate client summary from saved evidence" not in [b.label for b in at.button]
+        radio.set_value("found_brighton").run()
+        assert "Generate Found in Brighton report from saved scan" in [b.label for b in at.button]
+        assert "Generate AI Visibility Report from saved scan" not in [b.label for b in at.button]
+
+
+def test_found_brighton_report_is_built_from_the_selected_saved_run_without_rerunning_it():
+    report = measured_report()
+    builder = mock.Mock(return_value=report)
+    renderer = mock.Mock(return_value=b"word document")
+    extra = [
+        mock.patch("src.ai_visibility_repository.get_visibility_run", return_value={"id": RUN_ID, "status": "completed"}),
+        mock.patch("src.ai_visibility_repository.get_run_queries", return_value=[{"id": "query"}]),
+        mock.patch("src.ai_visibility_repository.get_run_results", return_value=[{"id": "answer"}]),
+        mock.patch("src.gso_report_adapter.build_gso_report_from_saved_run", builder),
+        mock.patch("src.found_brighton_report.generate_filled_report", renderer),
+    ]
+    at, _, stack = run_page(revision(COMPLETE, complete=True), extra=extra)
+    with stack:
+        next(r for r in at.radio if str(r.key).startswith("report_kind_")).set_value("found_brighton")
+        at.run()
+        button(at, "Generate Found in Brighton report from saved scan").click().run()
+        assert not at.exception, [e.value for e in at.exception]
+        assert any("The Found in Brighton report is ready." in message.value for message in at.success)
+        builder.assert_called_once()
+        assert builder.call_args.kwargs["target_google_place_id"] == TARGET_ID
+        renderer.assert_called_once_with(report, agency="Found in Brighton AI", website="https://wrap.example")
 
 
 # ------------------------------------------------------------ website and review evidence are required, or knowingly waived

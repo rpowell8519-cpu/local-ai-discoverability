@@ -1,0 +1,1779 @@
+{
+  "schema_version": "1.0",
+  "client_id": "client",
+  "agency": "Your agency",
+  "category": "Dentistry",
+  "market": "Brighton & Hove",
+  "start_date": "2026-09-01",
+  "end_date": "2026-09-30",
+  "sample_data": true,
+  "executive_summary": "Illustrative report only. Review service-level recommendation gaps, cited sources and inconsistent opening-hours answers before agreeing priorities.",
+  "methodology_notes": "All businesses, prompts and answer annotations in this example are synthetic. Three planned repeats per prompt/provider; one simulated failure.",
+  "brands": [
+    {
+      "id": "client",
+      "name": "Harbour Dental (fictional)",
+      "domains": [
+        "harbour.example"
+      ]
+    },
+    {
+      "id": "rival-a",
+      "name": "City Dental (fictional)",
+      "domains": [
+        "city.example"
+      ]
+    },
+    {
+      "id": "rival-b",
+      "name": "Coast Dental (fictional)",
+      "domains": [
+        "coast.example"
+      ]
+    }
+  ],
+  "prompts": [
+    {
+      "id": "p1",
+      "text": "Which dentists in Brighton offer family appointments?",
+      "topic": "Family dentistry",
+      "intent": "discovery",
+      "location": "Brighton",
+      "importance": 5,
+      "effort": 2
+    },
+    {
+      "id": "p2",
+      "text": "Compare emergency dentists in Hove",
+      "topic": "Emergency care",
+      "intent": "comparison",
+      "location": "Hove",
+      "importance": 5,
+      "effort": 3
+    },
+    {
+      "id": "p3",
+      "text": "What should I look for when choosing a dentist?",
+      "topic": "Choosing a provider",
+      "intent": "discovery",
+      "location": null,
+      "importance": 3,
+      "effort": 2
+    },
+    {
+      "id": "p4",
+      "text": "Does Harbour Dental offer weekend appointments?",
+      "topic": "Brand facts",
+      "intent": "branded",
+      "location": "Brighton",
+      "importance": 4,
+      "effort": 1
+    }
+  ],
+  "observations": [
+    {
+      "id": "run-0",
+      "prompt_id": "p1",
+      "provider": "OpenAI",
+      "model": "demo-model",
+      "surface": "manual",
+      "configuration": "synthetic-v1; en-GB; no live search",
+      "collected_at": "2026-09-20T10:00:00Z",
+      "status": "ok",
+      "error": null,
+      "answer": "SYNTHETIC EXAMPLE. 1. City Dental (fictional) (recommended; sentiment: positive); 2. Coast Dental (fictional) (recommended; sentiment: positive)",
+      "mentions": [
+        {
+          "brand_id": "rival-a",
+          "recommended": true,
+          "position": 1,
+          "recommendation_position": 1,
+          "sentiment": "positive"
+        },
+        {
+          "brand_id": "rival-b",
+          "recommended": true,
+          "position": 2,
+          "recommendation_position": 2,
+          "sentiment": "positive"
+        }
+      ],
+      "citations": [
+        {
+          "url": "https://directory.example/dentists",
+          "title": "Example directory",
+          "source_type": "directory"
+        }
+      ],
+      "fact_checks": []
+    },
+    {
+      "id": "run-1",
+      "prompt_id": "p1",
+      "provider": "OpenAI",
+      "model": "demo-model",
+      "surface": "manual",
+      "configuration": "synthetic-v1; en-GB; no live search",
+      "collected_at": "2026-09-21T10:00:00Z",
+      "status": "ok",
+      "error": null,
+      "answer": "SYNTHETIC EXAMPLE. 1. City Dental (fictional) (recommended; sentiment: neutral); 2. Harbour Dental (fictional) (recommended; sentiment: neutral). Harbour weekend hours: Closed Saturday",
+      "mentions": [
+        {
+          "brand_id": "rival-a",
+          "recommended": true,
+          "position": 1,
+          "recommendation_position": 1,
+          "sentiment": "neutral"
+        },
+        {
+          "brand_id": "client",
+          "recommended": true,
+          "position": 2,
+          "recommendation_position": 2,
+          "sentiment": "neutral"
+        }
+      ],
+      "citations": [
+        {
+          "url": "https://directory.example/dentists",
+          "title": "Example directory",
+          "source_type": "directory"
+        },
+        {
+          "url": "https://harbour.example/services",
+          "title": "",
+          "source_type": "owned"
+        }
+      ],
+      "fact_checks": [
+        {
+          "brand_id": "client",
+          "field": "Weekend hours",
+          "expected": "Saturday 09:00–13:00",
+          "observed": "Closed Saturday",
+          "verdict": "incorrect",
+          "evidence": "Synthetic source of truth: fictional practice profile."
+        }
+      ]
+    },
+    {
+      "id": "run-2",
+      "prompt_id": "p1",
+      "provider": "OpenAI",
+      "model": "demo-model",
+      "surface": "manual",
+      "configuration": "synthetic-v1; en-GB; no live search",
+      "collected_at": "2026-09-22T10:00:00Z",
+      "status": "ok",
+      "error": null,
+      "answer": "SYNTHETIC EXAMPLE. 1. Harbour Dental (fictional) (recommended; sentiment: mixed); 2. City Dental (fictional) (recommended; sentiment: mixed); 3. Coast Dental (fictional) (recommended; sentiment: mixed). Harbour weekend hours: Hours vary",
+      "mentions": [
+        {
+          "brand_id": "client",
+          "recommended": true,
+          "position": 1,
+          "recommendation_position": 1,
+          "sentiment": "mixed"
+        },
+        {
+          "brand_id": "rival-a",
+          "recommended": true,
+          "position": 2,
+          "recommendation_position": 2,
+          "sentiment": "mixed"
+        },
+        {
+          "brand_id": "rival-b",
+          "recommended": true,
+          "position": 3,
+          "recommendation_position": 3,
+          "sentiment": "mixed"
+        }
+      ],
+      "citations": [
+        {
+          "url": "https://directory.example/dentists",
+          "title": "Example directory",
+          "source_type": "directory"
+        },
+        {
+          "url": "https://harbour.example/services",
+          "title": "",
+          "source_type": "owned"
+        }
+      ],
+      "fact_checks": [
+        {
+          "brand_id": "client",
+          "field": "Weekend hours",
+          "expected": "Saturday 09:00–13:00",
+          "observed": "Hours vary",
+          "verdict": "unverifiable",
+          "evidence": "Synthetic source of truth: fictional practice profile."
+        }
+      ]
+    },
+    {
+      "id": "run-3",
+      "prompt_id": "p2",
+      "provider": "OpenAI",
+      "model": "demo-model",
+      "surface": "manual",
+      "configuration": "synthetic-v1; en-GB; no live search",
+      "collected_at": "2026-09-20T10:00:00Z",
+      "status": "ok",
+      "error": null,
+      "answer": "SYNTHETIC EXAMPLE. 1. City Dental (fictional) (recommended; sentiment: unknown); 2. Harbour Dental (fictional) (recommended; sentiment: unknown). Harbour weekend hours: Saturday 09:00–13:00",
+      "mentions": [
+        {
+          "brand_id": "rival-a",
+          "recommended": true,
+          "position": 1,
+          "recommendation_position": 1,
+          "sentiment": "unknown"
+        },
+        {
+          "brand_id": "client",
+          "recommended": true,
+          "position": 2,
+          "recommendation_position": 2,
+          "sentiment": "unknown"
+        }
+      ],
+      "citations": [
+        {
+          "url": "https://directory.example/dentists",
+          "title": "Example directory",
+          "source_type": "directory"
+        }
+      ],
+      "fact_checks": [
+        {
+          "brand_id": "client",
+          "field": "Weekend hours",
+          "expected": "Saturday 09:00–13:00",
+          "observed": "Saturday 09:00–13:00",
+          "verdict": "correct",
+          "evidence": "Synthetic source of truth: fictional practice profile."
+        }
+      ]
+    },
+    {
+      "id": "run-4",
+      "prompt_id": "p2",
+      "provider": "OpenAI",
+      "model": "demo-model",
+      "surface": "manual",
+      "configuration": "synthetic-v1; en-GB; no live search",
+      "collected_at": "2026-09-21T10:00:00Z",
+      "status": "ok",
+      "error": null,
+      "answer": "SYNTHETIC EXAMPLE. 1. City Dental (fictional) (recommended; sentiment: negative); 2. Coast Dental (fictional) (recommended; sentiment: negative)",
+      "mentions": [
+        {
+          "brand_id": "rival-a",
+          "recommended": true,
+          "position": 1,
+          "recommendation_position": 1,
+          "sentiment": "negative"
+        },
+        {
+          "brand_id": "rival-b",
+          "recommended": true,
+          "position": 2,
+          "recommendation_position": 2,
+          "sentiment": "negative"
+        }
+      ],
+      "citations": [
+        {
+          "url": "https://directory.example/dentists",
+          "title": "Example directory",
+          "source_type": "directory"
+        }
+      ],
+      "fact_checks": []
+    },
+    {
+      "id": "run-5",
+      "prompt_id": "p2",
+      "provider": "OpenAI",
+      "model": "demo-model",
+      "surface": "manual",
+      "configuration": "synthetic-v1; en-GB; no live search",
+      "collected_at": "2026-09-22T10:00:00Z",
+      "status": "ok",
+      "error": null,
+      "answer": "SYNTHETIC EXAMPLE. 1. City Dental (fictional) (recommended; sentiment: positive); 2. Harbour Dental (fictional) (mentioned; sentiment: positive). Harbour weekend hours: Hours vary",
+      "mentions": [
+        {
+          "brand_id": "rival-a",
+          "recommended": true,
+          "position": 1,
+          "recommendation_position": 1,
+          "sentiment": "positive"
+        },
+        {
+          "brand_id": "client",
+          "recommended": false,
+          "position": 2,
+          "recommendation_position": null,
+          "sentiment": "positive"
+        }
+      ],
+      "citations": [
+        {
+          "url": "https://directory.example/dentists",
+          "title": "Example directory",
+          "source_type": "directory"
+        },
+        {
+          "url": "https://harbour.example/services",
+          "title": "",
+          "source_type": "owned"
+        }
+      ],
+      "fact_checks": [
+        {
+          "brand_id": "client",
+          "field": "Weekend hours",
+          "expected": "Saturday 09:00–13:00",
+          "observed": "Hours vary",
+          "verdict": "unverifiable",
+          "evidence": "Synthetic source of truth: fictional practice profile."
+        }
+      ]
+    },
+    {
+      "id": "run-6",
+      "prompt_id": "p3",
+      "provider": "OpenAI",
+      "model": "demo-model",
+      "surface": "manual",
+      "configuration": "synthetic-v1; en-GB; no live search",
+      "collected_at": "2026-09-20T10:00:00Z",
+      "status": "ok",
+      "error": null,
+      "answer": "SYNTHETIC EXAMPLE. 1. Harbour Dental (fictional) (recommended; sentiment: neutral); 2. City Dental (fictional) (recommended; sentiment: neutral); 3. Coast Dental (fictional) (recommended; sentiment: neutral). Harbour weekend hours: Saturday 09:00–13:00",
+      "mentions": [
+        {
+          "brand_id": "client",
+          "recommended": true,
+          "position": 1,
+          "recommendation_position": 1,
+          "sentiment": "neutral"
+        },
+        {
+          "brand_id": "rival-a",
+          "recommended": true,
+          "position": 2,
+          "recommendation_position": 2,
+          "sentiment": "neutral"
+        },
+        {
+          "brand_id": "rival-b",
+          "recommended": true,
+          "position": 3,
+          "recommendation_position": 3,
+          "sentiment": "neutral"
+        }
+      ],
+      "citations": [
+        {
+          "url": "https://directory.example/dentists",
+          "title": "Example directory",
+          "source_type": "directory"
+        }
+      ],
+      "fact_checks": [
+        {
+          "brand_id": "client",
+          "field": "Weekend hours",
+          "expected": "Saturday 09:00–13:00",
+          "observed": "Saturday 09:00–13:00",
+          "verdict": "correct",
+          "evidence": "Synthetic source of truth: fictional practice profile."
+        }
+      ]
+    },
+    {
+      "id": "run-7",
+      "prompt_id": "p3",
+      "provider": "OpenAI",
+      "model": "demo-model",
+      "surface": "manual",
+      "configuration": "synthetic-v1; en-GB; no live search",
+      "collected_at": "2026-09-21T10:00:00Z",
+      "status": "ok",
+      "error": null,
+      "answer": "SYNTHETIC EXAMPLE. 1. City Dental (fictional) (recommended; sentiment: mixed); 2. Harbour Dental (fictional) (mentioned; sentiment: mixed). Harbour weekend hours: Closed Saturday",
+      "mentions": [
+        {
+          "brand_id": "rival-a",
+          "recommended": true,
+          "position": 1,
+          "recommendation_position": 1,
+          "sentiment": "mixed"
+        },
+        {
+          "brand_id": "client",
+          "recommended": false,
+          "position": 2,
+          "recommendation_position": null,
+          "sentiment": "mixed"
+        }
+      ],
+      "citations": [
+        {
+          "url": "https://directory.example/dentists",
+          "title": "Example directory",
+          "source_type": "directory"
+        },
+        {
+          "url": "https://harbour.example/services",
+          "title": "",
+          "source_type": "owned"
+        }
+      ],
+      "fact_checks": [
+        {
+          "brand_id": "client",
+          "field": "Weekend hours",
+          "expected": "Saturday 09:00–13:00",
+          "observed": "Closed Saturday",
+          "verdict": "incorrect",
+          "evidence": "Synthetic source of truth: fictional practice profile."
+        }
+      ]
+    },
+    {
+      "id": "run-8",
+      "prompt_id": "p3",
+      "provider": "OpenAI",
+      "model": "demo-model",
+      "surface": "manual",
+      "configuration": "synthetic-v1; en-GB; no live search",
+      "collected_at": "2026-09-22T10:00:00Z",
+      "status": "ok",
+      "error": null,
+      "answer": "SYNTHETIC EXAMPLE. 1. City Dental (fictional) (recommended; sentiment: unknown); 2. Coast Dental (fictional) (recommended; sentiment: unknown)",
+      "mentions": [
+        {
+          "brand_id": "rival-a",
+          "recommended": true,
+          "position": 1,
+          "recommendation_position": 1,
+          "sentiment": "unknown"
+        },
+        {
+          "brand_id": "rival-b",
+          "recommended": true,
+          "position": 2,
+          "recommendation_position": 2,
+          "sentiment": "unknown"
+        }
+      ],
+      "citations": [
+        {
+          "url": "https://directory.example/dentists",
+          "title": "Example directory",
+          "source_type": "directory"
+        }
+      ],
+      "fact_checks": []
+    },
+    {
+      "id": "run-9",
+      "prompt_id": "p4",
+      "provider": "OpenAI",
+      "model": "demo-model",
+      "surface": "manual",
+      "configuration": "synthetic-v1; en-GB; no live search",
+      "collected_at": "2026-09-20T10:00:00Z",
+      "status": "ok",
+      "error": null,
+      "answer": "SYNTHETIC EXAMPLE. 1. City Dental (fictional) (recommended; sentiment: negative); 2. Harbour Dental (fictional) (mentioned; sentiment: negative). Harbour weekend hours: Saturday 09:00–13:00",
+      "mentions": [
+        {
+          "brand_id": "rival-a",
+          "recommended": true,
+          "position": 1,
+          "recommendation_position": 1,
+          "sentiment": "negative"
+        },
+        {
+          "brand_id": "client",
+          "recommended": false,
+          "position": 2,
+          "recommendation_position": null,
+          "sentiment": "negative"
+        }
+      ],
+      "citations": [
+        {
+          "url": "https://directory.example/dentists",
+          "title": "Example directory",
+          "source_type": "directory"
+        }
+      ],
+      "fact_checks": [
+        {
+          "brand_id": "client",
+          "field": "Weekend hours",
+          "expected": "Saturday 09:00–13:00",
+          "observed": "Saturday 09:00–13:00",
+          "verdict": "correct",
+          "evidence": "Synthetic source of truth: fictional practice profile."
+        }
+      ]
+    },
+    {
+      "id": "run-10",
+      "prompt_id": "p4",
+      "provider": "OpenAI",
+      "model": "demo-model",
+      "surface": "manual",
+      "configuration": "synthetic-v1; en-GB; no live search",
+      "collected_at": "2026-09-21T10:00:00Z",
+      "status": "ok",
+      "error": null,
+      "answer": "SYNTHETIC EXAMPLE. 1. Harbour Dental (fictional) (recommended; sentiment: positive); 2. City Dental (fictional) (recommended; sentiment: positive); 3. Coast Dental (fictional) (recommended; sentiment: positive). Harbour weekend hours: Closed Saturday",
+      "mentions": [
+        {
+          "brand_id": "client",
+          "recommended": true,
+          "position": 1,
+          "recommendation_position": 1,
+          "sentiment": "positive"
+        },
+        {
+          "brand_id": "rival-a",
+          "recommended": true,
+          "position": 2,
+          "recommendation_position": 2,
+          "sentiment": "positive"
+        },
+        {
+          "brand_id": "rival-b",
+          "recommended": true,
+          "position": 3,
+          "recommendation_position": 3,
+          "sentiment": "positive"
+        }
+      ],
+      "citations": [
+        {
+          "url": "https://directory.example/dentists",
+          "title": "Example directory",
+          "source_type": "directory"
+        },
+        {
+          "url": "https://harbour.example/services",
+          "title": "",
+          "source_type": "owned"
+        }
+      ],
+      "fact_checks": [
+        {
+          "brand_id": "client",
+          "field": "Weekend hours",
+          "expected": "Saturday 09:00–13:00",
+          "observed": "Closed Saturday",
+          "verdict": "incorrect",
+          "evidence": "Synthetic source of truth: fictional practice profile."
+        }
+      ]
+    },
+    {
+      "id": "run-11",
+      "prompt_id": "p4",
+      "provider": "OpenAI",
+      "model": "demo-model",
+      "surface": "manual",
+      "configuration": "synthetic-v1; en-GB; no live search",
+      "collected_at": "2026-09-22T10:00:00Z",
+      "status": "ok",
+      "error": null,
+      "answer": "SYNTHETIC EXAMPLE. 1. City Dental (fictional) (recommended; sentiment: neutral); 2. Harbour Dental (fictional) (recommended; sentiment: neutral). Harbour weekend hours: Hours vary",
+      "mentions": [
+        {
+          "brand_id": "rival-a",
+          "recommended": true,
+          "position": 1,
+          "recommendation_position": 1,
+          "sentiment": "neutral"
+        },
+        {
+          "brand_id": "client",
+          "recommended": true,
+          "position": 2,
+          "recommendation_position": 2,
+          "sentiment": "neutral"
+        }
+      ],
+      "citations": [
+        {
+          "url": "https://directory.example/dentists",
+          "title": "Example directory",
+          "source_type": "directory"
+        },
+        {
+          "url": "https://harbour.example/services",
+          "title": "",
+          "source_type": "owned"
+        }
+      ],
+      "fact_checks": [
+        {
+          "brand_id": "client",
+          "field": "Weekend hours",
+          "expected": "Saturday 09:00–13:00",
+          "observed": "Hours vary",
+          "verdict": "unverifiable",
+          "evidence": "Synthetic source of truth: fictional practice profile."
+        }
+      ]
+    },
+    {
+      "id": "run-12",
+      "prompt_id": "p1",
+      "provider": "Claude",
+      "model": "demo-model",
+      "surface": "manual",
+      "configuration": "synthetic-v1; en-GB; no live search",
+      "collected_at": "2026-09-20T10:01:00Z",
+      "status": "ok",
+      "error": null,
+      "answer": "SYNTHETIC EXAMPLE. 1. Harbour Dental (fictional) (mentioned; sentiment: mixed); 2. City Dental (fictional) (recommended; sentiment: mixed); 3. Coast Dental (fictional) (recommended; sentiment: mixed). Harbour weekend hours: Saturday 09:00–13:00",
+      "mentions": [
+        {
+          "brand_id": "client",
+          "recommended": false,
+          "position": 1,
+          "recommendation_position": null,
+          "sentiment": "mixed"
+        },
+        {
+          "brand_id": "rival-a",
+          "recommended": true,
+          "position": 2,
+          "recommendation_position": 1,
+          "sentiment": "mixed"
+        },
+        {
+          "brand_id": "rival-b",
+          "recommended": true,
+          "position": 3,
+          "recommendation_position": 2,
+          "sentiment": "mixed"
+        }
+      ],
+      "citations": [
+        {
+          "url": "https://directory.example/dentists",
+          "title": "Example directory",
+          "source_type": "directory"
+        }
+      ],
+      "fact_checks": [
+        {
+          "brand_id": "client",
+          "field": "Weekend hours",
+          "expected": "Saturday 09:00–13:00",
+          "observed": "Saturday 09:00–13:00",
+          "verdict": "correct",
+          "evidence": "Synthetic source of truth: fictional practice profile."
+        }
+      ]
+    },
+    {
+      "id": "run-13",
+      "prompt_id": "p1",
+      "provider": "Claude",
+      "model": "demo-model",
+      "surface": "manual",
+      "configuration": "synthetic-v1; en-GB; no live search",
+      "collected_at": "2026-09-21T10:01:00Z",
+      "status": "ok",
+      "error": null,
+      "answer": "SYNTHETIC EXAMPLE. 1. City Dental (fictional) (recommended; sentiment: unknown); 2. Harbour Dental (fictional) (recommended; sentiment: unknown). Harbour weekend hours: Closed Saturday",
+      "mentions": [
+        {
+          "brand_id": "rival-a",
+          "recommended": true,
+          "position": 1,
+          "recommendation_position": 1,
+          "sentiment": "unknown"
+        },
+        {
+          "brand_id": "client",
+          "recommended": true,
+          "position": 2,
+          "recommendation_position": 2,
+          "sentiment": "unknown"
+        }
+      ],
+      "citations": [
+        {
+          "url": "https://directory.example/dentists",
+          "title": "Example directory",
+          "source_type": "directory"
+        },
+        {
+          "url": "https://harbour.example/services",
+          "title": "",
+          "source_type": "owned"
+        }
+      ],
+      "fact_checks": [
+        {
+          "brand_id": "client",
+          "field": "Weekend hours",
+          "expected": "Saturday 09:00–13:00",
+          "observed": "Closed Saturday",
+          "verdict": "incorrect",
+          "evidence": "Synthetic source of truth: fictional practice profile."
+        }
+      ]
+    },
+    {
+      "id": "run-14",
+      "prompt_id": "p1",
+      "provider": "Claude",
+      "model": "demo-model",
+      "surface": "manual",
+      "configuration": "synthetic-v1; en-GB; no live search",
+      "collected_at": "2026-09-22T10:01:00Z",
+      "status": "ok",
+      "error": null,
+      "answer": "SYNTHETIC EXAMPLE. 1. Harbour Dental (fictional) (recommended; sentiment: negative); 2. City Dental (fictional) (recommended; sentiment: negative); 3. Coast Dental (fictional) (recommended; sentiment: negative). Harbour weekend hours: Hours vary",
+      "mentions": [
+        {
+          "brand_id": "client",
+          "recommended": true,
+          "position": 1,
+          "recommendation_position": 1,
+          "sentiment": "negative"
+        },
+        {
+          "brand_id": "rival-a",
+          "recommended": true,
+          "position": 2,
+          "recommendation_position": 2,
+          "sentiment": "negative"
+        },
+        {
+          "brand_id": "rival-b",
+          "recommended": true,
+          "position": 3,
+          "recommendation_position": 3,
+          "sentiment": "negative"
+        }
+      ],
+      "citations": [
+        {
+          "url": "https://directory.example/dentists",
+          "title": "Example directory",
+          "source_type": "directory"
+        },
+        {
+          "url": "https://harbour.example/services",
+          "title": "",
+          "source_type": "owned"
+        }
+      ],
+      "fact_checks": [
+        {
+          "brand_id": "client",
+          "field": "Weekend hours",
+          "expected": "Saturday 09:00–13:00",
+          "observed": "Hours vary",
+          "verdict": "unverifiable",
+          "evidence": "Synthetic source of truth: fictional practice profile."
+        }
+      ]
+    },
+    {
+      "id": "run-15",
+      "prompt_id": "p2",
+      "provider": "Claude",
+      "model": "demo-model",
+      "surface": "manual",
+      "configuration": "synthetic-v1; en-GB; no live search",
+      "collected_at": "2026-09-20T10:01:00Z",
+      "status": "ok",
+      "error": null,
+      "answer": "SYNTHETIC EXAMPLE. 1. City Dental (fictional) (recommended; sentiment: positive)",
+      "mentions": [
+        {
+          "brand_id": "rival-a",
+          "recommended": true,
+          "position": 1,
+          "recommendation_position": 1,
+          "sentiment": "positive"
+        }
+      ],
+      "citations": [
+        {
+          "url": "https://directory.example/dentists",
+          "title": "Example directory",
+          "source_type": "directory"
+        }
+      ],
+      "fact_checks": []
+    },
+    {
+      "id": "run-16",
+      "prompt_id": "p2",
+      "provider": "Claude",
+      "model": "demo-model",
+      "surface": "manual",
+      "configuration": "synthetic-v1; en-GB; no live search",
+      "collected_at": "2026-09-21T10:01:00Z",
+      "status": "ok",
+      "error": null,
+      "answer": "SYNTHETIC EXAMPLE. 1. Harbour Dental (fictional) (recommended; sentiment: neutral); 2. City Dental (fictional) (recommended; sentiment: neutral); 3. Coast Dental (fictional) (recommended; sentiment: neutral). Harbour weekend hours: Closed Saturday",
+      "mentions": [
+        {
+          "brand_id": "client",
+          "recommended": true,
+          "position": 1,
+          "recommendation_position": 1,
+          "sentiment": "neutral"
+        },
+        {
+          "brand_id": "rival-a",
+          "recommended": true,
+          "position": 2,
+          "recommendation_position": 2,
+          "sentiment": "neutral"
+        },
+        {
+          "brand_id": "rival-b",
+          "recommended": true,
+          "position": 3,
+          "recommendation_position": 3,
+          "sentiment": "neutral"
+        }
+      ],
+      "citations": [
+        {
+          "url": "https://directory.example/dentists",
+          "title": "Example directory",
+          "source_type": "directory"
+        },
+        {
+          "url": "https://harbour.example/services",
+          "title": "",
+          "source_type": "owned"
+        }
+      ],
+      "fact_checks": [
+        {
+          "brand_id": "client",
+          "field": "Weekend hours",
+          "expected": "Saturday 09:00–13:00",
+          "observed": "Closed Saturday",
+          "verdict": "incorrect",
+          "evidence": "Synthetic source of truth: fictional practice profile."
+        }
+      ]
+    },
+    {
+      "id": "run-17",
+      "prompt_id": "p2",
+      "provider": "Claude",
+      "model": "demo-model",
+      "surface": "manual",
+      "configuration": "synthetic-v1; en-GB; no live search",
+      "collected_at": "2026-09-22T10:01:00Z",
+      "status": "ok",
+      "error": null,
+      "answer": "SYNTHETIC EXAMPLE. 1. City Dental (fictional) (recommended; sentiment: mixed); 2. Harbour Dental (fictional) (mentioned; sentiment: mixed). Harbour weekend hours: Hours vary",
+      "mentions": [
+        {
+          "brand_id": "rival-a",
+          "recommended": true,
+          "position": 1,
+          "recommendation_position": 1,
+          "sentiment": "mixed"
+        },
+        {
+          "brand_id": "client",
+          "recommended": false,
+          "position": 2,
+          "recommendation_position": null,
+          "sentiment": "mixed"
+        }
+      ],
+      "citations": [
+        {
+          "url": "https://directory.example/dentists",
+          "title": "Example directory",
+          "source_type": "directory"
+        },
+        {
+          "url": "https://harbour.example/services",
+          "title": "",
+          "source_type": "owned"
+        }
+      ],
+      "fact_checks": [
+        {
+          "brand_id": "client",
+          "field": "Weekend hours",
+          "expected": "Saturday 09:00–13:00",
+          "observed": "Hours vary",
+          "verdict": "unverifiable",
+          "evidence": "Synthetic source of truth: fictional practice profile."
+        }
+      ]
+    },
+    {
+      "id": "run-18",
+      "prompt_id": "p3",
+      "provider": "Claude",
+      "model": "demo-model",
+      "surface": "manual",
+      "configuration": "synthetic-v1; en-GB; no live search",
+      "collected_at": "2026-09-20T10:01:00Z",
+      "status": "ok",
+      "error": null,
+      "answer": "SYNTHETIC EXAMPLE. 1. Harbour Dental (fictional) (recommended; sentiment: unknown); 2. City Dental (fictional) (recommended; sentiment: unknown); 3. Coast Dental (fictional) (recommended; sentiment: unknown). Harbour weekend hours: Saturday 09:00–13:00",
+      "mentions": [
+        {
+          "brand_id": "client",
+          "recommended": true,
+          "position": 1,
+          "recommendation_position": 1,
+          "sentiment": "unknown"
+        },
+        {
+          "brand_id": "rival-a",
+          "recommended": true,
+          "position": 2,
+          "recommendation_position": 2,
+          "sentiment": "unknown"
+        },
+        {
+          "brand_id": "rival-b",
+          "recommended": true,
+          "position": 3,
+          "recommendation_position": 3,
+          "sentiment": "unknown"
+        }
+      ],
+      "citations": [
+        {
+          "url": "https://directory.example/dentists",
+          "title": "Example directory",
+          "source_type": "directory"
+        }
+      ],
+      "fact_checks": [
+        {
+          "brand_id": "client",
+          "field": "Weekend hours",
+          "expected": "Saturday 09:00–13:00",
+          "observed": "Saturday 09:00–13:00",
+          "verdict": "correct",
+          "evidence": "Synthetic source of truth: fictional practice profile."
+        }
+      ]
+    },
+    {
+      "id": "run-19",
+      "prompt_id": "p3",
+      "provider": "Claude",
+      "model": "demo-model",
+      "surface": "manual",
+      "configuration": "synthetic-v1; en-GB; no live search",
+      "collected_at": "2026-09-21T10:01:00Z",
+      "status": "error",
+      "error": "Synthetic timeout",
+      "answer": "",
+      "mentions": [],
+      "citations": [],
+      "fact_checks": []
+    },
+    {
+      "id": "run-20",
+      "prompt_id": "p3",
+      "provider": "Claude",
+      "model": "demo-model",
+      "surface": "manual",
+      "configuration": "synthetic-v1; en-GB; no live search",
+      "collected_at": "2026-09-22T10:01:00Z",
+      "status": "ok",
+      "error": null,
+      "answer": "SYNTHETIC EXAMPLE. 1. Harbour Dental (fictional) (recommended; sentiment: positive); 2. City Dental (fictional) (recommended; sentiment: positive); 3. Coast Dental (fictional) (recommended; sentiment: positive). Harbour weekend hours: Hours vary",
+      "mentions": [
+        {
+          "brand_id": "client",
+          "recommended": true,
+          "position": 1,
+          "recommendation_position": 1,
+          "sentiment": "positive"
+        },
+        {
+          "brand_id": "rival-a",
+          "recommended": true,
+          "position": 2,
+          "recommendation_position": 2,
+          "sentiment": "positive"
+        },
+        {
+          "brand_id": "rival-b",
+          "recommended": true,
+          "position": 3,
+          "recommendation_position": 3,
+          "sentiment": "positive"
+        }
+      ],
+      "citations": [
+        {
+          "url": "https://directory.example/dentists",
+          "title": "Example directory",
+          "source_type": "directory"
+        },
+        {
+          "url": "https://harbour.example/services",
+          "title": "",
+          "source_type": "owned"
+        }
+      ],
+      "fact_checks": [
+        {
+          "brand_id": "client",
+          "field": "Weekend hours",
+          "expected": "Saturday 09:00–13:00",
+          "observed": "Hours vary",
+          "verdict": "unverifiable",
+          "evidence": "Synthetic source of truth: fictional practice profile."
+        }
+      ]
+    },
+    {
+      "id": "run-21",
+      "prompt_id": "p4",
+      "provider": "Claude",
+      "model": "demo-model",
+      "surface": "manual",
+      "configuration": "synthetic-v1; en-GB; no live search",
+      "collected_at": "2026-09-20T10:01:00Z",
+      "status": "ok",
+      "error": null,
+      "answer": "SYNTHETIC EXAMPLE. 1. City Dental (fictional) (recommended; sentiment: neutral); 2. Harbour Dental (fictional) (mentioned; sentiment: neutral). Harbour weekend hours: Saturday 09:00–13:00",
+      "mentions": [
+        {
+          "brand_id": "rival-a",
+          "recommended": true,
+          "position": 1,
+          "recommendation_position": 1,
+          "sentiment": "neutral"
+        },
+        {
+          "brand_id": "client",
+          "recommended": false,
+          "position": 2,
+          "recommendation_position": null,
+          "sentiment": "neutral"
+        }
+      ],
+      "citations": [
+        {
+          "url": "https://directory.example/dentists",
+          "title": "Example directory",
+          "source_type": "directory"
+        }
+      ],
+      "fact_checks": [
+        {
+          "brand_id": "client",
+          "field": "Weekend hours",
+          "expected": "Saturday 09:00–13:00",
+          "observed": "Saturday 09:00–13:00",
+          "verdict": "correct",
+          "evidence": "Synthetic source of truth: fictional practice profile."
+        }
+      ]
+    },
+    {
+      "id": "run-22",
+      "prompt_id": "p4",
+      "provider": "Claude",
+      "model": "demo-model",
+      "surface": "manual",
+      "configuration": "synthetic-v1; en-GB; no live search",
+      "collected_at": "2026-09-21T10:01:00Z",
+      "status": "ok",
+      "error": null,
+      "answer": "SYNTHETIC EXAMPLE. 1. Harbour Dental (fictional) (recommended; sentiment: mixed); 2. City Dental (fictional) (recommended; sentiment: mixed); 3. Coast Dental (fictional) (recommended; sentiment: mixed). Harbour weekend hours: Closed Saturday",
+      "mentions": [
+        {
+          "brand_id": "client",
+          "recommended": true,
+          "position": 1,
+          "recommendation_position": 1,
+          "sentiment": "mixed"
+        },
+        {
+          "brand_id": "rival-a",
+          "recommended": true,
+          "position": 2,
+          "recommendation_position": 2,
+          "sentiment": "mixed"
+        },
+        {
+          "brand_id": "rival-b",
+          "recommended": true,
+          "position": 3,
+          "recommendation_position": 3,
+          "sentiment": "mixed"
+        }
+      ],
+      "citations": [
+        {
+          "url": "https://directory.example/dentists",
+          "title": "Example directory",
+          "source_type": "directory"
+        },
+        {
+          "url": "https://harbour.example/services",
+          "title": "",
+          "source_type": "owned"
+        }
+      ],
+      "fact_checks": [
+        {
+          "brand_id": "client",
+          "field": "Weekend hours",
+          "expected": "Saturday 09:00–13:00",
+          "observed": "Closed Saturday",
+          "verdict": "incorrect",
+          "evidence": "Synthetic source of truth: fictional practice profile."
+        }
+      ]
+    },
+    {
+      "id": "run-23",
+      "prompt_id": "p4",
+      "provider": "Claude",
+      "model": "demo-model",
+      "surface": "manual",
+      "configuration": "synthetic-v1; en-GB; no live search",
+      "collected_at": "2026-09-22T10:01:00Z",
+      "status": "ok",
+      "error": null,
+      "answer": "SYNTHETIC EXAMPLE. 1. City Dental (fictional) (recommended; sentiment: unknown)",
+      "mentions": [
+        {
+          "brand_id": "rival-a",
+          "recommended": true,
+          "position": 1,
+          "recommendation_position": 1,
+          "sentiment": "unknown"
+        }
+      ],
+      "citations": [
+        {
+          "url": "https://directory.example/dentists",
+          "title": "Example directory",
+          "source_type": "directory"
+        }
+      ],
+      "fact_checks": []
+    },
+    {
+      "id": "run-24",
+      "prompt_id": "p1",
+      "provider": "Gemini",
+      "model": "demo-model",
+      "surface": "manual",
+      "configuration": "synthetic-v1; en-GB; no live search",
+      "collected_at": "2026-09-20T10:02:00Z",
+      "status": "ok",
+      "error": null,
+      "answer": "SYNTHETIC EXAMPLE. 1. Harbour Dental (fictional) (mentioned; sentiment: negative); 2. City Dental (fictional) (recommended; sentiment: negative); 3. Coast Dental (fictional) (recommended; sentiment: negative). Harbour weekend hours: Saturday 09:00–13:00",
+      "mentions": [
+        {
+          "brand_id": "client",
+          "recommended": false,
+          "position": 1,
+          "recommendation_position": null,
+          "sentiment": "negative"
+        },
+        {
+          "brand_id": "rival-a",
+          "recommended": true,
+          "position": 2,
+          "recommendation_position": 1,
+          "sentiment": "negative"
+        },
+        {
+          "brand_id": "rival-b",
+          "recommended": true,
+          "position": 3,
+          "recommendation_position": 2,
+          "sentiment": "negative"
+        }
+      ],
+      "citations": [
+        {
+          "url": "https://directory.example/dentists",
+          "title": "Example directory",
+          "source_type": "directory"
+        }
+      ],
+      "fact_checks": [
+        {
+          "brand_id": "client",
+          "field": "Weekend hours",
+          "expected": "Saturday 09:00–13:00",
+          "observed": "Saturday 09:00–13:00",
+          "verdict": "correct",
+          "evidence": "Synthetic source of truth: fictional practice profile."
+        }
+      ]
+    },
+    {
+      "id": "run-25",
+      "prompt_id": "p1",
+      "provider": "Gemini",
+      "model": "demo-model",
+      "surface": "manual",
+      "configuration": "synthetic-v1; en-GB; no live search",
+      "collected_at": "2026-09-21T10:02:00Z",
+      "status": "ok",
+      "error": null,
+      "answer": "SYNTHETIC EXAMPLE. 1. City Dental (fictional) (recommended; sentiment: positive); 2. Harbour Dental (fictional) (recommended; sentiment: positive). Harbour weekend hours: Closed Saturday",
+      "mentions": [
+        {
+          "brand_id": "rival-a",
+          "recommended": true,
+          "position": 1,
+          "recommendation_position": 1,
+          "sentiment": "positive"
+        },
+        {
+          "brand_id": "client",
+          "recommended": true,
+          "position": 2,
+          "recommendation_position": 2,
+          "sentiment": "positive"
+        }
+      ],
+      "citations": [
+        {
+          "url": "https://directory.example/dentists",
+          "title": "Example directory",
+          "source_type": "directory"
+        },
+        {
+          "url": "https://harbour.example/services",
+          "title": "",
+          "source_type": "owned"
+        }
+      ],
+      "fact_checks": [
+        {
+          "brand_id": "client",
+          "field": "Weekend hours",
+          "expected": "Saturday 09:00–13:00",
+          "observed": "Closed Saturday",
+          "verdict": "incorrect",
+          "evidence": "Synthetic source of truth: fictional practice profile."
+        }
+      ]
+    },
+    {
+      "id": "run-26",
+      "prompt_id": "p1",
+      "provider": "Gemini",
+      "model": "demo-model",
+      "surface": "manual",
+      "configuration": "synthetic-v1; en-GB; no live search",
+      "collected_at": "2026-09-22T10:02:00Z",
+      "status": "ok",
+      "error": null,
+      "answer": "SYNTHETIC EXAMPLE. 1. City Dental (fictional) (recommended; sentiment: neutral); 2. Coast Dental (fictional) (recommended; sentiment: neutral)",
+      "mentions": [
+        {
+          "brand_id": "rival-a",
+          "recommended": true,
+          "position": 1,
+          "recommendation_position": 1,
+          "sentiment": "neutral"
+        },
+        {
+          "brand_id": "rival-b",
+          "recommended": true,
+          "position": 2,
+          "recommendation_position": 2,
+          "sentiment": "neutral"
+        }
+      ],
+      "citations": [
+        {
+          "url": "https://directory.example/dentists",
+          "title": "Example directory",
+          "source_type": "directory"
+        }
+      ],
+      "fact_checks": []
+    },
+    {
+      "id": "run-27",
+      "prompt_id": "p2",
+      "provider": "Gemini",
+      "model": "demo-model",
+      "surface": "manual",
+      "configuration": "synthetic-v1; en-GB; no live search",
+      "collected_at": "2026-09-20T10:02:00Z",
+      "status": "ok",
+      "error": null,
+      "answer": "SYNTHETIC EXAMPLE. 1. City Dental (fictional) (recommended; sentiment: mixed); 2. Harbour Dental (fictional) (recommended; sentiment: mixed). Harbour weekend hours: Saturday 09:00–13:00",
+      "mentions": [
+        {
+          "brand_id": "rival-a",
+          "recommended": true,
+          "position": 1,
+          "recommendation_position": 1,
+          "sentiment": "mixed"
+        },
+        {
+          "brand_id": "client",
+          "recommended": true,
+          "position": 2,
+          "recommendation_position": 2,
+          "sentiment": "mixed"
+        }
+      ],
+      "citations": [
+        {
+          "url": "https://directory.example/dentists",
+          "title": "Example directory",
+          "source_type": "directory"
+        }
+      ],
+      "fact_checks": [
+        {
+          "brand_id": "client",
+          "field": "Weekend hours",
+          "expected": "Saturday 09:00–13:00",
+          "observed": "Saturday 09:00–13:00",
+          "verdict": "correct",
+          "evidence": "Synthetic source of truth: fictional practice profile."
+        }
+      ]
+    },
+    {
+      "id": "run-28",
+      "prompt_id": "p2",
+      "provider": "Gemini",
+      "model": "demo-model",
+      "surface": "manual",
+      "configuration": "synthetic-v1; en-GB; no live search",
+      "collected_at": "2026-09-21T10:02:00Z",
+      "status": "ok",
+      "error": null,
+      "answer": "SYNTHETIC EXAMPLE. 1. Harbour Dental (fictional) (recommended; sentiment: unknown); 2. City Dental (fictional) (recommended; sentiment: unknown); 3. Coast Dental (fictional) (recommended; sentiment: unknown). Harbour weekend hours: Closed Saturday",
+      "mentions": [
+        {
+          "brand_id": "client",
+          "recommended": true,
+          "position": 1,
+          "recommendation_position": 1,
+          "sentiment": "unknown"
+        },
+        {
+          "brand_id": "rival-a",
+          "recommended": true,
+          "position": 2,
+          "recommendation_position": 2,
+          "sentiment": "unknown"
+        },
+        {
+          "brand_id": "rival-b",
+          "recommended": true,
+          "position": 3,
+          "recommendation_position": 3,
+          "sentiment": "unknown"
+        }
+      ],
+      "citations": [
+        {
+          "url": "https://directory.example/dentists",
+          "title": "Example directory",
+          "source_type": "directory"
+        },
+        {
+          "url": "https://harbour.example/services",
+          "title": "",
+          "source_type": "owned"
+        }
+      ],
+      "fact_checks": [
+        {
+          "brand_id": "client",
+          "field": "Weekend hours",
+          "expected": "Saturday 09:00–13:00",
+          "observed": "Closed Saturday",
+          "verdict": "incorrect",
+          "evidence": "Synthetic source of truth: fictional practice profile."
+        }
+      ]
+    },
+    {
+      "id": "run-29",
+      "prompt_id": "p2",
+      "provider": "Gemini",
+      "model": "demo-model",
+      "surface": "manual",
+      "configuration": "synthetic-v1; en-GB; no live search",
+      "collected_at": "2026-09-22T10:02:00Z",
+      "status": "ok",
+      "error": null,
+      "answer": "SYNTHETIC EXAMPLE. 1. City Dental (fictional) (recommended; sentiment: negative); 2. Harbour Dental (fictional) (mentioned; sentiment: negative). Harbour weekend hours: Hours vary",
+      "mentions": [
+        {
+          "brand_id": "rival-a",
+          "recommended": true,
+          "position": 1,
+          "recommendation_position": 1,
+          "sentiment": "negative"
+        },
+        {
+          "brand_id": "client",
+          "recommended": false,
+          "position": 2,
+          "recommendation_position": null,
+          "sentiment": "negative"
+        }
+      ],
+      "citations": [
+        {
+          "url": "https://directory.example/dentists",
+          "title": "Example directory",
+          "source_type": "directory"
+        },
+        {
+          "url": "https://harbour.example/services",
+          "title": "",
+          "source_type": "owned"
+        }
+      ],
+      "fact_checks": [
+        {
+          "brand_id": "client",
+          "field": "Weekend hours",
+          "expected": "Saturday 09:00–13:00",
+          "observed": "Hours vary",
+          "verdict": "unverifiable",
+          "evidence": "Synthetic source of truth: fictional practice profile."
+        }
+      ]
+    },
+    {
+      "id": "run-30",
+      "prompt_id": "p3",
+      "provider": "Gemini",
+      "model": "demo-model",
+      "surface": "manual",
+      "configuration": "synthetic-v1; en-GB; no live search",
+      "collected_at": "2026-09-20T10:02:00Z",
+      "status": "ok",
+      "error": null,
+      "answer": "SYNTHETIC EXAMPLE. 1. City Dental (fictional) (recommended; sentiment: positive); 2. Coast Dental (fictional) (recommended; sentiment: positive)",
+      "mentions": [
+        {
+          "brand_id": "rival-a",
+          "recommended": true,
+          "position": 1,
+          "recommendation_position": 1,
+          "sentiment": "positive"
+        },
+        {
+          "brand_id": "rival-b",
+          "recommended": true,
+          "position": 2,
+          "recommendation_position": 2,
+          "sentiment": "positive"
+        }
+      ],
+      "citations": [
+        {
+          "url": "https://directory.example/dentists",
+          "title": "Example directory",
+          "source_type": "directory"
+        }
+      ],
+      "fact_checks": []
+    },
+    {
+      "id": "run-31",
+      "prompt_id": "p3",
+      "provider": "Gemini",
+      "model": "demo-model",
+      "surface": "manual",
+      "configuration": "synthetic-v1; en-GB; no live search",
+      "collected_at": "2026-09-21T10:02:00Z",
+      "status": "ok",
+      "error": null,
+      "answer": "SYNTHETIC EXAMPLE. 1. City Dental (fictional) (recommended; sentiment: neutral); 2. Harbour Dental (fictional) (mentioned; sentiment: neutral). Harbour weekend hours: Closed Saturday",
+      "mentions": [
+        {
+          "brand_id": "rival-a",
+          "recommended": true,
+          "position": 1,
+          "recommendation_position": 1,
+          "sentiment": "neutral"
+        },
+        {
+          "brand_id": "client",
+          "recommended": false,
+          "position": 2,
+          "recommendation_position": null,
+          "sentiment": "neutral"
+        }
+      ],
+      "citations": [
+        {
+          "url": "https://directory.example/dentists",
+          "title": "Example directory",
+          "source_type": "directory"
+        },
+        {
+          "url": "https://harbour.example/services",
+          "title": "",
+          "source_type": "owned"
+        }
+      ],
+      "fact_checks": [
+        {
+          "brand_id": "client",
+          "field": "Weekend hours",
+          "expected": "Saturday 09:00–13:00",
+          "observed": "Closed Saturday",
+          "verdict": "incorrect",
+          "evidence": "Synthetic source of truth: fictional practice profile."
+        }
+      ]
+    },
+    {
+      "id": "run-32",
+      "prompt_id": "p3",
+      "provider": "Gemini",
+      "model": "demo-model",
+      "surface": "manual",
+      "configuration": "synthetic-v1; en-GB; no live search",
+      "collected_at": "2026-09-22T10:02:00Z",
+      "status": "ok",
+      "error": null,
+      "answer": "SYNTHETIC EXAMPLE. 1. Harbour Dental (fictional) (recommended; sentiment: mixed); 2. City Dental (fictional) (recommended; sentiment: mixed); 3. Coast Dental (fictional) (recommended; sentiment: mixed). Harbour weekend hours: Hours vary",
+      "mentions": [
+        {
+          "brand_id": "client",
+          "recommended": true,
+          "position": 1,
+          "recommendation_position": 1,
+          "sentiment": "mixed"
+        },
+        {
+          "brand_id": "rival-a",
+          "recommended": true,
+          "position": 2,
+          "recommendation_position": 2,
+          "sentiment": "mixed"
+        },
+        {
+          "brand_id": "rival-b",
+          "recommended": true,
+          "position": 3,
+          "recommendation_position": 3,
+          "sentiment": "mixed"
+        }
+      ],
+      "citations": [
+        {
+          "url": "https://directory.example/dentists",
+          "title": "Example directory",
+          "source_type": "directory"
+        },
+        {
+          "url": "https://harbour.example/services",
+          "title": "",
+          "source_type": "owned"
+        }
+      ],
+      "fact_checks": [
+        {
+          "brand_id": "client",
+          "field": "Weekend hours",
+          "expected": "Saturday 09:00–13:00",
+          "observed": "Hours vary",
+          "verdict": "unverifiable",
+          "evidence": "Synthetic source of truth: fictional practice profile."
+        }
+      ]
+    },
+    {
+      "id": "run-33",
+      "prompt_id": "p4",
+      "provider": "Gemini",
+      "model": "demo-model",
+      "surface": "manual",
+      "configuration": "synthetic-v1; en-GB; no live search",
+      "collected_at": "2026-09-20T10:02:00Z",
+      "status": "ok",
+      "error": null,
+      "answer": "SYNTHETIC EXAMPLE. 1. City Dental (fictional) (recommended; sentiment: unknown); 2. Harbour Dental (fictional) (mentioned; sentiment: unknown). Harbour weekend hours: Saturday 09:00–13:00",
+      "mentions": [
+        {
+          "brand_id": "rival-a",
+          "recommended": true,
+          "position": 1,
+          "recommendation_position": 1,
+          "sentiment": "unknown"
+        },
+        {
+          "brand_id": "client",
+          "recommended": false,
+          "position": 2,
+          "recommendation_position": null,
+          "sentiment": "unknown"
+        }
+      ],
+      "citations": [
+        {
+          "url": "https://directory.example/dentists",
+          "title": "Example directory",
+          "source_type": "directory"
+        }
+      ],
+      "fact_checks": [
+        {
+          "brand_id": "client",
+          "field": "Weekend hours",
+          "expected": "Saturday 09:00–13:00",
+          "observed": "Saturday 09:00–13:00",
+          "verdict": "correct",
+          "evidence": "Synthetic source of truth: fictional practice profile."
+        }
+      ]
+    },
+    {
+      "id": "run-34",
+      "prompt_id": "p4",
+      "provider": "Gemini",
+      "model": "demo-model",
+      "surface": "manual",
+      "configuration": "synthetic-v1; en-GB; no live search",
+      "collected_at": "2026-09-21T10:02:00Z",
+      "status": "ok",
+      "error": null,
+      "answer": "SYNTHETIC EXAMPLE. 1. City Dental (fictional) (recommended; sentiment: negative); 2. Coast Dental (fictional) (recommended; sentiment: negative)",
+      "mentions": [
+        {
+          "brand_id": "rival-a",
+          "recommended": true,
+          "position": 1,
+          "recommendation_position": 1,
+          "sentiment": "negative"
+        },
+        {
+          "brand_id": "rival-b",
+          "recommended": true,
+          "position": 2,
+          "recommendation_position": 2,
+          "sentiment": "negative"
+        }
+      ],
+      "citations": [
+        {
+          "url": "https://directory.example/dentists",
+          "title": "Example directory",
+          "source_type": "directory"
+        }
+      ],
+      "fact_checks": []
+    },
+    {
+      "id": "run-35",
+      "prompt_id": "p4",
+      "provider": "Gemini",
+      "model": "demo-model",
+      "surface": "manual",
+      "configuration": "synthetic-v1; en-GB; no live search",
+      "collected_at": "2026-09-22T10:02:00Z",
+      "status": "ok",
+      "error": null,
+      "answer": "SYNTHETIC EXAMPLE. 1. City Dental (fictional) (recommended; sentiment: positive); 2. Harbour Dental (fictional) (recommended; sentiment: positive). Harbour weekend hours: Hours vary",
+      "mentions": [
+        {
+          "brand_id": "rival-a",
+          "recommended": true,
+          "position": 1,
+          "recommendation_position": 1,
+          "sentiment": "positive"
+        },
+        {
+          "brand_id": "client",
+          "recommended": true,
+          "position": 2,
+          "recommendation_position": 2,
+          "sentiment": "positive"
+        }
+      ],
+      "citations": [
+        {
+          "url": "https://directory.example/dentists",
+          "title": "Example directory",
+          "source_type": "directory"
+        },
+        {
+          "url": "https://harbour.example/services",
+          "title": "",
+          "source_type": "owned"
+        }
+      ],
+      "fact_checks": [
+        {
+          "brand_id": "client",
+          "field": "Weekend hours",
+          "expected": "Saturday 09:00–13:00",
+          "observed": "Hours vary",
+          "verdict": "unverifiable",
+          "evidence": "Synthetic source of truth: fictional practice profile."
+        }
+      ]
+    }
+  ],
+  "roadmap": [
+    {
+      "horizon": 30,
+      "action": "Verify opening hours and reconcile business profiles",
+      "owner": "Client operations",
+      "success_measure": "All owned profiles match the approved hours",
+      "evidence": "Illustrative accuracy checks",
+      "status": "planned"
+    },
+    {
+      "horizon": 60,
+      "action": "Improve priority service pages with verifiable details",
+      "owner": "Content team",
+      "success_measure": "Priority pages reviewed, published and crawlable",
+      "evidence": "Review opportunity table and cited sources",
+      "status": "planned"
+    },
+    {
+      "horizon": 90,
+      "action": "Repeat the matched prompt panel and review persistence",
+      "owner": "GSO analyst",
+      "success_measure": "Complete three independent repeats per prompt/provider; compare matched configurations",
+      "evidence": "Recommendation consistency baseline",
+      "status": "planned"
+    }
+  ]
+}

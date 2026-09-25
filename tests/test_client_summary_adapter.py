@@ -34,9 +34,9 @@ def test_summary_and_full_report_agree_on_every_count(payload):
     assert by_provider == {p["name"]: (p["appearances"], p["answers"]) for p in report["provider_counts"]}
 
 
-def test_renders_six_pages_with_the_measured_result(payload):
+def test_renders_summary_and_three_review_pages_with_the_measured_result(payload):
     reader = PdfReader(BytesIO(render_client_summary_pdf(summary(payload))))
-    assert len(reader.pages) == 8
+    assert len(reader.pages) == 11
     assert "12 of 24" in "\n".join(page.extract_text() for page in reader.pages)
 
 
@@ -179,7 +179,7 @@ def test_the_summary_shows_the_observation_its_source_and_a_verified_action(payl
     assert "OAI-SearchBot (ChatGPT search)" in text
     assert "https://example.co.uk/robots.txt, read on 21 September 2026" in text
     assert "Action for a documented gap" in text and "LET AI SEARCH TOOLS VISIT YOUR WEBSITE" in text
-    assert "robots.txt" in text and len(PdfReader(BytesIO(render_client_summary_pdf(data))).pages) == 8
+    assert "robots.txt" in text and len(PdfReader(BytesIO(render_client_summary_pdf(data))).pages) == 11
 
 
 def test_an_all_clear_observation_is_shown_but_no_gap_is_claimed(payload):
