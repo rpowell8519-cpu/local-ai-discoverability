@@ -349,9 +349,15 @@ so a business must be imported first.
 
 - Adding a business is Data Admin's **1. Import business data** (an Outscraper `.csv`/`.xlsx`
   with `place_id` and `name`). That import builds the business's features itself and clears the
-  page cache. The full "Rebuild business features" in section 2 is not needed, and it is the
-  step with a possible defect noted under "Known code-quality observations", so do not send
-  operators to it.
+  page cache, so the full "Rebuild business features" in section 2 is not needed for a normal
+  import.
+- The full rebuild **is** the right tool for one specific case: retroactively reclassifying
+  businesses imported *before* a taxonomy rule existed for their type (see "Business taxonomy
+  groups" below — this is how `childcare_nurseries` was backfilled onto nurseries imported
+  earlier). Used for exactly that in this project with no observed problem. It is still the step
+  with a suspected-but-unconfirmed defect noted under "Known code-quality observations"
+  (possible stale-snapshot ordering across repeated imports of the same business), so do not
+  reach for it casually — but it is not off-limits, and reclassification is what it is for.
 - The search is kept in `REPORT_SEARCH_KEY` while the operator is in Data Admin, which shows a
   way back to the report generator when a search is waiting. The console clears it when a report
   is started or opened, so a stale search cannot hide the project being opened.
@@ -370,11 +376,14 @@ callers that pass no location; the report generator never does.
 
 ### Comparison set, name matching and reviews
 
-- **Eight businesses in all**: the client plus up to `MAX_COMPARISON_BUSINESSES` (7) others. The
-  default mixes the competitors the owner named (up to four, first) with the most visible businesses
-  in the AI answers (`select_comparison_set`). An owner-named business the AI never recommended is
-  still offered and scores zero; do not filter it out. The summary, its contract and page 4 spacing
-  are sized for eight.
+- **Eight businesses in all**: the client plus up to `MAX_COMPARISON_BUSINESSES` (7) others. This is
+  the RP's comparison/cohort set (also what step 4's evidence collection and the RP's market table
+  use), mixing the owner-named competitors (up to four, first) with the most visible businesses in
+  the AI answers (`select_comparison_set`). An owner-named business the AI never recommended is
+  still offered and scores zero; do not filter it out. This is a separate list from the LS's own
+  page 4 (`MAX_NAMED` = 8, named competitors) and page 5 (`MAX_VISIBLE` = 9, most visible) described
+  under "Client summary (LS): eight pages, two on competitors" above — same underlying data, sized
+  independently, so "page 4" means different things in the RP and the LS.
 - **Names must be matched by a person** (`src/business_matching.py`). The owner's words ("PLATF9RM"),
   Google's listing name and the AI's short forms are three names for one business, so a competitor is
   under-counted and shown as an unverified stranger. Step 5 asks, for each owner-named competitor,
@@ -528,6 +537,14 @@ Assume `main` is production-sensitive.
 Before making code changes:
 - run `git status`;
 - ensure the worktree state is understood.
+
+A colleague of the user (GitHub user `luissorela-web`) also has push access to this public repo
+and merges PRs directly to `main` independently of this session — confirmed legitimate by the
+user (2026-09-23), and their work has so far been competent and complementary (a stale-module
+reload fix, requiring Claude to actually perform live search). Always `git fetch origin` and
+compare against `origin/main` before pushing, even right after an earlier push in the same
+session; do not assume `main` is where this session last left it. If it has moved, merge (not
+rebase) the new commits in, rerun the full suite from a clean worktree, and only then push.
 
 Do not push directly to `main` unless the user explicitly asks.
 
