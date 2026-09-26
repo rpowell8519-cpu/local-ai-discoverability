@@ -167,7 +167,7 @@ from src.report_generator_readiness import (  # noqa: E402
 )
 
 
-BUILD_VERSION = "Accessible AI Report Generator v3.12.1 (Found in Brighton cloud export)"
+BUILD_VERSION = "Accessible AI Report Generator v3.13.0 (scoped cache invalidation)"
 REPORT_STATE_KEY = "accessible_ai_report_generator_result"
 SUMMARY_STATE_KEY = "accessible_ai_client_summary_result"
 GSO_REPORT_STATE_KEY = "accessible_ai_gso_report_result"
@@ -416,6 +416,39 @@ def has_configured_measurement_project(google_place_id: str) -> bool:
         )
 
 
+def clear_revision_caches() -> None:
+    """Call after any save that appends a new report_audit_revision for the business.
+
+    Scoped to just the two loaders whose data a new revision actually changes. Bare
+    st.cache_data.clear() clears every @st.cache_data function on every page of the app, not just
+    this one - on a page this data-heavy, most saves were forcing a full re-fetch of the entire
+    business list and every other business's saved evidence, for a change that touched neither.
+    """
+
+    load_revision_history.clear()
+    has_configured_measurement_project.clear()
+
+
+def clear_evidence_caches() -> None:
+    """Call after saving website pages or review text for one or more businesses."""
+
+    load_evidence_status.clear()
+    load_evidence_frames.clear()
+    load_review_choices.clear()
+
+
+@st.cache_data(ttl=60)
+def load_analysed_evidence(**kwargs: Any) -> dict[str, Any]:
+    """Cached analyse_evidence: the website/proposition/review comparison is real computation over
+    several businesses' saved pages and reviews, not a lookup, and previously reran on almost every
+    widget interaction on the page (Streamlit reruns the whole script on nearly any click). Cached
+    on its actual inputs, so it only recomputes when the client, leaders, saved evidence, owner
+    priorities or approved wording genuinely change - not when an unrelated field is edited.
+    """
+
+    return analyse_evidence(**kwargs)
+
+
 def site_findings_for(business: Mapping[str, Any], audit: Mapping[str, Any] | None) -> tuple[str, list[dict[str, Any]]]:
     """Read the client's robots.txt once (read-only) and return (website address, findings)."""
 
@@ -511,7 +544,7 @@ def show_business_not_found(query: str, suggestions: list[dict[str, Any]]) -> No
                 st.switch_page("pages/4_Data_Admin.py")
         with action_columns[1]:
             if st.button("I've imported it: search again", use_container_width=True):
-                st.cache_data.clear()
+                load_businesses.clear()
                 st.rerun()
 
 
@@ -695,7 +728,7 @@ if configured_definition is not None:
                     st.exception(exc)
                 else:
                     st.session_state[measurement_view_key] = "new"
-                    st.cache_data.clear()
+                    clear_revision_caches()
                     st.rerun()
 
 st.subheader("1. Owner context")
@@ -821,7 +854,7 @@ else:
                 st.success(
                     f"Owner context saved as report setup revision {saved_revision['revision']}."
                 )
-                st.cache_data.clear()
+                clear_revision_caches()
                 st.rerun()
 
 st.caption(
@@ -864,7 +897,7 @@ if durable_audit:
                     st.error("That version could not be restored.")
                     st.exception(exc)
                 else:
-                    st.cache_data.clear()
+                    clear_revision_caches()
                     st.rerun()
 
 st.subheader("2. What is ready, and what happens next?")
@@ -973,7 +1006,7 @@ if next_step["key"] == "benchmark" and unattached_completed_runs:
                 st.error("That run could not be attached.")
                 st.exception(exc)
             else:
-                st.cache_data.clear()
+                clear_revision_caches()
                 st.rerun()
 
 if next_step["key"] == "benchmark":
@@ -1171,7 +1204,8 @@ if next_step["key"] == "benchmark":
         else:
             status_box.empty()
             st.success("AI Visibility is complete and attached to this report project.")
-            st.cache_data.clear()
+            clear_revision_caches()
+            load_evidence_status.clear()
             st.rerun()
 
     with st.expander("Advanced AI Visibility tools"):
@@ -1237,7 +1271,7 @@ with st.container(border=True):
                 st.exception(exc)
             else:
                 st.success("Website evidence has been saved to this report project.")
-                st.cache_data.clear()
+                clear_evidence_caches()
                 st.rerun()
     else:
         st.info("No website is saved. Enter one in Owner context above, or record that no website evidence is available.")
@@ -1282,7 +1316,7 @@ with st.container(border=True):
                     st.exception(exc)
                 else:
                     st.success(f"Imported {int(imported['processed_rows']):,} review(s).")
-                    st.cache_data.clear()
+                    clear_evidence_caches()
                     st.rerun()
 
     outscraper_api_key = secret_value("OUTSCRAPER_API_KEY")
@@ -1345,7 +1379,7 @@ with st.container(border=True):
                         )
                         st.session_state.pop(request_key, None)
                         st.success(f"Imported {int(imported['processed_rows']):,} review(s) from Outscraper.")
-                        st.cache_data.clear()
+                        clear_evidence_caches()
                         st.rerun()
                 except (OutscraperError, ValueError) as exc:
                     st.error(f"The review request could not be checked: {exc}")
@@ -1402,7 +1436,7 @@ with st.container(border=True):
                 st.exception(exc)
             else:
                 st.success(f"Evidence status saved as revision {saved_evidence['revision']}.")
-                st.cache_data.clear()
+                clear_revision_caches()
                 st.rerun()
 
 review_update_reasons: list[str] = []
@@ -1441,7 +1475,7 @@ if ai_ready and definition is None:
                 st.error("The competitor list could not be saved.")
                 st.exception(exc)
             else:
-                st.cache_data.clear()
+                clear_revision_caches()
                 st.rerun()
     try:
         candidates = load_report_candidates(
@@ -1590,7 +1624,7 @@ if ai_ready and definition is None:
             audits_frame, pages_frames, reviews_frame = load_evidence_frames(
                 tuple([selected_place_id, *[str(item["google_place_id"]) for item in leaders_now]])
             )
-            evidence_analysis = analyse_evidence(
+            evidence_analysis = load_analysed_evidence(
                 target_id=selected_place_id, target_name=str(business["business_name"]),
                 primary_group=str(business.get("primary_group") or "generic"), leaders=leaders_now,
                 audits=audits_frame, pages_by_run=pages_frames, propositions=owner_priorities_now, reviews=reviews_frame,
@@ -1755,7 +1789,7 @@ if ai_ready and definition is None:
                 st.error(f"The website of {item['name']} could not be reviewed. You can retry or continue without it.")
                 st.exception(exc)
             else:
-                st.cache_data.clear()
+                clear_evidence_caches()
                 st.rerun()
     without_reviews = [item for item in comparison_evidence if not item["reviews"]]
     if without_reviews:
@@ -1823,7 +1857,7 @@ if ai_ready and definition is None:
                         imported = import_reviews(frame, source_file_name=api_import_source_name(pending["id"]))
                         st.session_state.pop(batch_key, None)
                         st.success(f"Imported {int(imported['processed_rows']):,} review(s) for {frame['place_id'].nunique()} business(es).")
-                        st.cache_data.clear()
+                        clear_evidence_caches()
                         st.rerun()
                 except (OutscraperError, ValueError) as exc:
                     st.error(f"The review request could not be checked: {exc}")
@@ -1953,7 +1987,7 @@ if ai_ready and definition is None:
                         st.exception(exc)
                     else:
                         st.session_state.pop(draft_key, None)
-                        st.cache_data.clear()
+                        clear_revision_caches()
                         st.rerun()
         with clear_col:
             if (saved_type_wording or saved_draft) and st.button("Go back to the general wording", key=f"type_wording_clear_{selected_place_id}"):
@@ -1968,7 +2002,7 @@ if ai_ready and definition is None:
                     st.exception(exc)
                 else:
                     st.session_state.pop(draft_key, None)
-                    st.cache_data.clear()
+                    clear_revision_caches()
                     st.rerun()
     with st.form(f"report_review_{selected_place_id}"):
         with st.expander("Optional: override the AI-selected businesses"):
@@ -2299,7 +2333,7 @@ if ai_ready and definition is None:
                     if complete_review and not names_ready else ""
                 )
             )
-            st.cache_data.clear()
+            clear_revision_caches()
             st.rerun()
 
 st.subheader("6. Generate report")

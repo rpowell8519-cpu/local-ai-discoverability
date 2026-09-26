@@ -230,6 +230,26 @@ from session state. A new browser session silently fell back to generic generate
 and still allowed a paid benchmark to start, producing a report that measured the wrong
 questions. See `load_durable_owner_brief` in `app/pages/8_AI_Visibility.py`.
 
+### Cache invalidation is scoped, not global
+
+`st.cache_data.clear()` with no arguments clears every `@st.cache_data` function on every page of
+the whole app, not just the one that called it. This page used to call it after every single save
+(owner brief, name matches, type wording, evidence collection, review review-completion — about
+16 call sites), which on every one of them re-fetched the entire business list (a `lateral` join)
+and every other business's cached evidence, for changes that touched neither. Use
+`clear_revision_caches()` after any save that appends a new `report_audit_revisions` row, and
+`clear_evidence_caches()` after saving website pages or review text; `load_businesses.clear()`
+only after a business is actually imported. Add a new site by asking which specific loaders the
+save could actually make stale, not by reaching for the global clear.
+
+`analyse_evidence` (the website/proposition/review comparison) is real computation over several
+businesses' saved pages and reviews, not a lookup — it used to run uncached, so it reran on nearly
+every widget interaction (Streamlit reruns the whole script on almost any click). It's called
+through `load_analysed_evidence`, `@st.cache_data`-wrapped on its actual inputs; correctness holds
+because those inputs (audits/pages/reviews from `load_evidence_frames`, `existing_decisions` from
+an uncached `get_latest_report_audit`) are themselves always fresh or properly invalidated, so a
+genuine change naturally produces a different cache key rather than needing its own explicit clear.
+
 ### Switching between two saved configurations for one business
 
 `get_latest_report_audit` always returns the single latest revision, and `save_owner_brief_revision`

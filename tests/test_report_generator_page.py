@@ -442,7 +442,7 @@ def test_the_build_label_changes_so_the_team_can_tell_which_version_is_live():
     at, _, stack = run_page(revision())
     with stack:
         captions = " ".join(c.value for c in at.caption)
-        assert "Build: Accessible AI Report Generator v3.12.1" in captions
+        assert "Build: Accessible AI Report Generator v3.13.0" in captions
 
 
 # ---------------------------------------------------------------- reviews saved before the new checks
@@ -1286,3 +1286,51 @@ def test_a_failed_save_of_the_competitor_list_is_reported_plainly():
     with stack:
         next(b for b in at.button if str(b.key).startswith("owner_competitors_save_")).click().run()
         assert any("could not be saved" in e.value for e in at.error)
+
+
+# ------------------------------------------------------------ scoped cache invalidation
+def test_the_website_and_review_comparison_is_not_recomputed_on_an_unrelated_click():
+    # Regression: analyse_evidence used to run uncached, so it reran on almost every widget
+    # interaction on the page, however unrelated - Streamlit reruns the whole script on any click.
+    result = {"layers": {"website": {"status": "used", "note": "ok"}, "propositions": {"status": "used", "note": "ok"},
+                         "reviews": {"status": "used", "note": "ok"}}, "leaders": [], "candidates": [], "strengths": [], "basis": ""}
+    counted = mock.Mock(side_effect=lambda **_: result)
+    at, _, stack = run_page(revision(NAMES_DECIDED), extra=[mock.patch("src.evidence_analysis.analyse_evidence", counted)])
+    with stack:
+        assert not at.exception, [e.value for e in at.exception]
+        assert counted.call_count == 1
+        # An unrelated interaction (headline text) triggers a full script rerun, same as any widget.
+        next(t for t in at.text_area if "Plain-English headline" in t.label).set_value("A note").run()
+        assert not at.exception, [e.value for e in at.exception]
+        assert counted.call_count == 1  # still cached: nothing analyse_evidence depends on changed
+
+
+def test_saving_the_owner_brief_does_not_force_a_full_business_list_refetch():
+    # Regression: every save on this page called the bare st.cache_data.clear(), which wipes every
+    # @st.cache_data function on every page of the app, including the full business list - a save
+    # that only appends a new revision has no reason to force that refetch. The business list comes
+    # from one specific query; count how often it actually runs across a save-and-rerun.
+    calls = {"lateral": 0}
+
+    class _CountingConnection(_Connection):
+        def execute(self, statement, params=None):
+            sql = " ".join(str(statement).lower().split())
+            if "from business_features bf" in sql and "lateral" in sql:
+                calls["lateral"] += 1
+            return super().execute(statement, params)
+
+    class _CountingEngine:
+        def connect(self):
+            return _CountingConnection()
+
+    at, saved, stack = run_page(revision(), extra=[
+        mock.patch("src.database.get_engine", return_value=_CountingEngine()),
+        mock.patch("src.report_audit_repository.save_owner_brief_revision", return_value={"revision": 2, **revision()}),
+    ])
+    with stack:
+        assert not at.exception, [e.value for e in at.exception]
+        assert calls["lateral"] == 1
+        next(t for t in at.text_area if "known for" in t.label.casefold()).set_value("Updated known-for text").run()
+        button(at, "Submit report brief").click().run()
+        assert not at.exception, [e.value for e in at.exception]
+        assert calls["lateral"] == 1  # the save appended a revision; the business list was never touched
