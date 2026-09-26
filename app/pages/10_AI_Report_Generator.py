@@ -167,7 +167,7 @@ from src.report_generator_readiness import (  # noqa: E402
 )
 
 
-BUILD_VERSION = "Accessible AI Report Generator v3.11.0 (add a competitor mid-review)"
+BUILD_VERSION = "Accessible AI Report Generator v3.12.1 (Found in Brighton cloud export)"
 REPORT_STATE_KEY = "accessible_ai_report_generator_result"
 SUMMARY_STATE_KEY = "accessible_ai_client_summary_result"
 GSO_REPORT_STATE_KEY = "accessible_ai_gso_report_result"
@@ -2483,9 +2483,11 @@ else:
                     category=str(business.get("primary_group") or business.get("raw_category") or "Local business"),
                     market=str(business.get("city") or saved_run.get("location_context") or "Market not recorded"),
                 )
-                from src.found_brighton_report import generate_filled_report
+                import src.found_brighton_report as found_brighton_renderer
+                if getattr(found_brighton_renderer, "FOUND_BRIGHTON_RENDERER_VERSION", 0) != 2:
+                    found_brighton_renderer = importlib.reload(found_brighton_renderer)
 
-                docx_bytes = generate_filled_report(
+                docx_bytes = found_brighton_renderer.generate_filled_report(
                     report,
                     agency="Found in Brighton AI",
                     website=str(business.get("source_website_url") or ""),

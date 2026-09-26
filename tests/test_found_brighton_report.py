@@ -1,5 +1,9 @@
 from datetime import date, datetime, timezone
 from io import BytesIO
+import os
+from pathlib import Path
+import subprocess
+import sys
 
 from docx import Document
 
@@ -57,3 +61,34 @@ def test_found_brighton_word_report_uses_selected_scan_metrics_and_removes_demo_
     assert "successful answers" in full_text.lower()
     assert "not measured" in full_text.lower()
     assert len(document.inline_shapes) == 5
+
+
+def test_complete_word_export_without_host_fonts(tmp_path):
+    # Streamlit Cloud has no Arial/DejaVu/Liberation installation. Restrict both
+    # this fresh process and the template subprocess to declared bundled fonts.
+    (tmp_path / "sitecustomize.py").write_text('''
+from pathlib import Path
+from PIL import ImageFont
+import reportlab
+_font_root = Path(reportlab.__file__).resolve().parent / "fonts"
+_truetype = ImageFont.truetype
+def bundled_only(font, *args, **kwargs):
+    if Path(str(font)).resolve().parent != _font_root:
+        raise OSError("No system fonts installed")
+    return _truetype(font, *args, **kwargs)
+ImageFont.truetype = bundled_only
+''')
+    root = Path(__file__).resolve().parents[1]
+    env = dict(os.environ, PYTHONPATH=os.pathsep.join([str(tmp_path), str(root)]))
+    script = '''
+from io import BytesIO
+from docx import Document
+from tests.test_found_brighton_report import measured_report
+from src.found_brighton_report import generate_filled_report
+document = Document(BytesIO(generate_filled_report(measured_report())))
+assert len(document.inline_shapes) == 5
+assert document.core_properties.title == "Found in Brighton AI Visibility Report"
+'''
+    result = subprocess.run([sys.executable, "-c", script], cwd=root, env=env,
+                            capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr
