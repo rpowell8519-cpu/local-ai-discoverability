@@ -1,8 +1,8 @@
 from pathlib import Path
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
+from report_fonts import report_font
 import argparse
 import json
-import os
 import shutil
 import subprocess
 import tempfile
@@ -34,18 +34,7 @@ PAPER = '#F1F5F4'
 
 def font(size, bold=False):
     custom = args.bold_font if bold else args.font
-    candidates = [custom] if custom else []
-    candidates += [
-        '/System/Library/Fonts/Supplemental/Arial'+(' Bold' if bold else '')+'.ttf',
-        str(Path(os.environ.get('WINDIR','C:/Windows'))/'Fonts'/('arialbd.ttf' if bold else 'arial.ttf')),
-        '/usr/share/fonts/truetype/dejavu/DejaVuSans'+('-Bold' if bold else '')+'.ttf',
-        '/usr/share/fonts/truetype/liberation2/LiberationSans'+('-Bold' if bold else '')+'.ttf',
-        'DejaVuSans-Bold.ttf' if bold else 'DejaVuSans.ttf',
-    ]
-    for candidate in candidates:
-        try: return ImageFont.truetype(str(candidate),size)
-        except OSError: pass
-    raise RuntimeError('No suitable font found. Supply --font and --bold-font paths.')
+    return report_font(size, bold, str(custom) if custom else None)
 
 def canvas(name, height):
     im=Image.new('RGB',(1800,height),'white')

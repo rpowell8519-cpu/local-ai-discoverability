@@ -442,7 +442,7 @@ def test_the_build_label_changes_so_the_team_can_tell_which_version_is_live():
     at, _, stack = run_page(revision())
     with stack:
         captions = " ".join(c.value for c in at.caption)
-        assert "Build: Accessible AI Report Generator v3.11.0" in captions
+        assert "Build: Accessible AI Report Generator v3.12.1" in captions
 
 
 # ---------------------------------------------------------------- reviews saved before the new checks

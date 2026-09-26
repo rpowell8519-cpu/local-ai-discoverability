@@ -13,7 +13,8 @@ from typing import Any
 
 from docx import Document
 from docx.shared import Inches
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
+from found_in_brighton_report.report_fonts import report_font
 
 from gso_report.metrics import kpis, tables
 from gso_report.schema import Report
@@ -25,6 +26,7 @@ NAVY = "#173B48"
 TEAL = "#168C92"
 CORAL = "#CD7052"
 GREY = "#617079"
+FOUND_BRIGHTON_RENDERER_VERSION = 2
 
 
 def _pct(value: Any) -> str:
@@ -51,17 +53,7 @@ def _top_three_rate(observations, brand_id: str) -> float | None:
 
 
 def _font(size: int, bold: bool = False):
-    candidates = [
-        f"/System/Library/Fonts/Supplemental/Arial{' Bold' if bold else ''}.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf",
-    ]
-    for path in candidates:
-        try:
-            return ImageFont.truetype(path, size)
-        except OSError:
-            continue
-    return ImageFont.load_default()
+    return report_font(size, bold)
 
 
 def _chart(name: str, data: dict[str, Any]) -> bytes:
