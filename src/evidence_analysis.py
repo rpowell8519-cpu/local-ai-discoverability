@@ -29,6 +29,7 @@ from src.ai_competitive_diagnostic import build_proposition_benchmark, build_pro
 from src.client_summary.actions import profile_for
 from src.recommendation_synthesis import build_recommendation_synthesis
 from src.review_analysis import build_review_benchmark
+from src.review_ingestion import SOURCE_LABELS
 from src.review_profiles import get_review_profile
 from src.type_wording import to_audit_checks, to_profile, to_review_themes
 from src.vertical_audit_profiles import get_audit_profile
@@ -233,6 +234,70 @@ def _review_findings(*, rb: dict[str, Any], target_name: str, leader_ids: list[s
     return findings
 
 
+_PLATFORM_OWNER = "Business owner claims/creates the listing; front-of-house team asks happy customers to leave a review there"
+
+
+def _platform_presence_candidates(
+    *, reviews: pd.DataFrame, target_id: str, target_name: str, leader_ids: list[str], names: Mapping[str, str],
+) -> list[dict[str, Any]]:
+    """Review platforms where the client has no presence at all, but at least one leader does.
+
+    Deliberately narrower than _review_findings: this is about whether the client exists as a
+    citable candidate on a platform (zero reviews there vs. some), not about review content or
+    volume differences on a platform they're already on. Skipped entirely if `reviews` has no
+    `source` column (older callers/fixtures that predate multi-platform ingestion).
+    """
+
+    if "source" not in reviews.columns or reviews.empty:
+        return []
+
+    counts = (
+        reviews.assign(source=reviews["source"].astype(str))
+        .groupby(["google_place_id", "source"])
+        .size()
+    )
+
+    def count_for(pid: str, source: str) -> int:
+        try:
+            return int(counts.loc[(pid, source)])
+        except KeyError:
+            return 0
+
+    candidates = []
+    for source in sorted(reviews["source"].dropna().astype(str).unique()):
+        platform = SOURCE_LABELS.get(source, source)
+        if count_for(target_id, source) > 0:
+            continue  # the client already has some presence here - not a presence gap
+
+        having = [pid for pid in leader_ids if count_for(pid, source) > 0]
+        if not having:
+            continue  # no leader has it either, so this isn't evidence of anything
+
+        found, size = len(having), len(leader_ids)
+        who = _named([names[pid] for pid in having])
+        prevalence = found / size
+        sample_strength = min(1.0, found / 3.0)
+        score = 100 * (0.6 * prevalence + 0.4 * sample_strength)
+        evidence = [{"business": target_name, "note": f"0 reviews found on {platform}"}]
+        evidence += [{"business": names[pid], "note": f"{count_for(pid, source)} review(s) found on {platform}"} for pid in having]
+
+        candidates.append({
+            "id": f"reviews:platform-{source}", "kind": "action", "layer": "reviews", "signal": f"platform:{source}",
+            "title": f"Build a presence on {platform}",
+            "observation": f"{target_name} has no reviews on {platform}, while {found} of {size} of the most visible businesses do"
+                           + (f" ({who})." if who else "."),
+            "why": f"You have no reviews on {platform}, but {found} of {size} of the most visible businesses do.",
+            "action": f"Make sure the {platform} listing exists and is claimed, then ask happy customers to leave a review there. "
+                      f"A missing {platform} presence means the business cannot be cited from {platform} in AI answers at all, "
+                      "whatever the content of any review would say.",
+            "done_when": f"The business has a claimed, live {platform} listing with genuine customer reviews",
+            "owner": _PLATFORM_OWNER, "confidence": "Medium" if found >= 2 else "Low", "score": round(score, 1),
+            "prevalence": f"{found} of {size}", "evidence": evidence, "hygiene": False,
+            "basis": f"Review platform presence: {size} most visible businesses checked for a {platform} footprint",
+        })
+    return candidates
+
+
 def _review_profile(primary_group: str, type_wording: Mapping[str, Any] | None) -> dict[str, Any]:
     """The review themes for the type, plus any a reviewer approved for a type with none of its own."""
 
@@ -341,6 +406,10 @@ def analyse_evidence(
                     syn_r = build_recommendation_synthesis(primary_group=primary_group, target_name=target_name, website_result=None,
                                                            proposition_benchmark=pd.DataFrame(), review_result=rb, results=None, max_actions=12)
                     candidates += _review_findings(rb=rb, target_name=target_name, leader_ids=leader_ids, names=names, obs=syn_r["observations"])
+                    candidates += _platform_presence_candidates(
+                        reviews=rev[rev["google_place_id"].astype(str).isin([target_id, *leader_ids])],
+                        target_id=target_id, target_name=target_name, leader_ids=leader_ids, names=names,
+                    )
                     layers["reviews"] = {"status": "used", "note": f"{target_reviews} client reviews and {leader_reviews} reviews of the leaders analysed."}
                 except Exception as exc:
                     _unavailable(layers, "reviews", f"The review comparison could not be completed ({type(exc).__name__}).")

@@ -504,6 +504,20 @@ sql/005 (extends `business_reviews`) and sql/006 (creates `business_platform_lin
 but **not applied** - there is no `DATABASE_URL` in this local environment, so applying them
 needs either the user running them in Supabase directly or a session with DB credentials.
 
+### Platform presence gap (`evidence_analysis._platform_presence_candidates`)
+
+A review platform the client has zero reviews on, where at least one leader has some, is its own
+"action" candidate in the reviews layer - separate from `_review_findings` (which compares review
+*content/themes*, not platform presence). Deliberately narrow: only flags a platform at zero
+presence, never "fewer reviews of the same kind" (that's what the theme comparison already does),
+so the two never overlap or double up. It reads `reviews["source"]` (added to
+`review_repository.get_reviews`'s select list alongside the ingestion work above) and is skipped
+entirely, with no error, if a caller's reviews frame has no `source` column at all - keeps every
+older fixture/caller working unchanged. Candidates use the same schema as website/proposition
+candidates (`kind: "action"`, `score`, `evidence`, ...), so they compete fairly in the existing
+top-actions selection and render in LS/RP through the same generic path - no report-template
+changes were needed for this to reach client-facing reports.
+
 ## Database safety
 
 Do not apply changes to the Supabase/PostgreSQL schema without the user's explicit approval.

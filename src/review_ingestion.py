@@ -32,6 +32,12 @@ SOURCE = "outscraper_google_reviews"
 SOURCE_YELP = "outscraper_yelp_reviews"
 SOURCE_TRIPADVISOR = "outscraper_tripadvisor_reviews"
 
+SOURCE_LABELS = {
+    SOURCE: "Google",
+    SOURCE_YELP: "Yelp",
+    SOURCE_TRIPADVISOR: "TripAdvisor",
+}
+
 
 def _missing(value: Any) -> bool:
     if value is None:
