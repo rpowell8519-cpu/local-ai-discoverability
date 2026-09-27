@@ -104,6 +104,14 @@ def validate_report(payload):
         if count(q.get('complete'), 'question.complete') != expected_question:
             fail('Each question must have one complete response per provider and repetition.')
         count(q.get('appearances'), 'question.appearances', expected_question)
+        provider_breakdown = q.get('provider_appearances')
+        if provider_breakdown is not None:
+            if not isinstance(provider_breakdown, dict) or set(provider_breakdown) != set(providers):
+                fail('Question provider breakdown must contain every tested provider.')
+            if any(count(value, 'question.provider_appearances', reps) > reps for value in provider_breakdown.values()):
+                fail('Question provider appearances cannot exceed that provider’s repetitions.')
+            if sum(provider_breakdown.values()) != q['appearances']:
+                fail('Question provider counts do not sum to its appearances.')
     total = sum(p['complete'] for p in providers.values())
     appearances = sum(q['appearances'] for q in questions.values())
     if sum(p['appearances'] for p in providers.values()) != appearances:
@@ -240,6 +248,7 @@ def from_records(metadata, records):
         obj['complete'] = obj['appearances'] = 0
     ids, cells, counts = set(), set(), Counter()
     provider_counts = Counter()
+    question_provider_counts = Counter()
     for r in records:
         if not isinstance(r, dict):
             fail('Every record must be an object.')
@@ -262,11 +271,15 @@ def from_records(metadata, records):
         names = set(names)
         counts.update(names)
         provider_counts.update((bid, pid) for bid in names)
+        if d['target_id'] in names:
+            question_provider_counts[qid, pid] += 1
         for obj in (ps[pid], qs[qid]):
             obj['complete'] += 1
             obj['appearances'] += int(d['target_id'] in names)
     for b in collection(d.get('businesses'), 'businesses', 1, MAX_BUSINESSES):
         b['appearances'] = counts[b['id']]
         b['provider_appearances'] = {pid: provider_counts[b['id'], pid] for pid in ps}
+    for qid, question in qs.items():
+        question['provider_appearances'] = {pid: question_provider_counts[qid, pid] for pid in ps}
     d['evidence_basis'] = 'saved_response_records'
     return validate_report(d)

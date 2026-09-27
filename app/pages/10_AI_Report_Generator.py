@@ -167,7 +167,7 @@ from src.report_generator_readiness import (  # noqa: E402
 )
 
 
-BUILD_VERSION = "Accessible AI Report Generator v3.13.0 (scoped cache invalidation)"
+BUILD_VERSION = "Accessible AI Report Generator v3.14.0 (client summary prompts and AI engines)"
 REPORT_STATE_KEY = "accessible_ai_report_generator_result"
 SUMMARY_STATE_KEY = "accessible_ai_client_summary_result"
 GSO_REPORT_STATE_KEY = "accessible_ai_gso_report_result"
