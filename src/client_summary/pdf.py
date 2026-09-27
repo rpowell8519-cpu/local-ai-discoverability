@@ -21,6 +21,7 @@ from .model import ReportValidationError, metrics, validate_report
 NAVY, BLUE, TEAL, PALE, GREY, RULE = map(
     HexColor, ['#14253B', '#345BEB', '#008C86', '#F0F4F8', '#526171', '#DCE3EA']
 )
+ENGINE_COLORS = ['#345BEB', '#008C86', '#C66A26']
 W, H = 595.28, 841.89
 LEFT, RIGHT, WIDTH = 44, 551, 507
 FOOTER_TOP = 785  # content may not reach below this distance from the top of the page
@@ -172,20 +173,59 @@ class Page:
             paragraph.drawOn(self.c, x + 13, H - self.top - 51 - height)
         self.top += 95 + 22
 
-    def track_bar(self, label, value, total, highlight):
-        """Page-3 style: label and count above a full-width track."""
+    def engine_legend(self, providers):
+        x = LEFT
+        for index, provider in enumerate(providers):
+            label = str(provider['name'])
+            self.c.setFillColor(HexColor(ENGINE_COLORS[index % len(ENGINE_COLORS)]))
+            self.c.rect(x, H - self.top - 9, 9, 9, stroke=0, fill=1)
+            self.c.setFillColor(NAVY)
+            self.c.setFont('Helvetica', 9)
+            self.c.drawString(x + 14, H - self.top - 8, label)
+            x += 14 + stringWidth(label, 'Helvetica', 9) + 26
+        self.top += 22
+
+    def track_bar(self, label, prompt, value, total, highlight, providers, provider_appearances=None):
+        """Page-3 style: need, verbatim prompt and provider-coloured appearances."""
         paragraph = Paragraph(safe(label), self.styles['body'])
-        _, height = paragraph.wrap(430, 100)
-        pitch = height + 32
+        _, height = paragraph.wrap(410, 100)
+        exact_prompt = Paragraph('<b>Full prompt used:</b> ' + quoted(prompt), self.styles['small'])
+        _, prompt_height = exact_prompt.wrap(WIDTH, 300)
+        counts = None
+        if provider_appearances is not None:
+            counts_markup = ' &nbsp; | &nbsp; '.join(
+                f'<font color="{ENGINE_COLORS[index % len(ENGINE_COLORS)]}"><b>{safe(provider["name"])}</b></font> '
+                f'{provider_appearances[provider["id"]]} of {total // max(1, len(providers))}'
+                for index, provider in enumerate(providers)
+            )
+            counts = Paragraph(counts_markup, self.styles['small'])
+            _, counts_height = counts.wrap(WIDTH, 100)
+        else:
+            counts_height = 0
+        prompt_gap = 3
+        bar_end = height + prompt_gap + prompt_height + 4 + 8
+        count_offset = bar_end + 3 + counts_height if counts else bar_end
+        pitch = count_offset + (3 if counts else 5)
         self.need(pitch)
         paragraph.drawOn(self.c, LEFT, H - self.top - height)
         self.c.setFont('Helvetica-Bold', 11)
         self.c.setFillColor(NAVY)
         self.c.drawRightString(RIGHT, H - self.top - 12, f'{value} of {total}')
-        bar_top = self.top + height + 6
+        exact_prompt.drawOn(self.c, LEFT, H - self.top - height - prompt_gap - prompt_height)
+        bar_top = self.top + height + prompt_gap + prompt_height + 4
         self.c.setFillColor(PALE)
         self.c.rect(LEFT, H - bar_top - 8, WIDTH, 8, stroke=0, fill=1)
-        if value:
+        if provider_appearances is not None:
+            cursor = LEFT
+            for index, provider in enumerate(providers):
+                segment = WIDTH * provider_appearances[provider['id']] / total
+                if segment:
+                    self.c.setFillColor(HexColor(ENGINE_COLORS[index % len(ENGINE_COLORS)]))
+                    self.c.rect(cursor, H - bar_top - 8, segment, 8, stroke=0, fill=1)
+                    cursor += segment
+            if counts:
+                counts.drawOn(self.c, LEFT, H - self.top - count_offset)
+        elif value:
             self.c.setFillColor(TEAL if highlight else BLUE)
             self.c.rect(LEFT, H - bar_top - 8, WIDTH * value / total, 8, stroke=0, fill=1)
         self.top += pitch
@@ -381,23 +421,28 @@ def _render(payload, level):
     page.end()
 
     # ---------------------------------------------------------------- page 3
+    has_provider_counts = all(q.get('provider_appearances') is not None for q in qsorted)
+    chart_intro = (
+        f'Each row shows the customer need, exact prompt and appearances by AI engine across {per_q} answers per engine.'
+        if has_provider_counts else
+        f'Each row shows the customer need, exact prompt and total appearances across {per_q} test answers.'
+    )
     page.start(3, 'Visibility by customer need', 'Where you appeared most often',
-               f'Each topic below represents one customer question, tested {per_q} times. Labels are shortened for readability.')
+               chart_intro)
+    if has_provider_counts:
+        page.engine_legend(providers)
     for q in qsorted:
-        page.track_bar(q['label'], q['appearances'], q['complete'],
-                       highlight=(not same and q['appearances'] == best['appearances']))
-    page.heading('What stands out')
+        page.track_bar(q['label'], q['text'], q['appearances'], q['complete'],
+                       highlight=(not same and q['appearances'] == best['appearances']),
+                       providers=providers,
+                       provider_appearances=q.get('provider_appearances') if has_provider_counts else None)
     if same:
-        page.para(f'Every topic recorded the same result, <b>{best["appearances"]} of {best["complete"]}</b>, so there is '
-                  'no strongest or weakest topic in this test.')
+        standout = (f'Every customer need had the same result: <b>{best["appearances"]} of {best["complete"]}</b>. '
+                    'No need stood out as stronger or weaker.')
     else:
-        if best['appearances']:
-            page.para(f'<b>Build on {quoted(best["label"])}.</b> Keep useful information about it accurate and current. '
-                      'This is your strongest measured topic, although the test does not explain what caused that result.')
-        page.para(f'<b>Investigate {quoted(weakest["label"])}.</b> It appeared less consistently. If it matters '
-                  'commercially, start by checking the information customers need to decide and enquire.')
-    page.para(f'<b>Keep the sample in perspective.</b> One additional appearance changes a topic result by one out of '
-              f'{per_q}. Small changes in a later test should not automatically be treated as a lasting improvement.', 'small')
+        standout = (f'<b>Most:</b> {quoted(best["label"])} ({best["appearances"]} of {best["complete"]}). '
+                    f'<b>Least:</b> {quoted(weakest["label"])} ({weakest["appearances"]} of {weakest["complete"]}). ')
+    page.para(standout + f'The test does not explain why; one answer changes each need’s result by one out of {per_q}.', 'small')
     page.end()
 
     # ---------------------------------------------------------------- pages 4 and 5: competitors
