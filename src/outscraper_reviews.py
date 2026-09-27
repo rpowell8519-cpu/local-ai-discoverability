@@ -16,6 +16,18 @@ REVIEWS_ENDPOINT = (
     "https://api.outscraper.com/google-maps-reviews"
 )
 
+# Endpoint paths confirmed against Outscraper's own Python client source
+# (github.com/outscraper/outscraper-python, outscraper/client.py) rather than
+# guessed - note the two do NOT share a URL shape (Yelp uses a slash,
+# TripAdvisor a hyphen).
+YELP_REVIEWS_ENDPOINT = (
+    "https://api.outscraper.com/yelp/reviews"
+)
+
+TRIPADVISOR_REVIEWS_ENDPOINT = (
+    "https://api.outscraper.com/tripadvisor-reviews"
+)
+
 REQUEST_RESULT_ENDPOINT = (
     "https://api.outscraper.com/requests/{request_id}"
 )
@@ -312,6 +324,144 @@ def submit_google_reviews(
     }
 
 
+def submit_yelp_reviews(
+    *,
+    api_key: str,
+    business_urls: list[str],
+    reviews_limit: int = 100,
+    sort: str = "relevance_desc",
+    ignore_empty: bool = True,
+) -> dict[str, Any]:
+    """Submit a Yelp reviews pull.
+
+    Unlike Google, Yelp has no Google Place ID to query by - `business_urls`
+    must be each business's actual Yelp page URL (or Outscraper business
+    slug), sourced from business_platform_links. Callers are responsible for
+    keeping track of which URL belongs to which google_place_id so the
+    result can be attributed correctly once it comes back.
+    """
+
+    clean_urls = list(
+        dict.fromkeys(
+            str(url).strip()
+            for url in business_urls
+            if str(url).strip()
+        )
+    )
+
+    if not clean_urls:
+        raise ValueError(
+            "At least one Yelp business URL is required."
+        )
+
+    if len(clean_urls) > 250:
+        raise ValueError(
+            "Outscraper supports up to 250 Yelp queries "
+            "in a single batch request."
+        )
+
+    if reviews_limit < 1:
+        raise ValueError(
+            "reviews_limit must be at least 1."
+        )
+
+    allowed_sort = {
+        "relevance_desc",
+        "date_desc",
+        "date_asc",
+        "rating_desc",
+        "rating_asc",
+        "elites_desc",
+    }
+
+    if sort not in allowed_sort:
+        raise ValueError(f"Unsupported review sort: {sort}")
+
+    status_code, payload = _request_json(
+        YELP_REVIEWS_ENDPOINT,
+        api_key=api_key,
+        params={
+            "query": clean_urls,
+            "limit": int(reviews_limit),
+            "sort": sort,
+            "ignoreEmpty": (
+                "true" if ignore_empty else "false"
+            ),
+            "async": "true",
+        },
+        timeout=45,
+    )
+
+    return {
+        "http_status": status_code,
+        "id": payload.get("id"),
+        "status": payload.get("status"),
+        "data": payload.get("data"),
+        "results_location": payload.get("results_location"),
+        "raw": payload,
+    }
+
+
+def submit_tripadvisor_reviews(
+    *,
+    api_key: str,
+    business_urls: list[str],
+    reviews_limit: int = 100,
+    language: str = "default",
+) -> dict[str, Any]:
+    """Submit a TripAdvisor reviews pull.
+
+    Same caveat as submit_yelp_reviews: `business_urls` are TripAdvisor page
+    URLs, not Google Place IDs - the caller attributes results back to a
+    business itself.
+    """
+
+    clean_urls = list(
+        dict.fromkeys(
+            str(url).strip()
+            for url in business_urls
+            if str(url).strip()
+        )
+    )
+
+    if not clean_urls:
+        raise ValueError(
+            "At least one TripAdvisor business URL is required."
+        )
+
+    if len(clean_urls) > 250:
+        raise ValueError(
+            "Outscraper supports up to 250 TripAdvisor queries "
+            "in a single batch request."
+        )
+
+    if reviews_limit < 1:
+        raise ValueError(
+            "reviews_limit must be at least 1."
+        )
+
+    status_code, payload = _request_json(
+        TRIPADVISOR_REVIEWS_ENDPOINT,
+        api_key=api_key,
+        params={
+            "query": clean_urls,
+            "limit": int(reviews_limit),
+            "language": language,
+            "async": "true",
+        },
+        timeout=45,
+    )
+
+    return {
+        "http_status": status_code,
+        "id": payload.get("id"),
+        "status": payload.get("status"),
+        "data": payload.get("data"),
+        "results_location": payload.get("results_location"),
+        "raw": payload,
+    }
+
+
 def get_request_result(
     *,
     api_key: str,
@@ -560,6 +710,249 @@ def flatten_google_reviews_response(
             frame[
                 column
             ] = None
+
+    return frame
+
+
+def _resolve_place_id(
+    place: dict[str, Any],
+    *,
+    url_to_place_id: dict[str, str],
+) -> str | None:
+    """Match a Yelp/TripAdvisor result block back to a google_place_id.
+
+    Neither platform's response carries a Google Place ID - the only way to
+    attribute a result to a business is by the URL that was submitted for
+    it, which Outscraper echoes back under one of a few possible keys
+    depending on the endpoint. Every candidate is tried; if none match, the
+    caller drops the block rather than risk crediting the wrong business.
+    """
+
+    candidates = [
+        place.get("query"),
+        place.get("url"),
+        place.get("link"),
+        place.get("business_link"),
+        place.get("location_link"),
+    ]
+
+    for candidate in candidates:
+        candidate = str(candidate or "").strip().rstrip("/")
+
+        if not candidate:
+            continue
+
+        for known_url, place_id in url_to_place_id.items():
+            if candidate == known_url.strip().rstrip("/"):
+                return place_id
+
+    return None
+
+
+def flatten_yelp_reviews_response(
+    data: Any,
+    *,
+    url_to_place_id: dict[str, str],
+) -> pd.DataFrame:
+    """Map a Yelp reviews response onto the same canonical row shape as
+    flatten_google_reviews_response.
+
+    NOTE: Outscraper does not publish the exact Yelp response field names in
+    their docs. The field names below are best-effort based on their other
+    review endpoints' conventions and Yelp's own public data shape, and
+    should be checked against one real pull before relying on them - any
+    review whose text/rating can't be found here is dropped by
+    normalise_review_frame's validity check rather than imported wrong, so a
+    wrong guess fails safe (fewer rows imported), not silently.
+    """
+
+    rows: list[dict[str, Any]] = []
+
+    for place in _iter_places(data):
+        place_id = _resolve_place_id(
+            place, url_to_place_id=url_to_place_id
+        )
+
+        if not place_id:
+            continue
+
+        business_name = str(
+            place.get("name") or place.get("business_name") or ""
+        ).strip()
+
+        reviews = (
+            place.get("reviews_data")
+            or place.get("reviews")
+            or []
+        )
+
+        if not isinstance(reviews, list):
+            continue
+
+        for review in reviews:
+            if not isinstance(review, dict):
+                continue
+
+            author = review.get("user") or {}
+            if not isinstance(author, dict):
+                author = {}
+
+            row = dict(review)
+            row["name"] = business_name
+            row["place_id"] = place_id
+            row["review_text"] = (
+                review.get("review_text")
+                or review.get("text")
+                or review.get("comment")
+            )
+            row["review_rating"] = (
+                review.get("review_rating")
+                or review.get("rating")
+            )
+            row["review_timestamp"] = (
+                review.get("review_timestamp")
+                or review.get("time_created_timestamp")
+            )
+            row["author_title"] = (
+                review.get("author_title")
+                or author.get("name")
+                or review.get("user_name")
+            )
+            row["author_id"] = (
+                review.get("author_id")
+                or author.get("id")
+            )
+            row["review_link"] = (
+                review.get("review_link") or review.get("url")
+            )
+            row["location_link"] = place.get("url") or place.get("query")
+            row["review_id"] = _stable_review_id(
+                place_id=place_id, review=review
+            )
+
+            rows.append(row)
+
+    columns = [
+        "name", "place_id", "review_id", "review_text", "review_rating",
+        "review_timestamp", "review_likes", "author_title", "author_id",
+        "author_reviews_count", "author_photos_count", "owner_answer",
+        "owner_answer_timestamp", "review_link", "location_link",
+    ]
+
+    frame = pd.DataFrame(rows)
+
+    if frame.empty:
+        return pd.DataFrame(columns=columns)
+
+    for column in columns:
+        if column not in frame.columns:
+            frame[column] = None
+
+    return frame
+
+
+def flatten_tripadvisor_reviews_response(
+    data: Any,
+    *,
+    url_to_place_id: dict[str, str],
+) -> pd.DataFrame:
+    """Map a TripAdvisor reviews response onto the canonical row shape, plus
+    a `sub_ratings` column (Food/Service/Value etc.) that business_reviews
+    carries as jsonb for platforms that have them.
+
+    Same field-name caveat as flatten_yelp_reviews_response: best-effort
+    pending one real verification pull.
+    """
+
+    rows: list[dict[str, Any]] = []
+
+    for place in _iter_places(data):
+        place_id = _resolve_place_id(
+            place, url_to_place_id=url_to_place_id
+        )
+
+        if not place_id:
+            continue
+
+        business_name = str(
+            place.get("name") or place.get("business_name") or ""
+        ).strip()
+
+        reviews = (
+            place.get("reviews_data")
+            or place.get("reviews")
+            or []
+        )
+
+        if not isinstance(reviews, list):
+            continue
+
+        for review in reviews:
+            if not isinstance(review, dict):
+                continue
+
+            author = review.get("user") or {}
+            if not isinstance(author, dict):
+                author = {}
+
+            sub_ratings = (
+                review.get("sub_ratings")
+                or review.get("ratings")
+                or review.get("subratings")
+            )
+
+            row = dict(review)
+            row["name"] = business_name
+            row["place_id"] = place_id
+            row["review_text"] = (
+                review.get("review_text") or review.get("text")
+            )
+            row["review_rating"] = (
+                review.get("review_rating") or review.get("rating")
+            )
+            row["review_timestamp"] = (
+                review.get("review_timestamp")
+                or review.get("published_date_timestamp")
+            )
+            row["author_title"] = (
+                review.get("author_title")
+                or author.get("username")
+                or review.get("username")
+            )
+            row["author_id"] = (
+                review.get("author_id") or author.get("id")
+            )
+            row["review_link"] = (
+                review.get("review_link") or review.get("url")
+            )
+            row["location_link"] = place.get("url") or place.get("query")
+            row["sub_ratings"] = (
+                json.dumps(sub_ratings)
+                if isinstance(sub_ratings, dict)
+                else None
+            )
+            row["review_id"] = _stable_review_id(
+                place_id=place_id, review=review
+            )
+
+            rows.append(row)
+
+    columns = [
+        "name", "place_id", "review_id", "review_text", "review_rating",
+        "review_timestamp", "review_likes", "author_title", "author_id",
+        "author_reviews_count", "author_photos_count", "owner_answer",
+        "owner_answer_timestamp", "review_link", "location_link",
+        "sub_ratings",
+    ]
+
+    frame = pd.DataFrame(rows)
+
+    if frame.empty:
+        return pd.DataFrame(columns=columns)
+
+    for column in columns:
+        if column not in frame.columns:
+            frame[column] = None
 
     return frame
 

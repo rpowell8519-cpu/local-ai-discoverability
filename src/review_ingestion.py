@@ -25,6 +25,13 @@ REQUIRED_COLUMNS = {
 
 SOURCE = "outscraper_google_reviews"
 
+# Sprint 1 (multi-platform ingestion): the live-API path (7_Review_Insights.py)
+# can now import Yelp and TripAdvisor pulls through the same normalise/import
+# functions below by passing one of these as `source`. File upload
+# (read_outscraper_reviews) stays Google-only for now.
+SOURCE_YELP = "outscraper_yelp_reviews"
+SOURCE_TRIPADVISOR = "outscraper_tripadvisor_reviews"
+
 
 def _missing(value: Any) -> bool:
     if value is None:
@@ -199,6 +206,10 @@ def normalise_review_frame(
             "location_link": _clean_text(
                 record.get("location_link")
             ),
+            # Only populated for sources that have platform sub-scores
+            # (TripAdvisor's Food/Service/Value today); flatten_*_response
+            # already produced this as a JSON string or left it out.
+            "sub_ratings": record.get("sub_ratings"),
             "raw_data": json.dumps(
                 {
                     str(key): (
@@ -241,6 +252,7 @@ def _create_import_batch(
     total_rows: int,
     valid_rows: int,
     business_count: int,
+    source: str = SOURCE,
 ) -> str:
     engine = get_engine()
     batch_id = str(uuid.uuid4())
@@ -274,7 +286,7 @@ def _create_import_batch(
             {
                 "id": batch_id,
                 "source_file_name": source_file_name,
-                "source": SOURCE,
+                "source": source,
                 "total_rows": int(total_rows),
                 "valid_rows": int(valid_rows),
                 "business_count": int(business_count),
@@ -321,6 +333,7 @@ def import_reviews(
     frame: pd.DataFrame,
     *,
     source_file_name: str,
+    source: str = SOURCE,
 ) -> dict[str, Any]:
     valid_frame, invalid_frame = (
         normalise_review_frame(frame)
@@ -337,6 +350,7 @@ def import_reviews(
         total_rows=len(frame),
         valid_rows=len(valid_frame),
         business_count=business_count,
+        source=source,
     )
 
     if valid_frame.empty:
@@ -373,6 +387,7 @@ def import_reviews(
             owner_answer_datetime_utc,
             review_link,
             location_link,
+            sub_ratings,
             source,
             source_file_name,
             import_batch_id,
@@ -397,6 +412,7 @@ def import_reviews(
             cast(:owner_answer_datetime_utc as timestamptz),
             :review_link,
             :location_link,
+            cast(:sub_ratings as jsonb),
             :source,
             :source_file_name,
             :import_batch_id,
@@ -423,6 +439,7 @@ def import_reviews(
             owner_answer_datetime_utc = excluded.owner_answer_datetime_utc,
             review_link = excluded.review_link,
             location_link = excluded.location_link,
+            sub_ratings = excluded.sub_ratings,
             source_file_name = excluded.source_file_name,
             import_batch_id = excluded.import_batch_id,
             raw_data = excluded.raw_data,
@@ -453,12 +470,13 @@ def import_reviews(
                 "owner_answer_datetime_utc",
                 "review_link",
                 "location_link",
+                "sub_ratings",
                 "raw_data",
             ]
         }
         payload.update(
             {
-                "source": SOURCE,
+                "source": source,
                 "source_file_name": source_file_name,
                 "import_batch_id": batch_id,
             }
