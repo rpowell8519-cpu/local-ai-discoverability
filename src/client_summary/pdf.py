@@ -422,8 +422,9 @@ def _render(payload, level):
 
     # ---------------------------------------------------------------- page 3
     has_provider_counts = all(q.get('provider_appearances') is not None for q in qsorted)
+    per_engine = per_q // len(providers)
     chart_intro = (
-        f'Each row shows the customer need, exact prompt and appearances by AI engine across {per_q} answers per engine.'
+        f'Each row shows the customer need, exact prompt and appearances by AI engine across {per_engine} answers per engine.'
         if has_provider_counts else
         f'Each row shows the customer need, exact prompt and total appearances across {per_q} test answers.'
     )
