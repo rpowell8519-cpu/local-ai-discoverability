@@ -463,6 +463,47 @@ Step 4 collects website and review evidence for the target only, because the com
 is chosen afterwards. Step 5 therefore shows the comparison businesses' evidence and can
 crawl their websites. Reviews for them go through the review tools, which apply the cost ceiling.
 
+## Multi-platform review ingestion (Yelp, TripAdvisor)
+
+`app/pages/7_Review_Insights.py` has a "Which review platforms would you like to get reviews
+from?" checkbox selector (Google on by default, Yelp/TripAdvisor off) gating three independent
+"get reviews" sections. Google's section is the original code, unchanged, just now conditional -
+if you're touching it, the reindent that made it conditional was mechanical (a script added one
+indent level to the whole block; the logic is byte-identical to before Sprint 1).
+
+Yelp and TripAdvisor are pulled by page URL, not Google Place ID - neither platform's Outscraper
+response carries one. `business_platform_links` (a small table, `google_place_id, platform,
+external_url`) holds the confirmed URL for a business on a platform. Nothing matches this
+automatically: a person finds the business on Yelp/TripAdvisor themselves and pastes the URL in,
+the same manual-confirmation spirit as `competitor_relationship_reviews`. A review result that
+can't be matched back to a saved URL is dropped, not guessed at (`_resolve_place_id` in
+`outscraper_reviews.py`).
+
+Both platforms' Outscraper endpoints were confirmed against Outscraper's own Python client source
+(github.com/outscraper/outscraper-python), not guessed: Yelp is `/yelp/reviews`, TripAdvisor is
+`/tripadvisor-reviews` - note the URL shapes differ. Outscraper does not publish the exact
+response field names for either, so `flatten_yelp_reviews_response` /
+`flatten_tripadvisor_reviews_response` map best-effort field names; a wrong guess fails safe
+(the review is dropped by `normalise_review_frame`'s validity check, not imported wrong). Treat
+the first real pull through each as the actual verification step, and expect to adjust the field
+mapping from what comes back.
+
+`business_reviews.review_rating` stays a plain 1-5 int for both new sources (Google, Yelp and
+TripAdvisor are all native 5-star scales) - no rating normalisation was needed this sprint.
+`sub_ratings` (jsonb) carries TripAdvisor's Food/Service/Value sub-scores; `platform_rating_scale`
+/ `platform_rating_raw` exist on the table for a future non-5-star source but are unused so far.
+
+Checkatrade was scoped and explicitly parked (2026-09-27): it runs an active Cloudflare bot
+challenge (`cf-mitigated: challenge`), not just client-side rendering, so a self-built Playwright
+scraper would mean deliberately engineering around their anti-bot defences - not something to
+build. If it's revisited, the options are a paid scraping vendor that already handles
+Cloudflare-protected sites (shifts the ToS risk the same way Outscraper already does for
+Google/Yelp/TripAdvisor), or manual lookup per client as needed for now.
+
+sql/005 (extends `business_reviews`) and sql/006 (creates `business_platform_links`) are drafted
+but **not applied** - there is no `DATABASE_URL` in this local environment, so applying them
+needs either the user running them in Supabase directly or a session with DB credentials.
+
 ## Database safety
 
 Do not apply changes to the Supabase/PostgreSQL schema without the user's explicit approval.
