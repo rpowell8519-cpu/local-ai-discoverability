@@ -484,12 +484,30 @@ is called, not a blanket `st.cache_data.clear()`, per the scoped-invalidation co
 
 Both platforms' Outscraper endpoints were confirmed against Outscraper's own Python client source
 (github.com/outscraper/outscraper-python), not guessed: Yelp is `/yelp/reviews`, TripAdvisor is
-`/tripadvisor-reviews` - note the URL shapes differ. Outscraper does not publish the exact
-response field names for either, so `flatten_yelp_reviews_response` /
-`flatten_tripadvisor_reviews_response` map best-effort field names; a wrong guess fails safe
-(the review is dropped by `normalise_review_frame`'s validity check, not imported wrong). Treat
-the first real pull through each as the actual verification step, and expect to adjust the field
-mapping from what comes back.
+`/tripadvisor-reviews` - note the URL shapes differ. Outscraper does not publish response field
+names for either, so the first shipped version of `flatten_yelp_reviews_response` /
+`flatten_tripadvisor_reviews_response` guessed a Google-Maps-style shape (a per-business wrapper
+holding a `reviews_data` list) - wrong, and it silently matched nothing rather than erroring, so
+the first real Yelp pull (2026-09-28, Ciscos Karma) came back "successful, 0 reviews imported."
+
+**Confirmed real Yelp shape** (via the page's debug expander, not guessed): a flat
+`[[review, review, ...]]` - no business wrapper at all. Each review dict carries its own
+`query` (the submitted URL) and `business_name` directly, plus `review_rating`, `review_text`,
+`timestamp` (unix), `review_id` (Outscraper's own stable id), `author_title`, `author_id`,
+`author_reviews_count`, and `owner_reply`/`owner_reply_timestamp` (not `owner_answer` - easy to
+get wrong by analogy with Google's naming). No per-review permalink field exists; only
+`author_link` (the reviewer's profile, not the review). Fixed by replacing the Google-style
+`_iter_places` traversal with `_iter_review_dicts`, a shape-agnostic walker that recurses through
+whatever nesting is there and picks out any dict with review-shaped fields (`review_text`, or
+`text` + `rating` together) - so it doesn't assume a wrapper exists OR doesn't exist. Matching a
+review back to a business is now per-review (`_match_query_url`, checking `query` first) rather
+than per-wrapper, since `query` lives on every review row, not once per business.
+
+TripAdvisor's exact field names are still unconfirmed - `flatten_tripadvisor_reviews_response`
+uses the same `_iter_review_dicts` walker (so it isn't tripped up by the wrapper-shape mistake
+either way) with a wider set of candidate field names per value. A wrong guess still fails safe:
+the review is dropped by `normalise_review_frame`'s validity check, not imported wrong. Treat the
+first real TripAdvisor pull as the actual verification step for that platform specifically.
 
 `business_reviews.review_rating` stays a plain 1-5 int for both new sources (Google, Yelp and
 TripAdvisor are all native 5-star scales) - no rating normalisation was needed this sprint.

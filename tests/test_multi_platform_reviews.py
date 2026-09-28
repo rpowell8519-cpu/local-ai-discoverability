@@ -7,6 +7,17 @@ DB-write paths (import_reviews, save_platform_link's insert) follow this
 repo's existing convention of not unit-testing thin SQL-wrapper functions
 directly (review_repository.py and competitor_reviews.py have none either) -
 they're exercised through the Review Insights page tests instead.
+
+The Yelp fixture below is the REAL response shape (field names and nesting),
+confirmed against a live pull for Ciscos Karma on 2026-09-28 via the app's
+debug expander - not a guess. It's a flat `[[review, review, ...]]`: every
+review carries its own `query`/`business_name` directly, with no per-business
+wrapper holding a `reviews_data` list (unlike Google's shape). The first
+version of this ingestion shipped guessing the Google-style wrapper existed,
+which silently matched nothing - see AGENTS.md's multi-platform section.
+
+TripAdvisor's exact field names are still unconfirmed, so its fixture stays
+a best-effort shape exercising the same shape-agnostic matching path.
 """
 
 from __future__ import annotations
@@ -29,46 +40,64 @@ from src.review_ingestion import (
 )
 
 
-YELP_URL = "https://www.yelp.com/biz/ciscos-karma-brighton"
-TRIPADVISOR_URL = "https://www.tripadvisor.co.uk/Restaurant_Review-xyz.html"
+YELP_URL = "https://m.yelp.com/biz/ciscos-karma-brighton"
+TRIPADVISOR_URL = (
+    "https://www.tripadvisor.co.uk/Attraction_Review-g186273-d5569984-"
+    "Reviews-Ciscos_Karma-Brighton_East_Sussex_England.html"
+)
 PLACE_ID = "ChIJTEST"
 
 
+def _real_yelp_review(review_id, text, *, query=YELP_URL, rating=5, timestamp=1399830275):
+    """Shaped exactly like Outscraper's real /yelp/reviews response."""
+
+    return {
+        "query": query,
+        "business_name": "Ciscos Karma",
+        "reviews_per_score": {"1": 0, "2": 0, "3": 0, "4": 0, "5": 3},
+        "review_rating": rating,
+        "review_text": text,
+        "review_photos": [],
+        "review_tags": {"helpful": 1, "thanks": 0, "love_this": 0, "oh_no": 0},
+        "datetime_utc": "05/11/2014 17:44:35",
+        "timestamp": timestamp,
+        "review_id": review_id,
+        "author_title": "Susan M.",
+        "author_image": "https://s3-media0.fl.yelpcdn.com/photo/example/180s.jpg",
+        "author_friend_count": 4,
+        "author_photo_count": 1,
+        "author_reviews_count": 19,
+        "author_location": "Brighton, United Kingdom",
+        "author_id": "PV1S47LgEut2oWB256TeRw",
+        "author_link": "https://www.yelp.com/user_details?userid=PV1S47LgEut2oWB256TeRw",
+        "owner_reply": None,
+        "owner_reply_title": None,
+        "owner_reply_datetime_utc": None,
+        "owner_reply_timestamp": None,
+        "next_page_cursor": None,
+    }
+
+
 def _yelp_sample(query=YELP_URL):
-    return [
-        {
-            "query": query,
-            "name": "Ciscos Karma",
-            "reviews_data": [
-                {
-                    "review_id": "abc123",
-                    "rating": 5,
-                    "text": "Lovely place, great coffee.",
-                    "time_created": 1758960000,
-                    "user": {"name": "Jo B", "id": "u1"},
-                    "url": f"{query}?hrid=abc123",
-                }
-            ],
-        }
-    ]
+    return [[_real_yelp_review("abc123", "Lovely place, great coffee.", query=query)]]
 
 
 def _tripadvisor_sample(query=TRIPADVISOR_URL):
+    # Best-effort shape (unconfirmed) - flat, matching Yelp's confirmed
+    # convention, with review-level text/rating/sub_ratings.
     return [
-        {
-            "query": query,
-            "name": "Ciscos Karma",
-            "reviews_data": [
-                {
-                    "review_id": "def456",
-                    "rating": 4,
-                    "text": "Nice brunch spot.",
-                    "published_date_timestamp": 1758960000,
-                    "user": {"username": "traveller99"},
-                    "sub_ratings": {"food": 5, "service": 4, "value": 4},
-                }
-            ],
-        }
+        [
+            {
+                "query": query,
+                "business_name": "Ciscos Karma",
+                "review_id": "def456",
+                "rating": 4,
+                "text": "Nice brunch spot.",
+                "published_date_timestamp": 1758960000,
+                "username": "traveller99",
+                "sub_ratings": {"food": 5, "service": 4, "value": 4},
+            }
+        ]
     ]
 
 
@@ -148,7 +177,39 @@ class TestFlattenYelp:
         assert row["name"] == "Ciscos Karma"
         assert row["review_text"] == "Lovely place, great coffee."
         assert row["review_rating"] == 5
-        assert row["author_title"] == "Jo B"
+        assert row["review_id"] == "abc123"
+        assert row["author_title"] == "Susan M."
+        assert row["review_timestamp"] == 1399830275
+
+    def test_the_real_multi_review_response_shape_produces_one_row_each(self):
+        # Exactly the nesting Outscraper actually returned: one outer list
+        # (one per submitted query), one inner list of review dicts - no
+        # business wrapper anywhere.
+        data = [
+            [
+                _real_yelp_review("abc123", "Lovely place, great coffee.", timestamp=1399830275),
+                _real_yelp_review("def456", "Great haircut, will return.", timestamp=1337687363),
+                _real_yelp_review("ghi789", "Excellent hairdresser.", timestamp=1345685299),
+            ]
+        ]
+
+        frame = flatten_yelp_reviews_response(data, url_to_place_id={YELP_URL: PLACE_ID})
+
+        assert len(frame) == 3
+        assert set(frame["review_id"]) == {"abc123", "def456", "ghi789"}
+        assert (frame["place_id"] == PLACE_ID).all()
+
+    def test_owner_reply_field_is_mapped_from_owner_reply_not_owner_answer(self):
+        review = _real_yelp_review("abc123", "Text")
+        review["owner_reply"] = "Thanks for visiting!"
+        review["owner_reply_timestamp"] = 1400000000
+
+        frame = flatten_yelp_reviews_response(
+            [[review]], url_to_place_id={YELP_URL: PLACE_ID}
+        )
+
+        assert frame.iloc[0]["owner_answer"] == "Thanks for visiting!"
+        assert frame.iloc[0]["owner_answer_timestamp"] == 1400000000
 
     def test_a_result_for_an_unrecognised_url_is_dropped_not_misattributed(self):
         frame = flatten_yelp_reviews_response(

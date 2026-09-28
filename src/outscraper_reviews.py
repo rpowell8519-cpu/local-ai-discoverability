@@ -714,26 +714,50 @@ def flatten_google_reviews_response(
     return frame
 
 
-def _resolve_place_id(
-    place: dict[str, Any],
+def _iter_review_dicts(value: Any):
+    """Walk an arbitrarily-nested Outscraper reviews response and yield every
+    dict that looks like one individual review.
+
+    Confirmed against a real Yelp pull (2026-09-28, Ciscos Karma): the
+    response is a flat `[[review, review, ...]]` - each review dict already
+    carries its own `query`/`business_name`, with NO Google-Maps-style
+    business wrapper holding a `reviews_data` list. This walker doesn't
+    assume either shape; it recurses through whatever nesting is there and
+    picks out anything with review-shaped fields, so it tolerates a business
+    wrapper too if a platform (TripAdvisor, unconfirmed) turns out to use one.
+    """
+
+    if isinstance(value, dict):
+        if "review_text" in value or ("text" in value and "rating" in value):
+            yield value
+            return
+
+        for child in value.values():
+            yield from _iter_review_dicts(child)
+
+    elif isinstance(value, list):
+        for item in value:
+            yield from _iter_review_dicts(item)
+
+
+def _match_query_url(
+    review: dict[str, Any],
     *,
     url_to_place_id: dict[str, str],
 ) -> str | None:
-    """Match a Yelp/TripAdvisor result block back to a google_place_id.
-
-    Neither platform's response carries a Google Place ID - the only way to
-    attribute a result to a business is by the URL that was submitted for
-    it, which Outscraper echoes back under one of a few possible keys
-    depending on the endpoint. Every candidate is tried; if none match, the
-    caller drops the block rather than risk crediting the wrong business.
+    """Match a review back to a google_place_id via the URL Outscraper echoes
+    onto it. Neither Yelp nor TripAdvisor returns a Google Place ID - this is
+    the only way to attribute a review to a business. Every candidate key is
+    tried; if none match, the caller drops the review rather than risk
+    crediting the wrong business.
     """
 
     candidates = [
-        place.get("query"),
-        place.get("url"),
-        place.get("link"),
-        place.get("business_link"),
-        place.get("location_link"),
+        review.get("query"),
+        review.get("url"),
+        review.get("link"),
+        review.get("business_link"),
+        review.get("location_link"),
     ]
 
     for candidate in candidates:
@@ -754,83 +778,41 @@ def flatten_yelp_reviews_response(
     *,
     url_to_place_id: dict[str, str],
 ) -> pd.DataFrame:
-    """Map a Yelp reviews response onto the same canonical row shape as
-    flatten_google_reviews_response.
+    """Map a Yelp reviews response onto business_reviews' canonical row shape.
 
-    NOTE: Outscraper does not publish the exact Yelp response field names in
-    their docs. The field names below are best-effort based on their other
-    review endpoints' conventions and Yelp's own public data shape, and
-    should be checked against one real pull before relying on them - any
-    review whose text/rating can't be found here is dropped by
-    normalise_review_frame's validity check rather than imported wrong, so a
-    wrong guess fails safe (fewer rows imported), not silently.
+    Field names confirmed against a real pull (2026-09-28, Ciscos Karma).
+    Each review carries its own `query`/`business_name`/`review_rating`/
+    `review_text`/`timestamp`/`owner_reply` directly - no per-business
+    wrapper. `review_id` is Outscraper's own stable Yelp review id.
     """
 
     rows: list[dict[str, Any]] = []
 
-    for place in _iter_places(data):
-        place_id = _resolve_place_id(
-            place, url_to_place_id=url_to_place_id
-        )
+    for review in _iter_review_dicts(data):
+        place_id = _match_query_url(review, url_to_place_id=url_to_place_id)
 
         if not place_id:
             continue
 
-        business_name = str(
-            place.get("name") or place.get("business_name") or ""
-        ).strip()
-
-        reviews = (
-            place.get("reviews_data")
-            or place.get("reviews")
-            or []
+        row = dict(review)
+        row["name"] = review.get("business_name")
+        row["place_id"] = place_id
+        row["review_text"] = review.get("review_text")
+        row["review_rating"] = review.get("review_rating")
+        row["review_timestamp"] = review.get("timestamp")
+        row["author_title"] = review.get("author_title")
+        row["author_id"] = review.get("author_id")
+        row["author_reviews_count"] = review.get("author_reviews_count")
+        row["owner_answer"] = review.get("owner_reply")
+        row["owner_answer_timestamp"] = review.get("owner_reply_timestamp")
+        # Yelp gives no per-review permalink (author_link is the reviewer's
+        # profile, not the review) - location_link is the business page.
+        row["location_link"] = review.get("query")
+        row["review_id"] = review.get("review_id") or _stable_review_id(
+            place_id=place_id, review=review
         )
 
-        if not isinstance(reviews, list):
-            continue
-
-        for review in reviews:
-            if not isinstance(review, dict):
-                continue
-
-            author = review.get("user") or {}
-            if not isinstance(author, dict):
-                author = {}
-
-            row = dict(review)
-            row["name"] = business_name
-            row["place_id"] = place_id
-            row["review_text"] = (
-                review.get("review_text")
-                or review.get("text")
-                or review.get("comment")
-            )
-            row["review_rating"] = (
-                review.get("review_rating")
-                or review.get("rating")
-            )
-            row["review_timestamp"] = (
-                review.get("review_timestamp")
-                or review.get("time_created_timestamp")
-            )
-            row["author_title"] = (
-                review.get("author_title")
-                or author.get("name")
-                or review.get("user_name")
-            )
-            row["author_id"] = (
-                review.get("author_id")
-                or author.get("id")
-            )
-            row["review_link"] = (
-                review.get("review_link") or review.get("url")
-            )
-            row["location_link"] = place.get("url") or place.get("query")
-            row["review_id"] = _stable_review_id(
-                place_id=place_id, review=review
-            )
-
-            rows.append(row)
+        rows.append(row)
 
     columns = [
         "name", "place_id", "review_id", "review_text", "review_rating",
@@ -860,82 +842,56 @@ def flatten_tripadvisor_reviews_response(
     a `sub_ratings` column (Food/Service/Value etc.) that business_reviews
     carries as jsonb for platforms that have them.
 
-    Same field-name caveat as flatten_yelp_reviews_response: best-effort
-    pending one real verification pull.
+    Unlike Yelp's (confirmed against real data), TripAdvisor's exact field
+    names are still unverified - this uses the same shape-agnostic walker
+    with a wider set of candidate field names per value, so a review is
+    still found and imported even where a specific guess is wrong; only the
+    field that was guessed wrong comes through as empty.
     """
 
     rows: list[dict[str, Any]] = []
 
-    for place in _iter_places(data):
-        place_id = _resolve_place_id(
-            place, url_to_place_id=url_to_place_id
-        )
+    for review in _iter_review_dicts(data):
+        place_id = _match_query_url(review, url_to_place_id=url_to_place_id)
 
         if not place_id:
             continue
 
-        business_name = str(
-            place.get("name") or place.get("business_name") or ""
-        ).strip()
-
-        reviews = (
-            place.get("reviews_data")
-            or place.get("reviews")
-            or []
+        sub_ratings = (
+            review.get("sub_ratings")
+            or review.get("ratings")
+            or review.get("subratings")
         )
 
-        if not isinstance(reviews, list):
-            continue
+        row = dict(review)
+        row["name"] = review.get("business_name") or review.get("name")
+        row["place_id"] = place_id
+        row["review_text"] = review.get("review_text") or review.get("text")
+        row["review_rating"] = review.get("review_rating") or review.get("rating")
+        row["review_timestamp"] = (
+            review.get("timestamp")
+            or review.get("review_timestamp")
+            or review.get("published_date_timestamp")
+        )
+        row["author_title"] = (
+            review.get("author_title") or review.get("username")
+        )
+        row["author_id"] = review.get("author_id")
+        row["author_reviews_count"] = review.get("author_reviews_count")
+        row["owner_answer"] = review.get("owner_reply") or review.get("owner_answer")
+        row["owner_answer_timestamp"] = (
+            review.get("owner_reply_timestamp")
+            or review.get("owner_answer_timestamp")
+        )
+        row["location_link"] = review.get("query") or review.get("url")
+        row["sub_ratings"] = (
+            json.dumps(sub_ratings) if isinstance(sub_ratings, dict) else None
+        )
+        row["review_id"] = review.get("review_id") or _stable_review_id(
+            place_id=place_id, review=review
+        )
 
-        for review in reviews:
-            if not isinstance(review, dict):
-                continue
-
-            author = review.get("user") or {}
-            if not isinstance(author, dict):
-                author = {}
-
-            sub_ratings = (
-                review.get("sub_ratings")
-                or review.get("ratings")
-                or review.get("subratings")
-            )
-
-            row = dict(review)
-            row["name"] = business_name
-            row["place_id"] = place_id
-            row["review_text"] = (
-                review.get("review_text") or review.get("text")
-            )
-            row["review_rating"] = (
-                review.get("review_rating") or review.get("rating")
-            )
-            row["review_timestamp"] = (
-                review.get("review_timestamp")
-                or review.get("published_date_timestamp")
-            )
-            row["author_title"] = (
-                review.get("author_title")
-                or author.get("username")
-                or review.get("username")
-            )
-            row["author_id"] = (
-                review.get("author_id") or author.get("id")
-            )
-            row["review_link"] = (
-                review.get("review_link") or review.get("url")
-            )
-            row["location_link"] = place.get("url") or place.get("query")
-            row["sub_ratings"] = (
-                json.dumps(sub_ratings)
-                if isinstance(sub_ratings, dict)
-                else None
-            )
-            row["review_id"] = _stable_review_id(
-                place_id=place_id, review=review
-            )
-
-            rows.append(row)
+        rows.append(row)
 
     columns = [
         "name", "place_id", "review_id", "review_text", "review_rating",
