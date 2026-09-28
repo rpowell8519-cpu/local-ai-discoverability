@@ -503,16 +503,33 @@ whatever nesting is there and picks out any dict with review-shaped fields (`rev
 review back to a business is now per-review (`_match_query_url`, checking `query` first) rather
 than per-wrapper, since `query` lives on every review row, not once per business.
 
-TripAdvisor's exact field names are still unconfirmed - `flatten_tripadvisor_reviews_response`
-uses the same `_iter_review_dicts` walker (so it isn't tripped up by the wrapper-shape mistake
-either way) with a wider set of candidate field names per value. A wrong guess still fails safe:
-the review is dropped by `normalise_review_frame`'s validity check, not imported wrong. Treat the
-first real TripAdvisor pull as the actual verification step for that platform specifically.
+**Confirmed real TripAdvisor shape** too (2026-09-28, same debug expander): also a flat
+`[[review, review, ...]]`, same convention as Yelp, but with real differences that were worth
+catching before assuming Yelp's field names carried over:
+- **No business name field at all.** `flatten_tripadvisor_reviews_response` requires
+  `place_id_to_name` (the name the caller already knows, threaded from `7_Review_Insights.py`'s
+  `candidate_names` through `current_request["place_id_to_name"]`) - without it every row's `name`
+  is empty and `normalise_review_frame` drops all of them, reproducing the original "0 imported"
+  bug for a different reason. Covered by
+  `test_without_place_id_to_name_every_row_is_invalid_not_silently_empty`.
+- `rating` is the **business's overall rating**, not this review's own - `review_rating` is the
+  one to use. Easy to get backwards; both are present on every row.
+- The owner reply lives under `owner_response`/`owner_response_date`, not `owner_reply`/
+  `owner_answer` (Yelp's naming, which doesn't carry over).
+- TripAdvisor DOES give a genuine per-review permalink (`review_link`) - Yelp does not.
+- No sub-ratings field was present in the real sample (no Food/Service/Value breakdown) - the
+  `sub_ratings` fallbacks stay in the code for a response that does include them, and are simply
+  None otherwise; harmless, not a guess that needs revisiting.
+
+Yelp's `place_id_to_name` fallback is defensive only (its real payload does carry `business_name`
+already) - both flatten functions take the parameter now for a uniform call site, even though only
+TripAdvisor actually needs it.
 
 `business_reviews.review_rating` stays a plain 1-5 int for both new sources (Google, Yelp and
 TripAdvisor are all native 5-star scales) - no rating normalisation was needed this sprint.
-`sub_ratings` (jsonb) carries TripAdvisor's Food/Service/Value sub-scores; `platform_rating_scale`
-/ `platform_rating_raw` exist on the table for a future non-5-star source but are unused so far.
+`sub_ratings` (jsonb) carries TripAdvisor's Food/Service/Value sub-scores, when a response has
+them; `platform_rating_scale` / `platform_rating_raw` exist on the table for a future non-5-star
+source but are unused so far.
 
 Checkatrade was scoped and explicitly parked (2026-09-27): it runs an active Cloudflare bot
 challenge (`cf-mitigated: challenge`), not just client-side rendering, so a self-built Playwright

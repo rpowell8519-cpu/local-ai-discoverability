@@ -344,6 +344,13 @@ def _platform_review_pull_section(
         if url_inputs.get(pid, "").strip()
     }
 
+    # Not every platform's response carries a business name (TripAdvisor's
+    # real payload doesn't) - this is the fallback so a review still counts
+    # as valid (normalise_review_frame requires a truthy business_name).
+    place_id_to_name = {
+        pid: candidate_names.get(pid, pid) for pid in url_to_place_id.values()
+    }
+
     ready_ids = list(url_to_place_id.values())
     missing_ids = [pid for pid in candidate_ids if pid not in ready_ids]
 
@@ -406,6 +413,7 @@ def _platform_review_pull_section(
                 "status": submitted.get("status"),
                 "data": submitted.get("data"),
                 "url_to_place_id": url_to_place_id,
+                "place_id_to_name": place_id_to_name,
                 "imported": False,
             }
         except OutscraperError as exc:
@@ -474,6 +482,7 @@ def _platform_review_pull_section(
                 frame = flatten_fn(
                     result.get("data"),
                     url_to_place_id=current_request["url_to_place_id"],
+                    place_id_to_name=current_request.get("place_id_to_name"),
                 )
 
                 if frame.empty:

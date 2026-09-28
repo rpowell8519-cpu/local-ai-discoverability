@@ -82,23 +82,39 @@ def _yelp_sample(query=YELP_URL):
     return [[_real_yelp_review("abc123", "Lovely place, great coffee.", query=query)]]
 
 
+def _real_tripadvisor_review(review_link_id, text, rating, *, query=TRIPADVISOR_URL):
+    """Shaped exactly like Outscraper's real /tripadvisor-reviews response
+    (confirmed 2026-09-28, Ciscos Karma). Unlike Yelp: no business_name
+    field at all; `rating` is the business's overall rating (not this
+    review's own - that's `review_rating`); the owner reply lives under
+    `owner_response`/`owner_response_date`, not owner_reply/owner_answer;
+    there's a real per-review permalink (`review_link`), which Yelp lacks.
+    """
+
+    return {
+        "query": query,
+        "reviews": 3,
+        "rating": 4,
+        "review_link": (
+            "https://www.tripadvisor.co.uk/ShowUserReviews-g186273-d5569984-"
+            f"{review_link_id}-Ciscos_Karma-Brighton_East_Sussex_England.html"
+        ),
+        "review_title": "A title",
+        "review_text": text,
+        "review_date": "2023-12-28",
+        "review_timestamp": 1703721600,
+        "author_title": "Sarah B",
+        "author_image": "https://example.com/avatar.jpg",
+        "review_rating": rating,
+        "review_media": [],
+        "owner_title": "",
+        "owner_response": "",
+        "owner_response_date": "",
+    }
+
+
 def _tripadvisor_sample(query=TRIPADVISOR_URL):
-    # Best-effort shape (unconfirmed) - flat, matching Yelp's confirmed
-    # convention, with review-level text/rating/sub_ratings.
-    return [
-        [
-            {
-                "query": query,
-                "business_name": "Ciscos Karma",
-                "review_id": "def456",
-                "rating": 4,
-                "text": "Nice brunch spot.",
-                "published_date_timestamp": 1758960000,
-                "username": "traveller99",
-                "sub_ratings": {"food": 5, "service": 4, "value": 4},
-            }
-        ]
-    ]
+    return [[_real_tripadvisor_review("r931211604", "Had two fabulous hair cuts here.", 5, query=query)]]
 
 
 # ---------------------------------------------------------------------
@@ -239,29 +255,90 @@ class TestFlattenYelp:
 
 
 class TestFlattenTripadvisor:
-    def test_a_matched_business_produces_one_row_with_sub_ratings(self):
+    def test_a_matched_business_uses_review_rating_not_the_business_level_rating(self):
+        # The real payload has both `rating` (business overall, 4 here) and
+        # `review_rating` (this specific review, 5) - must not conflate them.
         frame = flatten_tripadvisor_reviews_response(
-            _tripadvisor_sample(), url_to_place_id={TRIPADVISOR_URL: PLACE_ID}
+            _tripadvisor_sample(),
+            url_to_place_id={TRIPADVISOR_URL: PLACE_ID},
+            place_id_to_name={PLACE_ID: "Ciscos Karma"},
         )
 
         assert len(frame) == 1
         row = frame.iloc[0]
         assert row["place_id"] == PLACE_ID
-        assert row["review_rating"] == 4
-        assert row["author_title"] == "traveller99"
-        assert "food" in row["sub_ratings"]
+        assert row["review_rating"] == 5
+        assert row["author_title"] == "Sarah B"
+        assert row["review_link"].startswith("https://www.tripadvisor.co.uk/ShowUserReviews-")
+
+    def test_without_place_id_to_name_every_row_is_invalid_not_silently_empty(self):
+        # The real response has no business_name field anywhere - without
+        # the fallback, every row would be dropped by normalise_review_frame
+        # (reproducing the original "0 imported" bug for a different
+        # reason), which is worth a named test rather than just relying on
+        # place_id_to_name always being passed.
+        frame = flatten_tripadvisor_reviews_response(
+            _tripadvisor_sample(), url_to_place_id={TRIPADVISOR_URL: PLACE_ID}
+        )
+
+        assert frame.iloc[0]["name"] is None
+        valid, invalid = normalise_review_frame(frame)
+        assert valid.empty
+        assert len(invalid) == 1
+
+    def test_the_real_multi_review_response_shape_produces_one_row_each(self):
+        data = [
+            [
+                _real_tripadvisor_review("r931211604", "Had two fabulous hair cuts here.", 5),
+                _real_tripadvisor_review("r249426877", "The manicure was not so good.", 2),
+                _real_tripadvisor_review("r190397214", "One of the best massages I've ever had!", 5),
+            ]
+        ]
+
+        frame = flatten_tripadvisor_reviews_response(
+            data,
+            url_to_place_id={TRIPADVISOR_URL: PLACE_ID},
+            place_id_to_name={PLACE_ID: "Ciscos Karma"},
+        )
+
+        assert len(frame) == 3
+        assert list(frame["review_rating"]) == [5, 2, 5]
+        assert (frame["name"] == "Ciscos Karma").all()
+        valid, invalid = normalise_review_frame(frame)
+        assert len(valid) == 3
+        assert invalid.empty
+
+    def test_owner_response_field_is_mapped_not_owner_reply(self):
+        review = _real_tripadvisor_review("r1", "Text", 5)
+        review["owner_response"] = "Thanks for visiting!"
+
+        frame = flatten_tripadvisor_reviews_response(
+            [[review]],
+            url_to_place_id={TRIPADVISOR_URL: PLACE_ID},
+            place_id_to_name={PLACE_ID: "Ciscos Karma"},
+        )
+
+        assert frame.iloc[0]["owner_answer"] == "Thanks for visiting!"
 
     def test_an_unrecognised_url_is_dropped(self):
         frame = flatten_tripadvisor_reviews_response(
-            _tripadvisor_sample(query="https://www.tripadvisor.co.uk/Restaurant_Review-other.html"),
+            _tripadvisor_sample(query="https://www.tripadvisor.co.uk/Attraction_Review-other.html"),
             url_to_place_id={TRIPADVISOR_URL: PLACE_ID},
+            place_id_to_name={PLACE_ID: "Ciscos Karma"},
         )
 
         assert frame.empty
 
-    def test_sub_ratings_survive_normalise_review_frame_as_a_jsonb_ready_string(self):
+    def test_a_sub_ratings_field_when_present_survives_as_a_jsonb_ready_string(self):
+        # No sub_ratings field was present in the real sample, but keep the
+        # fallback covered in case a future response does include one.
+        review = _real_tripadvisor_review("r1", "Text", 5)
+        review["sub_ratings"] = {"food": 5, "service": 4, "value": 4}
+
         frame = flatten_tripadvisor_reviews_response(
-            _tripadvisor_sample(), url_to_place_id={TRIPADVISOR_URL: PLACE_ID}
+            [[review]],
+            url_to_place_id={TRIPADVISOR_URL: PLACE_ID},
+            place_id_to_name={PLACE_ID: "Ciscos Karma"},
         )
         valid, _ = normalise_review_frame(frame)
 

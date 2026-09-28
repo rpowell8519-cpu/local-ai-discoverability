@@ -777,6 +777,7 @@ def flatten_yelp_reviews_response(
     data: Any,
     *,
     url_to_place_id: dict[str, str],
+    place_id_to_name: dict[str, str] | None = None,
 ) -> pd.DataFrame:
     """Map a Yelp reviews response onto business_reviews' canonical row shape.
 
@@ -784,8 +785,15 @@ def flatten_yelp_reviews_response(
     Each review carries its own `query`/`business_name`/`review_rating`/
     `review_text`/`timestamp`/`owner_reply` directly - no per-business
     wrapper. `review_id` is Outscraper's own stable Yelp review id.
+
+    `place_id_to_name` (the name the caller already knows for the business,
+    e.g. from business_features) is a fallback for `name`: Yelp's own
+    `business_name` is normally present, but if a future response were ever
+    missing it, normalise_review_frame requires a truthy business_name for
+    a row to count as valid - the same reason TripAdvisor needs this.
     """
 
+    place_id_to_name = place_id_to_name or {}
     rows: list[dict[str, Any]] = []
 
     for review in _iter_review_dicts(data):
@@ -795,7 +803,7 @@ def flatten_yelp_reviews_response(
             continue
 
         row = dict(review)
-        row["name"] = review.get("business_name")
+        row["name"] = review.get("business_name") or place_id_to_name.get(place_id)
         row["place_id"] = place_id
         row["review_text"] = review.get("review_text")
         row["review_rating"] = review.get("review_rating")
@@ -837,18 +845,29 @@ def flatten_tripadvisor_reviews_response(
     data: Any,
     *,
     url_to_place_id: dict[str, str],
+    place_id_to_name: dict[str, str] | None = None,
 ) -> pd.DataFrame:
     """Map a TripAdvisor reviews response onto the canonical row shape, plus
     a `sub_ratings` column (Food/Service/Value etc.) that business_reviews
     carries as jsonb for platforms that have them.
 
-    Unlike Yelp's (confirmed against real data), TripAdvisor's exact field
-    names are still unverified - this uses the same shape-agnostic walker
-    with a wider set of candidate field names per value, so a review is
-    still found and imported even where a specific guess is wrong; only the
-    field that was guessed wrong comes through as empty.
+    Field names confirmed against a real pull (2026-09-28, Ciscos Karma).
+    Unlike Yelp, the response carries NO business name field at all - only
+    business-level `reviews`/`rating` (the totals, not this review's own),
+    a per-review `review_link` permalink (Yelp has none), and the owner
+    reply lives under `owner_response`/`owner_response_date`, not
+    `owner_reply`/`owner_answer`. No sub-ratings field was present in the
+    real sample; the sub_ratings fallbacks below are kept for a future
+    response that does include them, and stay None otherwise - harmless.
+
+    `place_id_to_name` (the name the caller already knows for the business)
+    is required here in practice, not just a fallback like Yelp's: without
+    it every row's `name` would be empty and normalise_review_frame would
+    drop all of them as invalid, reproducing the original "0 imported" bug
+    for a different reason.
     """
 
+    place_id_to_name = place_id_to_name or {}
     rows: list[dict[str, Any]] = []
 
     for review in _iter_review_dicts(data):
@@ -864,13 +883,17 @@ def flatten_tripadvisor_reviews_response(
         )
 
         row = dict(review)
-        row["name"] = review.get("business_name") or review.get("name")
+        row["name"] = (
+            review.get("business_name")
+            or review.get("name")
+            or place_id_to_name.get(place_id)
+        )
         row["place_id"] = place_id
         row["review_text"] = review.get("review_text") or review.get("text")
         row["review_rating"] = review.get("review_rating") or review.get("rating")
         row["review_timestamp"] = (
-            review.get("timestamp")
-            or review.get("review_timestamp")
+            review.get("review_timestamp")
+            or review.get("timestamp")
             or review.get("published_date_timestamp")
         )
         row["author_title"] = (
@@ -878,11 +901,17 @@ def flatten_tripadvisor_reviews_response(
         )
         row["author_id"] = review.get("author_id")
         row["author_reviews_count"] = review.get("author_reviews_count")
-        row["owner_answer"] = review.get("owner_reply") or review.get("owner_answer")
+        row["owner_answer"] = (
+            review.get("owner_response")
+            or review.get("owner_reply")
+            or review.get("owner_answer")
+        )
         row["owner_answer_timestamp"] = (
-            review.get("owner_reply_timestamp")
+            review.get("owner_response_date")
+            or review.get("owner_reply_timestamp")
             or review.get("owner_answer_timestamp")
         )
+        row["review_link"] = review.get("review_link")
         row["location_link"] = review.get("query") or review.get("url")
         row["sub_ratings"] = (
             json.dumps(sub_ratings) if isinstance(sub_ratings, dict) else None
