@@ -501,7 +501,6 @@ def _platform_review_pull_section(
                             source=review_source,
                         )
 
-                    get_review_counts.clear()
                     st.cache_data.clear()
 
                     st.success(

@@ -476,11 +476,21 @@ response carries one. `business_platform_links` (a small table, `google_place_id
 external_url`) holds the confirmed URL for a business on a platform. Nothing matches this
 automatically: a person finds the business on Yelp/TripAdvisor themselves and pastes the URL in,
 the same manual-confirmation spirit as `competitor_relationship_reviews`. A review result that
-can't be matched back to a saved URL is dropped, not guessed at (`_resolve_place_id` in
+can't be matched back to a saved URL is dropped, not guessed at (`_match_query_url` in
 `outscraper_reviews.py`). `load_platform_links` is `@st.cache_data(ttl=60)` (a real bug shipped
 briefly without this decorator - `.clear()` on a plain function raised `AttributeError` the first
 time "Save links" was clicked, fixed 2026-09-28); after a save, only `load_platform_links.clear()`
 is called, not a blanket `st.cache_data.clear()`, per the scoped-invalidation convention below.
+
+**This exact mistake shipped twice** - a second, redundant `get_review_counts.clear()` (that
+function was never `@st.cache_data`-decorated at all) crashed the post-import cleanup step with
+the same `AttributeError`, immediately after `import_reviews` had already committed - so the
+crash looked like the import failed when it had actually already succeeded. Fixed by deleting the
+call rather than decorating the function (a `st.cache_data.clear()` blanket clear already runs
+the very next line, making the scoped call pure dead weight). Lesson for next time touching this
+file: before shipping any new `<name>.clear()` call, grep the target function's own definition for
+`@st.cache_data` first - don't assume it's cached by analogy with a similarly-named function
+elsewhere in the page.
 
 Both platforms' Outscraper endpoints were confirmed against Outscraper's own Python client source
 (github.com/outscraper/outscraper-python), not guessed: Yelp is `/yelp/reviews`, TripAdvisor is
