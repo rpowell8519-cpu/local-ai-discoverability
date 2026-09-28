@@ -425,6 +425,19 @@ def _platform_review_pull_section(
         expanded=False,
     )
 
+    if current_request.get("data"):
+        with st.expander(
+            f"Debug: raw {platform_label} response (temporary - remove once field "
+            "mapping is confirmed)"
+        ):
+            st.caption(
+                "If the import came back empty, this is the actual shape Outscraper "
+                "returned - copy it (or the top of it) so the field-name mapping in "
+                "outscraper_reviews.py can be corrected against real data instead of "
+                "a best-effort guess."
+            )
+            st.json(current_request["data"])
+
     request_columns = st.columns(3)
 
     with request_columns[0]:
