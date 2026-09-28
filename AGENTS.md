@@ -477,7 +477,10 @@ external_url`) holds the confirmed URL for a business on a platform. Nothing mat
 automatically: a person finds the business on Yelp/TripAdvisor themselves and pastes the URL in,
 the same manual-confirmation spirit as `competitor_relationship_reviews`. A review result that
 can't be matched back to a saved URL is dropped, not guessed at (`_resolve_place_id` in
-`outscraper_reviews.py`).
+`outscraper_reviews.py`). `load_platform_links` is `@st.cache_data(ttl=60)` (a real bug shipped
+briefly without this decorator - `.clear()` on a plain function raised `AttributeError` the first
+time "Save links" was clicked, fixed 2026-09-28); after a save, only `load_platform_links.clear()`
+is called, not a blanket `st.cache_data.clear()`, per the scoped-invalidation convention below.
 
 Both platforms' Outscraper endpoints were confirmed against Outscraper's own Python client source
 (github.com/outscraper/outscraper-python), not guessed: Yelp is `/yelp/reviews`, TripAdvisor is

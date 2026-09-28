@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 import pandas as pd
+import streamlit as st
 from sqlalchemy import text
 
 from src.database import get_engine
@@ -17,6 +18,7 @@ PLATFORM_LABELS = {
 }
 
 
+@st.cache_data(ttl=60)
 def load_platform_links(google_place_ids: list[str]) -> pd.DataFrame:
     """All saved platform links for the given businesses.
 
