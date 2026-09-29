@@ -17,6 +17,8 @@ from reportlab.pdfgen.canvas import Canvas
 from reportlab.platypus import Paragraph
 
 from .model import ReportValidationError, metrics, validate_report
+from .reviews import PLATFORM_RATIONALE
+from src.review_ingestion import SOURCE_LABELS
 
 NAVY, BLUE, TEAL, PALE, GREY, RULE = map(
     HexColor, ['#14253B', '#345BEB', '#008C86', '#F0F4F8', '#526171', '#DCE3EA']
@@ -670,18 +672,48 @@ def draw_table(page, headers, rows, widths):
     page.top += 14
 
 
+def _review_count_cell(sample):
+    """The total, plus a per-platform breakdown once more than one source is present.
+
+    A single-source business (still the common case for older reports) keeps the plain number
+    it always had; nothing changes there. draw_table wraps long text rather than truncating it,
+    so a business checked on all three platforms still renders in full.
+    """
+
+    n = sample['sample_size']
+    if not n:
+        return 'Unavailable'
+    counts = sample.get('source_counts') or {}
+    if len(counts) <= 1:
+        return str(n)
+    parts = ', '.join(
+        f'{SOURCE_LABELS.get(src, src)} {count}'
+        for src, count in sorted(counts.items(), key=lambda item: -item[1])
+    )
+    return f'{n} ({parts})'
+
+
 def render_reviews(page, data):
     review = data['review_analysis']
     samples = review['businesses']
     target = next((b for b in samples if b['id'] == data['target_id']), None)
     page.start(9, 'Customer review evidence', 'What customers say about the businesses',
                'The selected review comparison uses saved customer text. It is a different set from the most-visible businesses on page 5.')
+    platforms = review.get('target_platforms') or []
+    if platforms:
+        clauses = join_names([PLATFORM_RATIONALE.get(p, p) for p in platforms])
+        page.callout('WHERE THIS EVIDENCE COMES FROM', [(
+            'This audit checks reviews on the platforms that matter to how AI assistants ground their answers, and '
+            'that coverage grows as new sources become relevant - not simply as many reviews from as many places as '
+            f'possible. For {safe(data["business_name"])}, that currently means: {safe(clauses)}.',
+            'body',
+        )])
     rows = []
     for sample in samples:
         n = sample['sample_size']
         rating = f"{sample['rating']:.2f} / 5 ({sample['rated_count']} rated)" if sample['rating'] is not None else 'Unavailable'
-        rows.append([sample['name'], str(n) if n else 'Unavailable', rating, sample['date_range']])
-    draw_table(page, ['Business', 'Text reviews', 'Sample mean rating', 'Review dates'], rows, [190, 65, 112, 140])
+        rows.append([sample['name'], _review_count_cell(sample), rating, sample['date_range']])
+    draw_table(page, ['Business', 'Text reviews', 'Sample mean rating', 'Review dates'], rows, [190, 95, 102, 120])
     if target and target['sample_size']:
         page.heading('Your review evidence')
         page.para(f"{safe(data['business_name'])}: {target['sample_size']} usable text reviews, dated {safe(target['date_range'])}. "

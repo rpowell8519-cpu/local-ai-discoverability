@@ -566,6 +566,37 @@ candidates (`kind: "action"`, `score`, `evidence`, ...), so they compete fairly 
 top-actions selection and render in LS/RP through the same generic path - no report-template
 changes were needed for this to reach client-facing reports.
 
+### Which review platforms were checked, and why, is now visible in the LS (page 9)
+
+Before 2026-09-29, Yelp/TripAdvisor reviews were already silently pooled into the LS's "Customer
+review evidence" page (`source` has always been selected by the query in
+`poc_audit_assembler.py`'s `_freeze_reviews`, and carried through `freeze_review_set` -
+`REVIEW_EVIDENCE_FIELDS` already included it) - but nothing on the page said so. A reader had no
+way to know more than Google had been checked. Per rob (2026-09-28): the story is not "as many
+reviews from as many sources as possible," it's that each platform is checked for a specific,
+named reason tied to how AI assistants actually ground answers, and that coverage is expected to
+grow over time as new sources become relevant.
+
+- `src/client_summary/reviews.py`'s `build_review_summary` now tallies each business's reviews by
+  `source_counts` (a dict), and returns `target_platforms` - the sources the **target** business
+  itself has saved reviews on, ordered by `PLATFORM_RATIONALE` (Google always first, regardless of
+  which source happens to have more reviews for that business). Comparison businesses' own mixes
+  aren't used to decide which platforms to explain - the callout is about what was checked *for
+  the client*.
+- `PLATFORM_RATIONALE` (same module) is the reviewed wording per platform - deliberately generic
+  ("Yelp review data also informs other AI assistants, including ChatGPT") rather than citing
+  specific unverified partnership claims or stats, since this reaches an actual client and hasn't
+  been independently fact-checked beyond rob's own steer.
+- `src/client_summary/pdf.py`'s `render_reviews` adds a `page.callout('WHERE THIS EVIDENCE COMES
+  FROM', ...)` box (same visual pattern as page 1's recommended-action callout) whenever the
+  target has any saved reviews at all - including the single-platform case, so a Google-only
+  report still gets the "deliberate audit" framing, not just multi-platform ones. The "Text
+  reviews" table cell shows a plain count when only one source is present (unchanged from before),
+  and adds a per-platform breakdown - `"69 (Google 63, Yelp 3, TripAdvisor 3)"` - only once a
+  business genuinely has more than one.
+- A review record with no `source` field at all defaults to Google rather than being dropped or
+  miscounted - defensive, since in practice every `business_reviews` row has always had one.
+
 ## Database safety
 
 Do not apply changes to the Supabase/PostgreSQL schema without the user's explicit approval.
