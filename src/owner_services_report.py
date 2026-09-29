@@ -12,6 +12,7 @@ from html import escape
 import re
 from typing import Any, Mapping
 
+from src.ai_recommendation_intelligence import target_mention_summary
 from src.owner_report_findings import derive_owner_content
 
 FORMAT = "accessible_owner_services_v4"
@@ -224,6 +225,7 @@ def build_owner_report(payload: Mapping[str, Any]) -> dict[str, Any]:
             "website_audits": payload.get("website_evidence", {}).get("audits", []),
             "review_sets": payload.get("review_evidence", {}).get("review_sets", []),
             "target_answer_ids": target_ids,
+            "target_mention_summary": target_mention_summary(responses),
             "answer_businesses": {
                 response["response_id"]: sorted(key for key, ids in appearances.items() if response["response_id"] in ids)
                 for response in valid

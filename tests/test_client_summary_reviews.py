@@ -44,14 +44,15 @@ def test_review_mentions_are_deduplicated_and_do_not_imply_positive_feedback():
     assert next(t for t in review['themes'] if t['label'] == 'Carpet cleaning')['answers'] == 0
 
 
-def test_missing_reviews_are_unavailable_and_no_review_sets_keep_eight_pages():
+def test_missing_reviews_are_unavailable_and_no_review_sets_keep_nine_pages():
     payload = synthetic_owner_services_payload()
     summary = build_client_summary_report(payload)
     text = '\n'.join(p.extract_text() for p in PdfReader(BytesIO(render_client_summary_pdf(summary))).pages)
     assert 'keyword matching' in text and 'does not establish whether an AI tool read these reviews' in text
     # Build the no-review projection without source excerpts referring to removed records.
     summary['review_analysis'] = None
-    assert len(PdfReader(BytesIO(render_client_summary_pdf(summary))).pages) == 8
+    # 9, not 8: page 9 (mentioned vs. recommended) is unconditional, unlike the review pages.
+    assert len(PdfReader(BytesIO(render_client_summary_pdf(summary))).pages) == 9
 
 
 def test_review_visibility_link_cannot_disagree_with_measured_questions():

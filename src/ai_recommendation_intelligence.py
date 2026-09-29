@@ -999,6 +999,74 @@ def build_recommendation_records(
     )
 
 
+def target_mention_summary(
+    responses: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """How often the target was mentioned at all, versus actively recommended.
+
+    Separate from build_recommendation_records deliberately: `target_mentioned` and
+    `target_recommended` are computed independently per saved response (by
+    ai_visibility_analysis.analyse_visibility_response, at scan time) and don't depend on which
+    other businesses were known at scan time - unlike `mentioned_known_businesses`, which only
+    covers whichever competitor cohort was selected before the scan ran, and so is NOT reliable
+    for a complete per-competitor mention picture. This function only ever reports on the target,
+    where the data is complete, not on competitors, where today it would not be.
+
+    Takes frozen responses (poc_audit_payload.freeze_ai_response's shape, e.g.
+    payload["baseline_validation"]["responses"]) rather than raw AI-visibility rows, and reads
+    `parser_reconciliation` - already computed there for the RP's own consistency checks - rather
+    than re-deriving validity or the mentioned/recommended booleans a second time. This is why
+    `recommended` here always agrees with what `appearances` has always meant elsewhere in the
+    report: it is the same underlying flag, not a parallel calculation that could drift from it.
+    """
+
+    empty = {
+        "complete": 0, "mentioned": 0, "recommended": 0,
+        "questions": [],
+    }
+
+    by_question: dict[int, dict[str, Any]] = {}
+    complete = mentioned_total = recommended_total = 0
+
+    for response in responses:
+        reconciliation = response.get("parser_reconciliation") or {}
+
+        if reconciliation.get("excluded_from_metrics"):
+            continue
+
+        is_mentioned = bool(reconciliation.get("persisted_target_mentioned"))
+        is_recommended = bool(reconciliation.get("persisted_target_recommended"))
+        order = int(response.get("base_prompt_order") or 0)
+
+        entry = by_question.setdefault(
+            order,
+            {
+                "order": order,
+                "prompt": response.get("prompt_text"),
+                "complete": 0,
+                "mentioned": 0,
+                "recommended": 0,
+            },
+        )
+        entry["complete"] += 1
+        entry["mentioned"] += is_mentioned
+        entry["recommended"] += is_recommended
+
+        complete += 1
+        mentioned_total += is_mentioned
+        recommended_total += is_recommended
+
+    if not complete:
+        return empty
+
+    return {
+        "complete": complete,
+        "mentioned": mentioned_total,
+        "recommended": recommended_total,
+        "questions": sorted(by_question.values(), key=lambda item: item["order"]),
+    }
+
+
 def _business_group_key(
     frame: pd.DataFrame,
 ) -> pd.Series:

@@ -57,7 +57,7 @@ class ReportLayoutError(ReportValidationError):
     pass
 
 
-TOTAL_PAGES = 8
+TOTAL_PAGES = 9
 
 
 class Page:
@@ -372,6 +372,11 @@ def _render(payload, level):
                f'{quoted(weakest["label"])} did not appear in any of its {weakest["complete"]} answers')
         page.para(f'{quoted(best["label"])} was your strongest result: <b>{best["appearances"]} of '
                   f'{best["complete"]} answers</b>. {low}.')
+    mention_summary = d.get('mention_analysis') or {}
+    if mention_summary.get('mentioned', 0) > appearances:
+        page.para(f'{bname} was also named more broadly than that: mentioned somewhere in '
+                  f'{mention_summary["mentioned"]} of {total} answers in total, not only where it was an explicit '
+                  'recommendation. Page 9 breaks down where that gap is biggest.')
     page.heading('What this means for you')
     if appearances == 0:
         page.para('This shows where to start looking, not why. The results do not establish what caused the outcome. '
@@ -647,6 +652,7 @@ def _render(payload, level):
     page.callout('First decision', [(decision, 'body')])
     page.end()
 
+    render_mentions(page, d)
     if d.get('review_analysis'):
         render_reviews(page, d)
     canvas.save()
@@ -693,11 +699,64 @@ def _review_count_cell(sample):
     return f'{n} ({parts})'
 
 
+def render_mentions(page, data):
+    """Always shown (unlike the conditional review pages) - every report has this data, since it
+    comes from the same saved AI-visibility answers every report already requires.
+
+    Deliberately doesn't explain the gap (same restraint as the rest of the report: it states
+    the numbers and lets the client draw conclusions) - it only points at where the gap is
+    biggest, which is the actionable part.
+    """
+
+    m = data.get('mention_analysis') or {'complete': 0, 'mentioned': 0, 'recommended': 0, 'questions': []}
+    name = data.get('short_name') or data['business_name']
+    page.start(9, 'Mentioned vs. recommended', 'Two different signals, not the same thing',
+               'Being named by an AI assistant is not the same as being one of its active suggestions. '
+               'This page keeps the two apart rather than treating every mention as a recommendation.')
+    if not m['complete']:
+        page.para('No measured answers were available for this comparison.')
+        page.end()
+        return
+    gap = m['mentioned'] - m['recommended']
+    page.tiles([
+        (f"{m['mentioned']} of {m['complete']}", 'Answers mentioning you at all'),
+        (f"{m['recommended']} of {m['complete']}", 'Answers actively recommending you'),
+        (str(gap), 'Mentioned, but not recommended'),
+    ])
+    page.heading('What this means')
+    if gap == 0:
+        page.para(f'Every answer that mentioned {safe(name)} also recommended it in this test - there is no gap '
+                  'between the two figures to investigate here.')
+    else:
+        page.para(f'{safe(name)} was named in {m["mentioned"]} of {m["complete"]} answers overall, but only '
+                  f'{m["recommended"]} of those were an explicit recommendation. A mention with no recommendation '
+                  'means the assistant knows the business exists but did not actively point the customer toward it '
+                  'for that answer. This does not explain why; read it as a prompt to look at the relevant pages and '
+                  'proof, not as a finding about cause.')
+    if len(m['questions']) > 1:
+        page.heading('Where the gap is biggest, by customer need')
+        page.para('Sorted by the largest gap between the two figures first.', 'small', 8)
+        rows = [
+            [q['label'], f"{q['mentioned']} of {q['complete']}", f"{q['recommended']} of {q['complete']}",
+             str(q['mentioned'] - q['recommended'])]
+            for q in sorted(m['questions'], key=lambda item: -(item['mentioned'] - item['recommended']))
+        ]
+        draw_table(page, ['Customer need', 'Mentioned', 'Recommended', 'Gap'], rows, [187, 107, 107, 106])
+    elif m['questions'] and m['questions'][0]['mentioned'] - m['questions'][0]['recommended'] > 0:
+        q = m['questions'][0]
+        page.para(f"For {quoted(q['label'])}: mentioned in {q['mentioned']} of {q['complete']} answers, but "
+                  f"recommended in only {q['recommended']}.")
+    page.para('Counting rule: the same saved answers used throughout this report. "Mentioned" means the business’s '
+              'name appeared anywhere in the answer; "recommended" means it appeared as one of the assistant’s '
+              'explicit, numbered suggestions. A recommendation always counts as a mention.', 'small')
+    page.end()
+
+
 def render_reviews(page, data):
     review = data['review_analysis']
     samples = review['businesses']
     target = next((b for b in samples if b['id'] == data['target_id']), None)
-    page.start(9, 'Customer review evidence', 'What customers say about the businesses',
+    page.start(10, 'Customer review evidence', 'What customers say about the businesses',
                'The selected review comparison uses saved customer text. It is a different set from the most-visible businesses on page 5.')
     platforms = review.get('target_platforms') or []
     if platforms:
@@ -726,7 +785,7 @@ def render_reviews(page, data):
               'A one-review sample cannot support a reliable view of a business. More reviews or a higher rating does not establish why an AI tool recommended it.', 'body')
     page.para(safe(review['source']), 'small')
     page.end()
-    page.start(10, 'Comparing customer evidence', 'Which themes stand out in the reviews?',
+    page.start(11, 'Comparing customer evidence', 'Which themes stand out in the reviews?',
                'The most-mentioned tracked themes for each business. Counts and percentages refer to its own saved text sample.')
     rows = []
     for sample in samples:
@@ -743,7 +802,7 @@ def render_reviews(page, data):
               'Use these differences to guide a closer read, not to rank service quality or infer an AI ranking factor.', 'body')
     page.para(safe(review['source']), 'small')
     page.end()
-    page.start(11, 'Reviews and AI visibility', 'Does customer proof match the work you want?',
+    page.start(12, 'Reviews and AI visibility', 'Does customer proof match the work you want?',
                'Service mentions in your saved reviews are shown beside appearances for related test questions. These are two separate measurements.')
     rows = []
     for theme in review['themes']:

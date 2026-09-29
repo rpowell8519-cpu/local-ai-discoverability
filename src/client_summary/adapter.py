@@ -221,6 +221,26 @@ def build_client_summary_report(
         for r in report["responses"]
     ]
 
+    # Additive alongside "questions"/"measured" (recommendation-based, unchanged) - "mentioned"
+    # from a genuinely separate signal computed independently at scan time (see
+    # target_mention_summary's own docstring), not a re-slicing of the same numbers.
+    mention_summary = report.get("target_mention_summary") or {"complete": 0, "mentioned": 0, "recommended": 0, "questions": []}
+    mention_analysis = {
+        "complete": int(mention_summary["complete"]),
+        "mentioned": int(mention_summary["mentioned"]),
+        "recommended": int(mention_summary["recommended"]),
+        "questions": [
+            {
+                "id": f"q{int(q['order'])}",
+                "label": labels.get(int(q["order"]), _topic_wording(str(q.get("prompt") or ""))),
+                "complete": int(q["complete"]),
+                "mentioned": int(q["mentioned"]),
+                "recommended": int(q["recommended"]),
+            }
+            for q in mention_summary["questions"]
+        ],
+    }
+
     owner_searches = {" ".join(str(item).split()).casefold() for item in owner_questions}
     limitations: list[str] = []
     if owner_config.get("review_notes"):
@@ -267,6 +287,7 @@ def build_client_summary_report(
         "visible_ids": [key for key, _ in visible],
         "evidence_layers": _evidence_layers(owner_config, approved),
         "review_analysis": build_review_summary(report, group),
+        "mention_analysis": mention_analysis,
         "evidence": [
             {"id": str(f["id"]), "observation": str(f["observation"]), "source": str(f["source"])}
             for f in findings

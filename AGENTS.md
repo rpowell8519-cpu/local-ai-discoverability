@@ -597,6 +597,57 @@ grow over time as new sources become relevant.
 - A review record with no `source` field at all defaults to Google rather than being dropped or
   miscounted - defensive, since in practice every `business_reviews` row has always had one.
 
+## Mentioned vs. recommended (LS page 9, always present)
+
+"Recommended" (in a numbered list) and "mentioned" (named anywhere in the answer) are genuinely
+different signals - a business can be named repeatedly without ever being one of the AI's active
+picks. Every existing count in this codebase (`appearances`, `recommendations`, `select_leaders`,
+market share, "leaders" for the website/review comparison cohort) has always meant recommended
+only. This feature is **additive**: mentions surface alongside those numbers, nothing about what
+they've always meant changes. Per rob (2026-09-29): "leaders" stays recommendation-based - a
+mention alone is too weak a signal to build a comparison cohort on.
+
+**The data was already there, unused.** `ai_visibility_analysis.analyse_visibility_response`
+(scan time) already computes `target_mentioned`/`target_recommended` independently per response -
+`find_name_position` checks the raw text for the business's name anywhere, `find_recommendation_position`
+separately checks for a numbered-list appearance. These are real `ai_visibility_results` columns,
+already selected via `select r.*` everywhere `build_recommendation_records` is called, and already
+carried into every frozen response's `parser_reconciliation` block (`persisted_target_mentioned`/
+`persisted_target_recommended`) via `freeze_ai_response` - which the RP's own consistency checks
+already reference. `src/ai_recommendation_intelligence.py:target_mention_summary` reads
+`parser_reconciliation` directly rather than re-deriving validity or the booleans a second time,
+so it can never quietly disagree with the RP's own reconciliation.
+
+**Deliberately target-only, not a per-competitor mention table.** `mentioned_known_businesses`
+(the richer, per-answer breakdown covering every business, not just the target) is only reliable
+for whichever competitor cohort was already selected *before* the scan ran - it is NOT a complete
+picture for a business added to the database afterwards. `target_mentioned`/`target_recommended`
+have no such gap (the target is always entry #1 in `known_businesses`, unconditionally, regardless
+of cohort). A full per-competitor mention breakdown is real, flagged, follow-up work - it would
+need a fresh `find_name_position` pass against the full business directory at report-generation
+time (the same directory `build_recommendation_records` already resolves against), not a read of
+the narrower scan-time snapshot.
+
+**Wiring, all additive, no existing function's behaviour changed:**
+`owner_services_report.build_owner_report` calls `target_mention_summary(responses)` and adds
+`report["target_mention_summary"]` - nothing else in that function changed.
+`client_summary/adapter.py` reads it into `metadata["mention_analysis"]`, alongside (not replacing)
+the existing recommendation-based `questions`/`measured`. `client_summary/pdf.py`'s
+`render_mentions` is **unconditional** (unlike the review pages) - every report has this data, so
+`TOTAL_PAGES` moved from 8 to 9 and the review pages shifted from 9-11 to 10-12. Page 1 gets one
+added sentence, shown only when `mentioned > appearances` (i.e. there's an actual gap worth
+pointing at), pointing to page 9.
+
+**RP finding, not yet fixed:** `poc_audit_pdf.py`'s own headline already computes
+`max(visibility["mentions"], visibility["recommendations"])` and labels it just "appeared in X of Y
+AI responses" - silently using whichever number is larger without saying which one it is. The RP
+already has both figures validated and available (`_validate_cross_evidence` cross-checks
+`visibility["mentions"]` against frozen evidence already); it just isn't shown split out the way
+the LS's new page 9 does. Flagged to rob, not built - `poc_audit_pdf.py` uses absolute-position
+reportlab canvas drawing (`_card`/`_label`/`_paragraph`), a different and more manual rendering
+style than `client_summary/pdf.py`'s cursor-based `Page` class, and deserves its own care rather
+than folding into this pass.
+
 ## Database safety
 
 Do not apply changes to the Supabase/PostgreSQL schema without the user's explicit approval.
