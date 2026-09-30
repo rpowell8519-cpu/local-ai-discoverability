@@ -723,19 +723,25 @@ def render_mentions(page, data):
         (f"{m['recommended']} of {m['complete']}", 'Answers actively recommending you'),
         (str(gap), 'Mentioned, but not recommended'),
     ])
+    has_table = len(m['questions']) > 1
     page.heading('What this means')
     if gap == 0:
         page.para(f'Every answer that mentioned {safe(name)} also recommended it in this test - there is no gap '
                   'between the two figures to investigate here.')
+    elif has_table:
+        # Shorter when the table follows immediately below - it already carries the detail below
+        # this paragraph, on the customer needs where the gap is widest.
+        page.para(f'{safe(name)} was named in {m["mentioned"]} of {m["complete"]} answers overall, but only '
+                  f'{m["recommended"]} of those were an explicit recommendation. This does not explain why; read '
+                  'it as a prompt to look at the relevant pages and proof, not as a finding about cause.')
     else:
         page.para(f'{safe(name)} was named in {m["mentioned"]} of {m["complete"]} answers overall, but only '
                   f'{m["recommended"]} of those were an explicit recommendation. A mention with no recommendation '
                   'means the assistant knows the business exists but did not actively point the customer toward it '
                   'for that answer. This does not explain why; read it as a prompt to look at the relevant pages and '
                   'proof, not as a finding about cause.')
-    if len(m['questions']) > 1:
+    if has_table:
         page.heading('Where the gap is biggest, by customer need')
-        page.para('Sorted by the largest gap between the two figures first.', 'small', 8)
         rows = [
             [q['label'], f"{q['mentioned']} of {q['complete']}", f"{q['recommended']} of {q['complete']}",
              str(q['mentioned'] - q['recommended'])]
@@ -746,9 +752,9 @@ def render_mentions(page, data):
         q = m['questions'][0]
         page.para(f"For {quoted(q['label'])}: mentioned in {q['mentioned']} of {q['complete']} answers, but "
                   f"recommended in only {q['recommended']}.")
-    page.para('Counting rule: the same saved answers used throughout this report. "Mentioned" means the business’s '
-              'name appeared anywhere in the answer; "recommended" means it appeared as one of the assistant’s '
-              'explicit, numbered suggestions. A recommendation always counts as a mention.', 'small')
+    page.para('Counting rule: "mentioned" means the business’s name appeared anywhere in the answer; '
+              '"recommended" means it appeared as one of the assistant’s explicit, numbered suggestions. '
+              'A recommendation always counts as a mention.', 'small')
     page.end()
 
 
@@ -761,12 +767,8 @@ def render_reviews(page, data):
     platforms = review.get('target_platforms') or []
     if platforms:
         clauses = join_names([PLATFORM_RATIONALE.get(p, p) for p in platforms])
-        page.callout('WHERE THIS EVIDENCE COMES FROM', [(
-            'This audit checks reviews on the platforms that matter to how AI assistants ground their answers, and '
-            'that coverage grows as new sources become relevant - not simply as many reviews from as many places as '
-            f'possible. For {safe(data["business_name"])}, that currently means: {safe(clauses)}.',
-            'body',
-        )])
+        page.para(f'Checked deliberately, not simply as many reviews from as many places as possible: '
+                  f'{safe(clauses)}.', 'small', 10)
     rows = []
     for sample in samples:
         n = sample['sample_size']

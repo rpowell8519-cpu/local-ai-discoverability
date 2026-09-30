@@ -88,9 +88,9 @@ def test_reviews_from_more_than_one_platform_show_a_breakdown_and_rationale():
     summary['review_analysis'] = review
     validate_report(summary)  # extra keys must not break the existing schema check
     text = '\n'.join(p.extract_text() for p in PdfReader(BytesIO(render_client_summary_pdf(summary))).pages)
-    assert 'WHERE THIS EVIDENCE COMES FROM' in text
-    assert 'a key input for how Gemini grounds' in text  # Google's rationale clause
-    assert 'also informs other AI assistants, including ChatGPT' in text  # Yelp's
+    assert 'Checked deliberately, not simply as many reviews' in text
+    assert 'key for how Gemini grounds' in text  # Google's rationale clause
+    assert 'also informs other AI assistants including ChatGPT' in text  # Yelp's
     assert 'hospitality and leisure context' in text  # TripAdvisor's
     assert 'Google 2' in text and 'Yelp 1' in text and 'TripAdvisor 1' in text
 
@@ -110,7 +110,7 @@ def test_a_single_platform_still_shows_the_rationale_but_no_breakdown_parentheti
     summary = build_client_summary_report(payload)
     summary['review_analysis'] = review
     text = '\n'.join(p.extract_text() for p in PdfReader(BytesIO(render_client_summary_pdf(summary))).pages)
-    assert 'WHERE THIS EVIDENCE COMES FROM' in text
+    assert 'Checked deliberately, not simply as many reviews' in text
     assert 'Google 1' not in text  # plain count, no parenthetical breakdown for one source
 
 

@@ -9,9 +9,9 @@ from src.review_profiles import get_review_profile
 # reviews from as many places as possible." Kept generically true rather than citing specific
 # unverified partnership claims or stats.
 PLATFORM_RATIONALE = {
-    SOURCE: 'Google, the most widely used local review source and a key input for how Gemini grounds its own answers',
-    SOURCE_YELP: 'Yelp, where available, because Yelp review data also informs other AI assistants, including ChatGPT',
-    SOURCE_TRIPADVISOR: 'TripAdvisor, where available, for the hospitality and leisure context AI assistants draw on there',
+    SOURCE: 'Google, the most widely used local review source and key for how Gemini grounds its answers',
+    SOURCE_YELP: 'Yelp, which also informs other AI assistants including ChatGPT',
+    SOURCE_TRIPADVISOR: 'TripAdvisor, for hospitality and leisure context',
 }
 
 
