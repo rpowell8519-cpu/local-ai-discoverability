@@ -17,6 +17,8 @@ from src.review_analysis import (
     build_review_benchmark,
 )
 from src.review_ingestion import (
+    SOURCE_TRIPADVISOR,
+    SOURCE_YELP,
     import_reviews,
     normalise_review_frame,
     read_outscraper_reviews,
@@ -34,15 +36,24 @@ from src.outscraper_reviews import (
     OutscraperError,
     api_import_source_name,
     flatten_google_reviews_response,
+    flatten_tripadvisor_reviews_response,
+    flatten_yelp_reviews_response,
     get_request_result,
     review_pull_within_cost_ceiling,
     submit_google_reviews,
+    submit_tripadvisor_reviews,
+    submit_yelp_reviews,
+)
+from src.business_platform_links import (
+    PLATFORM_LABELS,
+    load_platform_links,
+    save_platform_link,
 )
 from src.taxonomy import GROUP_LABELS
 from src.report_generator_readiness import ACTIVE_REPORT_PROJECT_KEY
 
 
-BUILD_VERSION = "Review Intelligence v1.2.1 / Outscraper Cost Guard v1.0"
+BUILD_VERSION = "Review Intelligence v1.3.0 / Multi-platform ingestion (Yelp, TripAdvisor)"
 
 
 st.set_page_config(
@@ -201,6 +212,312 @@ def load_saved_cohort(
     )
 
 
+def _platform_review_pull_section(
+    *,
+    platform: str,
+    platform_label: str,
+    submit_fn,
+    flatten_fn,
+    review_source: str,
+    api_key: str,
+    extra_submit_kwargs: dict | None = None,
+) -> None:
+    """Get/import reviews for one non-Google platform (Yelp, TripAdvisor).
+
+    Deliberately a fresh, generic implementation rather than a copy of the
+    Google flow above: Yelp/TripAdvisor have no Google Place ID to query by,
+    so a business's page URL on that platform has to be confirmed first
+    (business_platform_links, entered by a person - no auto-matching). The
+    async submit/check/import lifecycle otherwise mirrors Google's.
+    """
+
+    st.subheader(f"Get {platform_label} reviews")
+
+    if not api_key:
+        st.warning(
+            "Outscraper is not connected yet. Add "
+            "`OUTSCRAPER_API_KEY` to the Streamlit app secrets."
+        )
+        return
+
+    if active_ids:
+        candidate_ids = list(dict.fromkeys(str(pid) for pid in active_ids))
+        candidate_names = {
+            str(pid): active_names.get(str(pid), str(pid))
+            for pid in candidate_ids
+        }
+    else:
+        try:
+            all_businesses = load_businesses()
+        except Exception:
+            all_businesses = pd.DataFrame()
+
+        if all_businesses.empty:
+            st.info("No businesses available yet.")
+            return
+
+        all_businesses["google_place_id"] = all_businesses[
+            "google_place_id"
+        ].astype(str)
+
+        candidate_names = (
+            all_businesses.drop_duplicates("google_place_id")
+            .set_index("google_place_id")["business_name"]
+            .astype(str)
+            .to_dict()
+        )
+
+        candidate_ids = st.multiselect(
+            "Businesses to get reviews for",
+            options=list(candidate_names.keys()),
+            default=[],
+            max_selections=20,
+            format_func=lambda value: candidate_names.get(value, value),
+            key=f"{platform}_business_selection",
+        )
+
+    if not candidate_ids:
+        st.caption("Select at least one business above.")
+        return
+
+    existing_links = load_platform_links(candidate_ids)
+    existing_links = (
+        existing_links[existing_links["platform"] == platform]
+        if not existing_links.empty
+        else existing_links
+    )
+    link_lookup = (
+        dict(
+            zip(
+                existing_links["google_place_id"].astype(str),
+                existing_links["external_url"].astype(str),
+            )
+        )
+        if not existing_links.empty
+        else {}
+    )
+
+    st.caption(
+        f"Paste each business's {platform_label} page URL below - nothing "
+        "is matched automatically. Reviews can only be pulled for "
+        "businesses with a saved link."
+    )
+
+    url_inputs: dict[str, str] = {}
+
+    for place_id in candidate_ids:
+        url_inputs[place_id] = st.text_input(
+            f"{candidate_names.get(place_id, place_id)} — {platform_label} URL",
+            value=link_lookup.get(place_id, ""),
+            key=f"{platform}_url_{place_id}",
+            placeholder=f"https://www.{platform}.com/...",
+        )
+
+    if st.button(f"Save {platform_label} links", key=f"{platform}_save_links"):
+        saved, failed = 0, []
+
+        for place_id, url in url_inputs.items():
+            if not url.strip() or url.strip() == link_lookup.get(place_id, ""):
+                continue
+
+            try:
+                save_platform_link(
+                    google_place_id=place_id,
+                    platform=platform,
+                    external_url=url,
+                )
+                saved += 1
+            except ValueError as exc:
+                failed.append(f"{candidate_names.get(place_id, place_id)}: {exc}")
+
+        if saved:
+            st.success(f"Saved {saved} link(s).")
+            load_platform_links.clear()
+            st.rerun()
+
+        for message in failed:
+            st.error(message)
+
+    url_to_place_id = {
+        url_inputs[pid].strip(): pid
+        for pid in candidate_ids
+        if url_inputs.get(pid, "").strip()
+    }
+
+    # Not every platform's response carries a business name (TripAdvisor's
+    # real payload doesn't) - this is the fallback so a review still counts
+    # as valid (normalise_review_frame requires a truthy business_name).
+    place_id_to_name = {
+        pid: candidate_names.get(pid, pid) for pid in url_to_place_id.values()
+    }
+
+    ready_ids = list(url_to_place_id.values())
+    missing_ids = [pid for pid in candidate_ids if pid not in ready_ids]
+
+    if missing_ids:
+        st.caption(
+            f"No saved {platform_label} link yet for: "
+            + ", ".join(candidate_names.get(pid, pid) for pid in missing_ids)
+        )
+
+    if not ready_ids:
+        return
+
+    reviews_limit = st.selectbox(
+        "Reviews per business",
+        options=[50, 100, 200],
+        index=1,
+        key=f"{platform}_reviews_limit",
+    )
+
+    requested_max_reviews = len(ready_ids) * int(reviews_limit)
+    within_cost_ceiling, projected_cost_gbp = review_pull_within_cost_ceiling(
+        requested_reviews=requested_max_reviews,
+        ceiling_gbp=DEFAULT_APP_COST_CEILING_GBP,
+    )
+
+    cost_columns = st.columns(3)
+    with cost_columns[0]:
+        st.metric("Maximum review records", f"{requested_max_reviews:,}")
+    with cost_columns[1]:
+        st.metric("Conservative projected cost", f"£{projected_cost_gbp:.2f}")
+    with cost_columns[2]:
+        st.metric("App cost ceiling", f"£{DEFAULT_APP_COST_CEILING_GBP:.2f}")
+
+    if not within_cost_ceiling:
+        st.error(
+            f"API pull blocked: the conservative projected cost is "
+            f"£{projected_cost_gbp:.2f}, above the "
+            f"£{DEFAULT_APP_COST_CEILING_GBP:.2f} in-app ceiling."
+        )
+
+    start_request = st.button(
+        f"Fetch reviews from {platform_label}",
+        type="primary",
+        key=f"{platform}_start_request",
+        disabled=not within_cost_ceiling,
+    )
+
+    if start_request:
+        try:
+            with st.spinner(f"Submitting {platform_label} review request..."):
+                submitted = submit_fn(
+                    api_key=api_key,
+                    business_urls=list(url_to_place_id.keys()),
+                    reviews_limit=int(reviews_limit),
+                    **(extra_submit_kwargs or {}),
+                )
+
+            st.session_state[f"{platform}_review_request"] = {
+                "request_id": submitted.get("id"),
+                "status": submitted.get("status"),
+                "data": submitted.get("data"),
+                "url_to_place_id": url_to_place_id,
+                "place_id_to_name": place_id_to_name,
+                "imported": False,
+            }
+        except OutscraperError as exc:
+            st.error(str(exc))
+
+    current_request = st.session_state.get(f"{platform}_review_request")
+
+    if not current_request:
+        return
+
+    st.write(f"#### Current {platform_label} request")
+    st.json(
+        {
+            "request_id": current_request.get("request_id"),
+            "status": current_request.get("status"),
+        },
+        expanded=False,
+    )
+
+    if current_request.get("data"):
+        with st.expander(
+            f"Debug: raw {platform_label} response (temporary - remove once field "
+            "mapping is confirmed)"
+        ):
+            st.caption(
+                "If the import came back empty, this is the actual shape Outscraper "
+                "returned - copy it (or the top of it) so the field-name mapping in "
+                "outscraper_reviews.py can be corrected against real data instead of "
+                "a best-effort guess."
+            )
+            st.json(current_request["data"])
+
+    request_columns = st.columns(3)
+
+    with request_columns[0]:
+        check_status = st.button(
+            "Check status", key=f"{platform}_check_status"
+        )
+
+    with request_columns[1]:
+        clear_request = st.button(
+            "Clear request", key=f"{platform}_clear_request"
+        )
+
+    if clear_request:
+        st.session_state.pop(f"{platform}_review_request", None)
+        st.rerun()
+
+    if check_status and current_request.get("request_id"):
+        try:
+            with st.spinner("Checking Outscraper request status..."):
+                result = get_request_result(
+                    api_key=api_key,
+                    request_id=current_request["request_id"],
+                )
+        except OutscraperError as exc:
+            st.error(str(exc))
+            result = None
+
+        if result is not None:
+            current_request["status"] = result.get("status")
+            current_request["data"] = result.get("data")
+            st.session_state[f"{platform}_review_request"] = current_request
+
+            if str(result.get("status")).lower() == "success":
+                frame = flatten_fn(
+                    result.get("data"),
+                    url_to_place_id=current_request["url_to_place_id"],
+                    place_id_to_name=current_request.get("place_id_to_name"),
+                )
+
+                if frame.empty:
+                    st.warning(
+                        "The request finished but returned no reviews "
+                        "matching a saved link - the field-name mapping "
+                        "for this platform may need adjusting."
+                    )
+                else:
+                    with st.spinner("Importing reviews..."):
+                        outcome = import_reviews(
+                            frame,
+                            source_file_name=api_import_source_name(
+                                current_request["request_id"]
+                            ),
+                            source=review_source,
+                        )
+
+                    st.cache_data.clear()
+
+                    st.success(
+                        f"Import complete: {outcome['processed_rows']} "
+                        f"review row(s) processed across "
+                        f"{outcome['business_count']} business(es). "
+                        f"{outcome['invalid_rows']} invalid row(s) skipped."
+                    )
+
+                    current_request["imported"] = True
+                    st.session_state[f"{platform}_review_request"] = (
+                        current_request
+                    )
+            else:
+                st.info(f"Status: {result.get('status')}")
+
+
 import_tab, insights_tab = st.tabs(
     [
         "Get / import reviews",
@@ -210,383 +527,98 @@ import_tab, insights_tab = st.tabs(
 
 
 with import_tab:
-    st.subheader("Get Google reviews")
+    st.subheader("Which review platforms would you like to get reviews from?")
 
-    if active_ids:
-        st.write(
-            "### Active diagnostic review collection"
+    platform_columns = st.columns(3)
+
+    with platform_columns[0]:
+        pull_google = st.checkbox(
+            "Google", value=True, key="pull_platform_google"
         )
 
-        try:
-            active_inventory = (
-                get_review_counts()
-            )
-        except Exception:
-            active_inventory = (
-                pd.DataFrame()
-            )
-
-        active_count_lookup = {}
-
-        if not active_inventory.empty:
-            active_inventory[
-                "google_place_id"
-            ] = active_inventory[
-                "google_place_id"
-            ].astype(str)
-
-            active_count_lookup = (
-                active_inventory
-                .set_index(
-                    "google_place_id"
-                )[
-                    "review_count"
-                ]
-                .to_dict()
-            )
-
-        collection_rows = []
-
-        for place_id in active_ids:
-            stored = int(
-                active_count_lookup.get(
-                    str(place_id),
-                    0,
-                )
-                or 0
-            )
-
-            collection_rows.append(
-                {
-                    "Role":
-                        (
-                            "Target"
-                            if str(place_id) == active_target_id
-                            else "AI leader"
-                        ),
-                    "Business":
-                        active_names.get(
-                            str(place_id),
-                            str(place_id),
-                        ),
-                    "Place ID":
-                        str(place_id),
-                    "Reviews stored":
-                        stored,
-                    "Recommended collection":
-                        (
-                            0
-                            if stored >= 100
-                            else max(
-                                100 - stored,
-                                0,
-                            )
-                        ),
-                    "Status":
-                        (
-                            "Ready"
-                            if stored > 0
-                            else "Missing"
-                        ),
-                }
-            )
-
-        collection_frame = (
-            pd.DataFrame(
-                collection_rows
-            )
+    with platform_columns[1]:
+        pull_yelp = st.checkbox(
+            "Yelp", value=False, key="pull_platform_yelp"
         )
 
-        st.caption(
-            f"Collect reviews for **{active_target_name or 'the target'} "
-            "(Target)** and the selected AI leaders. The **Place ID** "
-            "column is the identifier to use when locating each business "
-            "in Outscraper."
+    with platform_columns[2]:
+        pull_tripadvisor = st.checkbox(
+            "TripAdvisor", value=False, key="pull_platform_tripadvisor"
         )
 
-        st.dataframe(
-            collection_frame,
-            use_container_width=True,
-            hide_index=True,
-        )
+    selected_platforms = {
+        "google": pull_google,
+        "yelp": pull_yelp,
+        "tripadvisor": pull_tripadvisor,
+    }
 
-        missing_collection = (
-            collection_frame[
-                collection_frame[
-                    "Reviews stored"
-                ]
-                == 0
-            ].copy()
-        )
-
-        if missing_collection.empty:
-            st.success(
-                "Every business in the active diagnostic "
-                "cohort already has imported review evidence."
-            )
-        else:
-            export_frame = (
-                missing_collection[
-                    [
-                        "Role",
-                        "Business",
-                        "Place ID",
-                    ]
-                ]
-                .copy()
-            )
-
-            export_frame[
-                "Location"
-            ] = str(
-                active_diagnostic.get(
-                    "location_context"
-                )
-                or ""
-            )
-
-            export_frame[
-                "Recommended reviews"
-            ] = 100
-
-            st.download_button(
-                "Download Outscraper collection list",
-                data=(
-                    export_frame
-                    .to_csv(
-                        index=False
-                    )
-                    .encode(
-                        "utf-8"
-                    )
-                ),
-                file_name=(
-                    "diagnostic_review_collection.csv"
-                ),
-                mime="text/csv",
-            )
-
-            st.caption(
-                "Collect roughly 100 Google reviews per "
-                "missing business, then upload the resulting "
-                "Outscraper file(s) below."
-            )
-
-        st.divider()
-
-    st.write(
-        "### Fetch directly from Outscraper"
-    )
-
-    st.caption(
-        "Use the Google Place IDs already stored in the platform. "
-        "Reviews returned by Outscraper are normalised through the "
-        "same ingestion pipeline as manual files and upserted into "
-        "the existing `business_reviews` table."
-    )
+    if not any(selected_platforms.values()):
+        st.info("Select at least one platform above to get or import reviews.")
 
     try:
         outscraper_api_key = str(
-            st.secrets.get(
-                "OUTSCRAPER_API_KEY",
-                "",
-            )
-            or ""
+            st.secrets.get("OUTSCRAPER_API_KEY", "") or ""
         ).strip()
     except Exception:
         outscraper_api_key = ""
 
-    if not outscraper_api_key:
-        st.warning(
-            "Outscraper is not connected yet. Add "
-            "`OUTSCRAPER_API_KEY` to the Streamlit app secrets. "
-            "The manual file-upload workflow remains available below."
-        )
-    else:
-        st.success(
-            "Outscraper API key detected."
-        )
-
-        # Build a candidate list from the active diagnostic cohort
-        # where possible. If there is no active cohort, allow a
-        # manual selection from business_features.
-        try:
-            all_businesses_for_fetch = (
-                load_businesses()
-            )
-        except Exception:
-            all_businesses_for_fetch = (
-                pd.DataFrame()
-            )
-
-        fetch_inventory = (
-            get_review_counts()
-        )
-
-        stored_count_lookup = {}
-
-        if not fetch_inventory.empty:
-            fetch_inventory[
-                "google_place_id"
-            ] = fetch_inventory[
-                "google_place_id"
-            ].astype(str)
-
-            stored_count_lookup = (
-                fetch_inventory
-                .set_index(
-                    "google_place_id"
-                )[
-                    "review_count"
-                ]
-                .to_dict()
-            )
+    if selected_platforms["google"]:
+        st.subheader("Get Google reviews")
 
         if active_ids:
-            fetch_ids = list(
-                dict.fromkeys(
-                    str(place_id)
-                    for place_id in active_ids
-                )
+            st.write(
+                "### Active diagnostic review collection"
             )
 
-            fetch_name_lookup = {
-                str(place_id):
-                    active_names.get(
-                        str(place_id),
-                        str(place_id),
-                    )
-                for place_id in fetch_ids
-            }
+            try:
+                active_inventory = (
+                    get_review_counts()
+                )
+            except Exception:
+                active_inventory = (
+                    pd.DataFrame()
+                )
 
-        elif not all_businesses_for_fetch.empty:
-            all_businesses_for_fetch[
-                "google_place_id"
-            ] = all_businesses_for_fetch[
-                "google_place_id"
-            ].astype(str)
+            active_count_lookup = {}
 
-            fetch_name_lookup = (
-                all_businesses_for_fetch
-                .drop_duplicates(
+            if not active_inventory.empty:
+                active_inventory[
                     "google_place_id"
-                )
-                .set_index(
+                ] = active_inventory[
                     "google_place_id"
-                )[
-                    "business_name"
-                ]
-                .astype(str)
-                .to_dict()
-            )
+                ].astype(str)
 
-            all_fetch_ids = list(
-                fetch_name_lookup.keys()
-            )
-
-            fetch_ids = st.multiselect(
-                "Businesses to fetch reviews for",
-                options=all_fetch_ids,
-                default=[],
-                max_selections=20,
-                format_func=lambda value: (
-                    fetch_name_lookup.get(
-                        value,
-                        value,
-                    )
-                ),
-                key="outscraper_manual_business_selection",
-            )
-        else:
-            fetch_ids = []
-            fetch_name_lookup = {}
-
-        if fetch_ids:
-            api_controls = st.columns(
-                [
-                    1,
-                    1,
-                    1.3,
-                ]
-            )
-
-            with api_controls[0]:
-                reviews_limit = (
-                    st.selectbox(
-                        "Reviews per business",
-                        options=[
-                            50,
-                            100,
-                            200,
-                        ],
-                        index=1,
-                        key="outscraper_reviews_limit",
-                    )
+                active_count_lookup = (
+                    active_inventory
+                    .set_index(
+                        "google_place_id"
+                    )[
+                        "review_count"
+                    ]
+                    .to_dict()
                 )
 
-            with api_controls[1]:
-                sort_label = (
-                    st.selectbox(
-                        "Review sample",
-                        options=[
-                            "Most relevant",
-                            "Newest",
-                        ],
-                        index=0,
-                        key="outscraper_sort_label",
-                    )
-                )
+            collection_rows = []
 
-            with api_controls[2]:
-                only_below_target = (
-                    st.checkbox(
-                        "Only businesses below target count",
-                        value=True,
-                        help=(
-                            "If checked, businesses that already have "
-                            "at least the selected number of stored "
-                            "reviews are excluded from the API request."
-                        ),
-                        key="outscraper_only_below_target",
-                    )
-                )
-
-            sort_value = (
-                "newest"
-                if sort_label
-                == "Newest"
-                else "most_relevant"
-            )
-
-            fetch_rows = []
-
-            for place_id in fetch_ids:
+            for place_id in active_ids:
                 stored = int(
-                    stored_count_lookup.get(
+                    active_count_lookup.get(
                         str(place_id),
                         0,
                     )
                     or 0
                 )
 
-                fetch_rows.append(
+                collection_rows.append(
                     {
                         "Role":
                             (
                                 "Target"
-                                if (
-                                    active_target_id
-                                    and str(place_id)
-                                    == active_target_id
-                                )
-                                else (
-                                    "AI leader"
-                                    if active_ids
-                                    else "Business"
-                                )
+                                if str(place_id) == active_target_id
+                                else "AI leader"
                             ),
                         "Business":
-                            fetch_name_lookup.get(
+                            active_names.get(
                                 str(place_id),
                                 str(place_id),
                             ),
@@ -594,644 +626,978 @@ with import_tab:
                             str(place_id),
                         "Reviews stored":
                             stored,
-                        "API limit":
-                            int(
-                                reviews_limit
-                            ),
-                        "Will fetch":
+                        "Recommended collection":
                             (
-                                "Yes"
-                                if (
-                                    not only_below_target
-                                    or stored
-                                    < reviews_limit
+                                0
+                                if stored >= 100
+                                else max(
+                                    100 - stored,
+                                    0,
                                 )
-                                else "No — already ready"
+                            ),
+                        "Status":
+                            (
+                                "Ready"
+                                if stored > 0
+                                else "Missing"
                             ),
                     }
                 )
 
-            fetch_frame = pd.DataFrame(
-                fetch_rows
+            collection_frame = (
+                pd.DataFrame(
+                    collection_rows
+                )
+            )
+
+            st.caption(
+                f"Collect reviews for **{active_target_name or 'the target'} "
+                "(Target)** and the selected AI leaders. The **Place ID** "
+                "column is the identifier to use when locating each business "
+                "in Outscraper."
             )
 
             st.dataframe(
-                fetch_frame,
+                collection_frame,
                 use_container_width=True,
                 hide_index=True,
             )
 
-            request_place_ids = (
-                fetch_frame[
-                    fetch_frame[
-                        "Will fetch"
+            missing_collection = (
+                collection_frame[
+                    collection_frame[
+                        "Reviews stored"
                     ]
-                    == "Yes"
-                ][
-                    "Place ID"
-                ]
-                .astype(str)
-                .tolist()
+                    == 0
+                ].copy()
             )
 
-            requested_max_reviews = (
-                len(
-                    request_place_ids
+            if missing_collection.empty:
+                st.success(
+                    "Every business in the active diagnostic "
+                    "cohort already has imported review evidence."
                 )
-                * int(
-                    reviews_limit
-                )
-            )
-
-            # Hard product guardrail: deliberately not configurable
-            # through the UI or Streamlit secrets.
-            cost_ceiling_gbp = (
-                DEFAULT_APP_COST_CEILING_GBP
-            )
-
-            (
-                within_cost_ceiling,
-                projected_cost_gbp,
-            ) = review_pull_within_cost_ceiling(
-                requested_reviews=(
-                    requested_max_reviews
-                ),
-                ceiling_gbp=(
-                    cost_ceiling_gbp
-                ),
-            )
-
-            if request_place_ids:
-                cost_columns = st.columns(
-                    3
+            else:
+                export_frame = (
+                    missing_collection[
+                        [
+                            "Role",
+                            "Business",
+                            "Place ID",
+                        ]
+                    ]
+                    .copy()
                 )
 
-                with cost_columns[0]:
-                    st.metric(
-                        "Maximum review records",
-                        f"{requested_max_reviews:,}",
+                export_frame[
+                    "Location"
+                ] = str(
+                    active_diagnostic.get(
+                        "location_context"
                     )
-
-                with cost_columns[1]:
-                    st.metric(
-                        "Conservative projected cost",
-                        f"£{projected_cost_gbp:.2f}",
-                    )
-
-                with cost_columns[2]:
-                    st.metric(
-                        "App cost ceiling",
-                        f"£{cost_ceiling_gbp:.2f}",
-                    )
-
-                st.caption(
-                    "The cost guard deliberately assumes every requested "
-                    "review is billable at the published $3 / 1,000 "
-                    "medium-tier rate and uses a conservative fixed "
-                    "currency assumption. It ignores Outscraper's free "
-                    "tier, lower-volume returns and volume discounts, so "
-                    "actual cost may be lower. The estimate is a safety "
-                    "ceiling, not an invoice forecast."
+                    or ""
                 )
 
-                if not within_cost_ceiling:
-                    st.error(
-                        f"API pull blocked: the conservative projected "
-                        f"cost is £{projected_cost_gbp:.2f}, above the "
-                        f"£{cost_ceiling_gbp:.2f} in-app ceiling. "
-                        "For a pull of this size, use Outscraper directly "
-                        "rather than submitting it from this app."
-                    )
-                else:
-                    st.success(
-                        f"Cost guard passed: conservative projected "
-                        f"maximum £{projected_cost_gbp:.2f}."
-                    )
+                export_frame[
+                    "Recommended reviews"
+                ] = 100
 
-                st.caption(
-                    f"This request will query "
-                    f"**{len(request_place_ids)} business(es)** "
-                    f"with a limit of **{reviews_limit} reviews "
-                    f"per business** (maximum "
-                    f"{requested_max_reviews:,} returned review "
-                    "records before validation/deduplication). "
-                    "Reviews without text are ignored because the "
-                    "current Review Intelligence analysis requires "
-                    "review text."
-                )
-
-                start_request = st.button(
-                    "Fetch reviews from Outscraper",
-                    type="primary",
-                    key="outscraper_start_request",
-                    disabled=(
-                        not within_cost_ceiling
+                st.download_button(
+                    "Download Outscraper collection list",
+                    data=(
+                        export_frame
+                        .to_csv(
+                            index=False
+                        )
+                        .encode(
+                            "utf-8"
+                        )
                     ),
+                    file_name=(
+                        "diagnostic_review_collection.csv"
+                    ),
+                    mime="text/csv",
                 )
 
-                if start_request:
-                    try:
-                        with st.spinner(
-                            "Submitting Outscraper review request..."
-                        ):
-                            submitted = (
-                                submit_google_reviews(
-                                    api_key=(
-                                        outscraper_api_key
-                                    ),
-                                    place_ids=(
-                                        request_place_ids
-                                    ),
-                                    reviews_limit=(
-                                        int(
-                                            reviews_limit
-                                        )
-                                    ),
-                                    sort=(
-                                        sort_value
-                                    ),
-                                    language="en",
-                                    region="GB",
-                                    ignore_empty=True,
-                                )
-                            )
+                st.caption(
+                    "Collect roughly 100 Google reviews per "
+                    "missing business, then upload the resulting "
+                    "Outscraper file(s) below."
+                )
 
-                        st.session_state[
-                            "outscraper_review_request"
-                        ] = {
-                            "request_id":
-                                submitted.get(
-                                    "id"
+            st.divider()
+
+        st.write(
+            "### Fetch directly from Outscraper"
+        )
+
+        st.caption(
+            "Use the Google Place IDs already stored in the platform. "
+            "Reviews returned by Outscraper are normalised through the "
+            "same ingestion pipeline as manual files and upserted into "
+            "the existing `business_reviews` table."
+        )
+
+        if not outscraper_api_key:
+            st.warning(
+                "Outscraper is not connected yet. Add "
+                "`OUTSCRAPER_API_KEY` to the Streamlit app secrets. "
+                "The manual file-upload workflow remains available below."
+            )
+        else:
+            st.success(
+                "Outscraper API key detected."
+            )
+
+            # Build a candidate list from the active diagnostic cohort
+            # where possible. If there is no active cohort, allow a
+            # manual selection from business_features.
+            try:
+                all_businesses_for_fetch = (
+                    load_businesses()
+                )
+            except Exception:
+                all_businesses_for_fetch = (
+                    pd.DataFrame()
+                )
+
+            fetch_inventory = (
+                get_review_counts()
+            )
+
+            stored_count_lookup = {}
+
+            if not fetch_inventory.empty:
+                fetch_inventory[
+                    "google_place_id"
+                ] = fetch_inventory[
+                    "google_place_id"
+                ].astype(str)
+
+                stored_count_lookup = (
+                    fetch_inventory
+                    .set_index(
+                        "google_place_id"
+                    )[
+                        "review_count"
+                    ]
+                    .to_dict()
+                )
+
+            if active_ids:
+                fetch_ids = list(
+                    dict.fromkeys(
+                        str(place_id)
+                        for place_id in active_ids
+                    )
+                )
+
+                fetch_name_lookup = {
+                    str(place_id):
+                        active_names.get(
+                            str(place_id),
+                            str(place_id),
+                        )
+                    for place_id in fetch_ids
+                }
+
+            elif not all_businesses_for_fetch.empty:
+                all_businesses_for_fetch[
+                    "google_place_id"
+                ] = all_businesses_for_fetch[
+                    "google_place_id"
+                ].astype(str)
+
+                fetch_name_lookup = (
+                    all_businesses_for_fetch
+                    .drop_duplicates(
+                        "google_place_id"
+                    )
+                    .set_index(
+                        "google_place_id"
+                    )[
+                        "business_name"
+                    ]
+                    .astype(str)
+                    .to_dict()
+                )
+
+                all_fetch_ids = list(
+                    fetch_name_lookup.keys()
+                )
+
+                fetch_ids = st.multiselect(
+                    "Businesses to fetch reviews for",
+                    options=all_fetch_ids,
+                    default=[],
+                    max_selections=20,
+                    format_func=lambda value: (
+                        fetch_name_lookup.get(
+                            value,
+                            value,
+                        )
+                    ),
+                    key="outscraper_manual_business_selection",
+                )
+            else:
+                fetch_ids = []
+                fetch_name_lookup = {}
+
+            if fetch_ids:
+                api_controls = st.columns(
+                    [
+                        1,
+                        1,
+                        1.3,
+                    ]
+                )
+
+                with api_controls[0]:
+                    reviews_limit = (
+                        st.selectbox(
+                            "Reviews per business",
+                            options=[
+                                50,
+                                100,
+                                200,
+                            ],
+                            index=1,
+                            key="outscraper_reviews_limit",
+                        )
+                    )
+
+                with api_controls[1]:
+                    sort_label = (
+                        st.selectbox(
+                            "Review sample",
+                            options=[
+                                "Most relevant",
+                                "Newest",
+                            ],
+                            index=0,
+                            key="outscraper_sort_label",
+                        )
+                    )
+
+                with api_controls[2]:
+                    only_below_target = (
+                        st.checkbox(
+                            "Only businesses below target count",
+                            value=True,
+                            help=(
+                                "If checked, businesses that already have "
+                                "at least the selected number of stored "
+                                "reviews are excluded from the API request."
+                            ),
+                            key="outscraper_only_below_target",
+                        )
+                    )
+
+                sort_value = (
+                    "newest"
+                    if sort_label
+                    == "Newest"
+                    else "most_relevant"
+                )
+
+                fetch_rows = []
+
+                for place_id in fetch_ids:
+                    stored = int(
+                        stored_count_lookup.get(
+                            str(place_id),
+                            0,
+                        )
+                        or 0
+                    )
+
+                    fetch_rows.append(
+                        {
+                            "Role":
+                                (
+                                    "Target"
+                                    if (
+                                        active_target_id
+                                        and str(place_id)
+                                        == active_target_id
+                                    )
+                                    else (
+                                        "AI leader"
+                                        if active_ids
+                                        else "Business"
+                                    )
                                 ),
-                            "status":
-                                submitted.get(
-                                    "status"
+                            "Business":
+                                fetch_name_lookup.get(
+                                    str(place_id),
+                                    str(place_id),
                                 ),
-                            "data":
-                                submitted.get(
-                                    "data"
-                                ),
-                            "place_ids":
-                                request_place_ids,
-                            "reviews_limit":
+                            "Place ID":
+                                str(place_id),
+                            "Reviews stored":
+                                stored,
+                            "API limit":
                                 int(
                                     reviews_limit
                                 ),
-                            "sort":
-                                sort_value,
-                            "imported":
-                                False,
+                            "Will fetch":
+                                (
+                                    "Yes"
+                                    if (
+                                        not only_below_target
+                                        or stored
+                                        < reviews_limit
+                                    )
+                                    else "No — already ready"
+                                ),
                         }
+                    )
+
+                fetch_frame = pd.DataFrame(
+                    fetch_rows
+                )
+
+                st.dataframe(
+                    fetch_frame,
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+                request_place_ids = (
+                    fetch_frame[
+                        fetch_frame[
+                            "Will fetch"
+                        ]
+                        == "Yes"
+                    ][
+                        "Place ID"
+                    ]
+                    .astype(str)
+                    .tolist()
+                )
+
+                requested_max_reviews = (
+                    len(
+                        request_place_ids
+                    )
+                    * int(
+                        reviews_limit
+                    )
+                )
+
+                # Hard product guardrail: deliberately not configurable
+                # through the UI or Streamlit secrets.
+                cost_ceiling_gbp = (
+                    DEFAULT_APP_COST_CEILING_GBP
+                )
+
+                (
+                    within_cost_ceiling,
+                    projected_cost_gbp,
+                ) = review_pull_within_cost_ceiling(
+                    requested_reviews=(
+                        requested_max_reviews
+                    ),
+                    ceiling_gbp=(
+                        cost_ceiling_gbp
+                    ),
+                )
+
+                if request_place_ids:
+                    cost_columns = st.columns(
+                        3
+                    )
+
+                    with cost_columns[0]:
+                        st.metric(
+                            "Maximum review records",
+                            f"{requested_max_reviews:,}",
+                        )
+
+                    with cost_columns[1]:
+                        st.metric(
+                            "Conservative projected cost",
+                            f"£{projected_cost_gbp:.2f}",
+                        )
+
+                    with cost_columns[2]:
+                        st.metric(
+                            "App cost ceiling",
+                            f"£{cost_ceiling_gbp:.2f}",
+                        )
+
+                    st.caption(
+                        "The cost guard deliberately assumes every requested "
+                        "review is billable at the published $3 / 1,000 "
+                        "medium-tier rate and uses a conservative fixed "
+                        "currency assumption. It ignores Outscraper's free "
+                        "tier, lower-volume returns and volume discounts, so "
+                        "actual cost may be lower. The estimate is a safety "
+                        "ceiling, not an invoice forecast."
+                    )
+
+                    if not within_cost_ceiling:
+                        st.error(
+                            f"API pull blocked: the conservative projected "
+                            f"cost is £{projected_cost_gbp:.2f}, above the "
+                            f"£{cost_ceiling_gbp:.2f} in-app ceiling. "
+                            "For a pull of this size, use Outscraper directly "
+                            "rather than submitting it from this app."
+                        )
+                    else:
+                        st.success(
+                            f"Cost guard passed: conservative projected "
+                            f"maximum £{projected_cost_gbp:.2f}."
+                        )
+
+                    st.caption(
+                        f"This request will query "
+                        f"**{len(request_place_ids)} business(es)** "
+                        f"with a limit of **{reviews_limit} reviews "
+                        f"per business** (maximum "
+                        f"{requested_max_reviews:,} returned review "
+                        "records before validation/deduplication). "
+                        "Reviews without text are ignored because the "
+                        "current Review Intelligence analysis requires "
+                        "review text."
+                    )
+
+                    start_request = st.button(
+                        "Fetch reviews from Outscraper",
+                        type="primary",
+                        key="outscraper_start_request",
+                        disabled=(
+                            not within_cost_ceiling
+                        ),
+                    )
+
+                    if start_request:
+                        try:
+                            with st.spinner(
+                                "Submitting Outscraper review request..."
+                            ):
+                                submitted = (
+                                    submit_google_reviews(
+                                        api_key=(
+                                            outscraper_api_key
+                                        ),
+                                        place_ids=(
+                                            request_place_ids
+                                        ),
+                                        reviews_limit=(
+                                            int(
+                                                reviews_limit
+                                            )
+                                        ),
+                                        sort=(
+                                            sort_value
+                                        ),
+                                        language="en",
+                                        region="GB",
+                                        ignore_empty=True,
+                                    )
+                                )
+
+                            st.session_state[
+                                "outscraper_review_request"
+                            ] = {
+                                "request_id":
+                                    submitted.get(
+                                        "id"
+                                    ),
+                                "status":
+                                    submitted.get(
+                                        "status"
+                                    ),
+                                "data":
+                                    submitted.get(
+                                        "data"
+                                    ),
+                                "place_ids":
+                                    request_place_ids,
+                                "reviews_limit":
+                                    int(
+                                        reviews_limit
+                                    ),
+                                "sort":
+                                    sort_value,
+                                "imported":
+                                    False,
+                            }
+
+                        except OutscraperError as exc:
+                            st.error(
+                                str(exc)
+                            )
+
+                else:
+                    st.success(
+                        "All selected businesses already meet the "
+                        "chosen stored-review target. Uncheck "
+                        "'Only businesses below target count' if you "
+                        "want to refresh them."
+                    )
+
+            current_request = (
+                st.session_state.get(
+                    "outscraper_review_request"
+                )
+            )
+
+            if current_request:
+                st.write(
+                    "#### Current Outscraper request"
+                )
+
+                request_id = str(
+                    current_request.get(
+                        "request_id"
+                    )
+                    or ""
+                )
+
+                current_status = str(
+                    current_request.get(
+                        "status"
+                    )
+                    or "Pending"
+                )
+
+                status_columns = st.columns(
+                    [
+                        2.2,
+                        1,
+                        1,
+                    ]
+                )
+
+                with status_columns[0]:
+                    st.write(
+                        f"**Request ID:** `{request_id}`"
+                    )
+
+                with status_columns[1]:
+                    st.write(
+                        f"**Status:** {current_status}"
+                    )
+
+                with status_columns[2]:
+                    st.write(
+                        f"**Businesses:** "
+                        f"{len(current_request.get('place_ids', []))}"
+                    )
+
+                check_status = st.button(
+                    "Check Outscraper status",
+                    key="outscraper_check_status",
+                )
+
+                if check_status:
+                    try:
+                        with st.spinner(
+                            "Checking Outscraper..."
+                        ):
+                            checked = (
+                                get_request_result(
+                                    api_key=(
+                                        outscraper_api_key
+                                    ),
+                                    request_id=(
+                                        request_id
+                                    ),
+                                )
+                            )
+
+                        current_request[
+                            "status"
+                        ] = checked.get(
+                            "status"
+                        )
+
+                        current_request[
+                            "data"
+                        ] = checked.get(
+                            "data"
+                        )
+
+                        st.session_state[
+                            "outscraper_review_request"
+                        ] = current_request
 
                     except OutscraperError as exc:
                         st.error(
                             str(exc)
                         )
 
-            else:
-                st.success(
-                    "All selected businesses already meet the "
-                    "chosen stored-review target. Uncheck "
-                    "'Only businesses below target count' if you "
-                    "want to refresh them."
+                # The initial submit can occasionally complete immediately,
+                # otherwise the user checks the async request later.
+                request_status = str(
+                    current_request.get(
+                        "status"
+                    )
+                    or ""
+                ).lower()
+
+                request_data = (
+                    current_request.get(
+                        "data"
+                    )
                 )
 
-        current_request = (
-            st.session_state.get(
-                "outscraper_review_request"
-            )
-        )
+                if (
+                    request_status
+                    == "success"
+                    and request_data is not None
+                    and not current_request.get(
+                        "imported",
+                        False,
+                    )
+                ):
+                    api_frame = (
+                        flatten_google_reviews_response(
+                            request_data
+                        )
+                    )
 
-        if current_request:
-            st.write(
-                "#### Current Outscraper request"
-            )
-
-            request_id = str(
-                current_request.get(
-                    "request_id"
-                )
-                or ""
-            )
-
-            current_status = str(
-                current_request.get(
-                    "status"
-                )
-                or "Pending"
-            )
-
-            status_columns = st.columns(
-                [
-                    2.2,
-                    1,
-                    1,
-                ]
-            )
-
-            with status_columns[0]:
-                st.write(
-                    f"**Request ID:** `{request_id}`"
-                )
-
-            with status_columns[1]:
-                st.write(
-                    f"**Status:** {current_status}"
-                )
-
-            with status_columns[2]:
-                st.write(
-                    f"**Businesses:** "
-                    f"{len(current_request.get('place_ids', []))}"
-                )
-
-            check_status = st.button(
-                "Check Outscraper status",
-                key="outscraper_check_status",
-            )
-
-            if check_status:
-                try:
-                    with st.spinner(
-                        "Checking Outscraper..."
-                    ):
-                        checked = (
-                            get_request_result(
-                                api_key=(
-                                    outscraper_api_key
-                                ),
-                                request_id=(
-                                    request_id
-                                ),
+                    if api_frame.empty:
+                        st.warning(
+                            "Outscraper completed the request but no "
+                            "text review records were returned."
+                        )
+                    else:
+                        valid_api_frame, (
+                            invalid_api_frame
+                        ) = (
+                            normalise_review_frame(
+                                api_frame
                             )
                         )
 
-                    current_request[
-                        "status"
-                    ] = checked.get(
-                        "status"
-                    )
-
-                    current_request[
-                        "data"
-                    ] = checked.get(
-                        "data"
-                    )
-
-                    st.session_state[
-                        "outscraper_review_request"
-                    ] = current_request
-
-                except OutscraperError as exc:
-                    st.error(
-                        str(exc)
-                    )
-
-            # The initial submit can occasionally complete immediately,
-            # otherwise the user checks the async request later.
-            request_status = str(
-                current_request.get(
-                    "status"
-                )
-                or ""
-            ).lower()
-
-            request_data = (
-                current_request.get(
-                    "data"
-                )
-            )
-
-            if (
-                request_status
-                == "success"
-                and request_data is not None
-                and not current_request.get(
-                    "imported",
-                    False,
-                )
-            ):
-                api_frame = (
-                    flatten_google_reviews_response(
-                        request_data
-                    )
-                )
-
-                if api_frame.empty:
-                    st.warning(
-                        "Outscraper completed the request but no "
-                        "text review records were returned."
-                    )
-                else:
-                    valid_api_frame, (
-                        invalid_api_frame
-                    ) = (
-                        normalise_review_frame(
-                            api_frame
-                        )
-                    )
-
-                    st.write(
-                        "##### Review pull preview"
-                    )
-
-                    preview_columns = st.columns(
-                        4
-                    )
-
-                    with preview_columns[0]:
-                        st.metric(
-                            "Returned rows",
-                            len(
-                                api_frame
-                            ),
+                        st.write(
+                            "##### Review pull preview"
                         )
 
-                    with preview_columns[1]:
-                        st.metric(
-                            "Valid text reviews",
-                            len(
-                                valid_api_frame
-                            ),
+                        preview_columns = st.columns(
+                            4
                         )
 
-                    with preview_columns[2]:
-                        st.metric(
-                            "Businesses",
-                            (
-                                valid_api_frame[
-                                    "google_place_id"
-                                ].nunique()
-                                if not valid_api_frame.empty
-                                else 0
-                            ),
-                        )
+                        with preview_columns[0]:
+                            st.metric(
+                                "Returned rows",
+                                len(
+                                    api_frame
+                                ),
+                            )
 
-                    with preview_columns[3]:
-                        st.metric(
-                            "Invalid/skipped",
-                            len(
-                                invalid_api_frame
-                            ),
-                        )
+                        with preview_columns[1]:
+                            st.metric(
+                                "Valid text reviews",
+                                len(
+                                    valid_api_frame
+                                ),
+                            )
 
-                    if st.button(
-                        "Import fetched reviews into Review Intelligence",
-                        type="primary",
-                        key="outscraper_import_api_reviews",
-                    ):
-                        result = import_reviews(
-                            api_frame,
-                            source_file_name=(
-                                api_import_source_name(
-                                    request_id
-                                )
-                            ),
-                        )
+                        with preview_columns[2]:
+                            st.metric(
+                                "Businesses",
+                                (
+                                    valid_api_frame[
+                                        "google_place_id"
+                                    ].nunique()
+                                    if not valid_api_frame.empty
+                                    else 0
+                                ),
+                            )
 
-                        current_request[
-                            "imported"
-                        ] = True
+                        with preview_columns[3]:
+                            st.metric(
+                                "Invalid/skipped",
+                                len(
+                                    invalid_api_frame
+                                ),
+                            )
 
-                        current_request[
-                            "import_result"
-                        ] = result
+                        if st.button(
+                            "Import fetched reviews into Review Intelligence",
+                            type="primary",
+                            key="outscraper_import_api_reviews",
+                        ):
+                            result = import_reviews(
+                                api_frame,
+                                source_file_name=(
+                                    api_import_source_name(
+                                        request_id
+                                    )
+                                ),
+                            )
 
-                        st.session_state[
-                            "outscraper_review_request"
-                        ] = current_request
+                            current_request[
+                                "imported"
+                            ] = True
 
-                        st.cache_data.clear()
+                            current_request[
+                                "import_result"
+                            ] = result
 
-                        st.success(
-                            f"Direct import complete: "
-                            f"{int(result['processed_rows'])} "
-                            f"review rows processed across "
-                            f"{int(result['business_count'])} "
-                            "business(es). Review Intelligence "
-                            "can use them immediately."
-                        )
+                            st.session_state[
+                                "outscraper_review_request"
+                            ] = current_request
 
-            elif (
-                request_status
-                in {
-                    "pending",
-                    "",
-                }
-            ):
-                st.info(
-                    "The Outscraper task is still running. "
-                    "You can leave this page open or come back "
-                    "and press **Check Outscraper status**."
-                )
+                            st.cache_data.clear()
 
-            elif (
-                request_status
-                == "failure"
-            ):
-                st.error(
-                    "Outscraper marked this request as failed."
-                )
+                            st.success(
+                                f"Direct import complete: "
+                                f"{int(result['processed_rows'])} "
+                                f"review rows processed across "
+                                f"{int(result['business_count'])} "
+                                "business(es). Review Intelligence "
+                                "can use them immediately."
+                            )
 
-            if current_request.get(
-                "imported"
-            ):
-                import_result = (
-                    current_request.get(
-                        "import_result",
-                        {},
-                    )
-                )
-
-                st.success(
-                    f"Reviews from this request have already "
-                    f"been imported "
-                    f"({int(import_result.get('processed_rows', 0))} "
-                    "rows processed)."
-                )
-
-            if st.button(
-                "Clear Outscraper request",
-                key="outscraper_clear_request",
-            ):
-                st.session_state.pop(
-                    "outscraper_review_request",
-                    None,
-                )
-                st.rerun()
-
-        st.divider()
-
-    st.write(
-        "### Manual upload fallback"
-    )
-
-    st.write(
-        "You can still upload one or more original Outscraper Google "
-        "Reviews files. Both `.xlsx` and `.csv` are supported, and "
-        "a single file may contain one or many businesses."
-    )
-
-    uploaded_files = st.file_uploader(
-        "Outscraper review exports",
-        type=["xlsx", "csv"],
-        accept_multiple_files=True,
-    )
-
-    preview_items = []
-
-    if uploaded_files:
-        for uploaded_file in uploaded_files:
-            try:
-                uploaded_file.seek(0)
-
-                raw_frame = read_outscraper_reviews(
-                    uploaded_file
-                )
-
-                valid_frame, invalid_frame = (
-                    normalise_review_frame(
-                        raw_frame
-                    )
-                )
-
-                preview_items.append(
-                    {
-                        "file": uploaded_file,
-                        "file_name":
-                            uploaded_file.name,
-                        "raw_frame":
-                            raw_frame,
-                        "valid_frame":
-                            valid_frame,
-                        "invalid_frame":
-                            invalid_frame,
+                elif (
+                    request_status
+                    in {
+                        "pending",
+                        "",
                     }
-                )
+                ):
+                    st.info(
+                        "The Outscraper task is still running. "
+                        "You can leave this page open or come back "
+                        "and press **Check Outscraper status**."
+                    )
 
-            except Exception as exc:
-                st.error(
-                    f"{uploaded_file.name}: {exc}"
-                )
+                elif (
+                    request_status
+                    == "failure"
+                ):
+                    st.error(
+                        "Outscraper marked this request as failed."
+                    )
 
-    if preview_items:
-        preview_rows = []
-
-        for item in preview_items:
-            valid_frame = item[
-                "valid_frame"
-            ]
-
-            names = (
-                valid_frame[
-                    "business_name"
-                ]
-                .dropna()
-                .astype(str)
-                .drop_duplicates()
-                .tolist()
-            )
-
-            preview_rows.append(
-                {
-                    "File":
-                        item["file_name"],
-                    "Rows":
-                        len(
-                            item[
-                                "raw_frame"
-                            ]
-                        ),
-                    "Valid reviews":
-                        len(valid_frame),
-                    "Invalid rows":
-                        len(
-                            item[
-                                "invalid_frame"
-                            ]
-                        ),
-                    "Businesses":
-                        valid_frame[
-                            "google_place_id"
-                        ].nunique(),
-                    "Business names":
-                        ", ".join(
-                            names[:6]
+                if current_request.get(
+                    "imported"
+                ):
+                    import_result = (
+                        current_request.get(
+                            "import_result",
+                            {},
                         )
-                        + (
-                            "…"
-                            if len(names) > 6
-                            else ""
-                        ),
-                }
-            )
+                    )
 
-        st.dataframe(
-            pd.DataFrame(
-                preview_rows
-            ),
-            use_container_width=True,
-            hide_index=True,
+                    st.success(
+                        f"Reviews from this request have already "
+                        f"been imported "
+                        f"({int(import_result.get('processed_rows', 0))} "
+                        "rows processed)."
+                    )
+
+                if st.button(
+                    "Clear Outscraper request",
+                    key="outscraper_clear_request",
+                ):
+                    st.session_state.pop(
+                        "outscraper_review_request",
+                        None,
+                    )
+                    st.rerun()
+
+            st.divider()
+
+        st.write(
+            "### Manual upload fallback"
         )
 
-        import_button = st.button(
-            "Import review files",
-            type="primary",
+        st.write(
+            "You can still upload one or more original Outscraper Google "
+            "Reviews files. Both `.xlsx` and `.csv` are supported, and "
+            "a single file may contain one or many businesses."
         )
 
-        if import_button:
-            processed = 0
-            invalid = 0
-            business_ids = set()
+        uploaded_files = st.file_uploader(
+            "Outscraper review exports",
+            type=["xlsx", "csv"],
+            accept_multiple_files=True,
+        )
 
-            progress = st.progress(0)
+        preview_items = []
 
-            for index, item in enumerate(
-                preview_items
-            ):
-                result = import_reviews(
-                    item["raw_frame"],
-                    source_file_name=(
-                        item["file_name"]
-                    ),
-                )
+        if uploaded_files:
+            for uploaded_file in uploaded_files:
+                try:
+                    uploaded_file.seek(0)
 
-                processed += int(
-                    result[
-                        "processed_rows"
-                    ]
-                )
+                    raw_frame = read_outscraper_reviews(
+                        uploaded_file
+                    )
 
-                invalid += int(
-                    result[
-                        "invalid_rows"
-                    ]
-                )
+                    valid_frame, invalid_frame = (
+                        normalise_review_frame(
+                            raw_frame
+                        )
+                    )
 
-                business_ids.update(
-                    item[
-                        "valid_frame"
-                    ][
-                        "google_place_id"
+                    preview_items.append(
+                        {
+                            "file": uploaded_file,
+                            "file_name":
+                                uploaded_file.name,
+                            "raw_frame":
+                                raw_frame,
+                            "valid_frame":
+                                valid_frame,
+                            "invalid_frame":
+                                invalid_frame,
+                        }
+                    )
+
+                except Exception as exc:
+                    st.error(
+                        f"{uploaded_file.name}: {exc}"
+                    )
+
+        if preview_items:
+            preview_rows = []
+
+            for item in preview_items:
+                valid_frame = item[
+                    "valid_frame"
+                ]
+
+                names = (
+                    valid_frame[
+                        "business_name"
                     ]
                     .dropna()
                     .astype(str)
+                    .drop_duplicates()
                     .tolist()
                 )
 
-                progress.progress(
-                    (index + 1)
-                    / len(preview_items)
+                preview_rows.append(
+                    {
+                        "File":
+                            item["file_name"],
+                        "Rows":
+                            len(
+                                item[
+                                    "raw_frame"
+                                ]
+                            ),
+                        "Valid reviews":
+                            len(valid_frame),
+                        "Invalid rows":
+                            len(
+                                item[
+                                    "invalid_frame"
+                                ]
+                            ),
+                        "Businesses":
+                            valid_frame[
+                                "google_place_id"
+                            ].nunique(),
+                        "Business names":
+                            ", ".join(
+                                names[:6]
+                            )
+                            + (
+                                "…"
+                                if len(names) > 6
+                                else ""
+                            ),
+                    }
                 )
 
-            st.cache_data.clear()
-
-            st.success(
-                f"Import complete: {processed} review "
-                f"rows processed across "
-                f"{len(business_ids)} business(es). "
-                f"{invalid} invalid row(s) skipped."
+            st.dataframe(
+                pd.DataFrame(
+                    preview_rows
+                ),
+                use_container_width=True,
+                hide_index=True,
             )
+
+            import_button = st.button(
+                "Import review files",
+                type="primary",
+            )
+
+            if import_button:
+                processed = 0
+                invalid = 0
+                business_ids = set()
+
+                progress = st.progress(0)
+
+                for index, item in enumerate(
+                    preview_items
+                ):
+                    result = import_reviews(
+                        item["raw_frame"],
+                        source_file_name=(
+                            item["file_name"]
+                        ),
+                    )
+
+                    processed += int(
+                        result[
+                            "processed_rows"
+                        ]
+                    )
+
+                    invalid += int(
+                        result[
+                            "invalid_rows"
+                        ]
+                    )
+
+                    business_ids.update(
+                        item[
+                            "valid_frame"
+                        ][
+                            "google_place_id"
+                        ]
+                        .dropna()
+                        .astype(str)
+                        .tolist()
+                    )
+
+                    progress.progress(
+                        (index + 1)
+                        / len(preview_items)
+                    )
+
+                st.cache_data.clear()
+
+                st.success(
+                    f"Import complete: {processed} review "
+                    f"rows processed across "
+                    f"{len(business_ids)} business(es). "
+                    f"{invalid} invalid row(s) skipped."
+                )
+
+    if selected_platforms["yelp"]:
+        st.divider()
+        _platform_review_pull_section(
+            platform="yelp",
+            platform_label=PLATFORM_LABELS["yelp"],
+            submit_fn=submit_yelp_reviews,
+            flatten_fn=flatten_yelp_reviews_response,
+            review_source=SOURCE_YELP,
+            api_key=outscraper_api_key,
+            extra_submit_kwargs={"sort": "relevance_desc"},
+        )
+
+    if selected_platforms["tripadvisor"]:
+        st.divider()
+        _platform_review_pull_section(
+            platform="tripadvisor",
+            platform_label=PLATFORM_LABELS["tripadvisor"],
+            submit_fn=submit_tripadvisor_reviews,
+            flatten_fn=flatten_tripadvisor_reviews_response,
+            review_source=SOURCE_TRIPADVISOR,
+            api_key=outscraper_api_key,
+            extra_submit_kwargs={"language": "default"},
+        )
 
     st.divider()
     st.subheader("Reviews currently stored")

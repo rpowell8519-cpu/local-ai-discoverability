@@ -31,9 +31,9 @@ class ReportTests(unittest.TestCase):
         with self.assertRaisesRegex(ReportValidationError,'requires'):validate_report(self.d)
         self.d['evidence']=[{'id':'e1','observation':'Test observation, not a real audit finding.','source':'Test fixture'}]
         self.d['actions'][0]['evidence_ids']=['e1'];validate_report(self.d)
-        self.assertEqual(len(PdfReader(BytesIO(render_pdf(self.d))).pages),8)
+        self.assertEqual(len(PdfReader(BytesIO(render_pdf(self.d))).pages),9)
     def test_pdf_eight_pages_and_correct_content(self):
-        reader=PdfReader(BytesIO(render_pdf(self.d)));self.assertEqual(len(reader.pages),8)
+        reader=PdfReader(BytesIO(render_pdf(self.d)));self.assertEqual(len(reader.pages),9)
         text='\n'.join(p.extract_text() for p in reader.pages)
         self.assertIn('22 of 72',text);self.assertIn('Check and improve:',text)
         self.assertIn('No sourced website or review observations',text)
@@ -144,12 +144,12 @@ class RestyledSummaryTests(unittest.TestCase):
 
     def test_long_topic_label_still_fits_the_tiles(self):
         self.d['questions'][0]['label'] = ('A very long customer topic name that goes on ' * 2)[:65].rstrip()
-        self.assertEqual(len(self.pages()), 8)
+        self.assertEqual(len(self.pages()), 9)
 
     def test_every_page_carries_the_draft_header_and_footer(self):
         for number, text in enumerate(self.pages(), 1):
             self.assertIn('CLIENT SUMMARY DRAFT | 18 SEPTEMBER 2026', text)
-            self.assertIn(f'{number} / 8', text)
+            self.assertIn(f'{number} / 9', text)
 
 
 class DraftLabelTests(unittest.TestCase):

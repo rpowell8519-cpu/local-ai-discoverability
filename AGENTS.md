@@ -463,6 +463,191 @@ Step 4 collects website and review evidence for the target only, because the com
 is chosen afterwards. Step 5 therefore shows the comparison businesses' evidence and can
 crawl their websites. Reviews for them go through the review tools, which apply the cost ceiling.
 
+## Multi-platform review ingestion (Yelp, TripAdvisor)
+
+`app/pages/7_Review_Insights.py` has a "Which review platforms would you like to get reviews
+from?" checkbox selector (Google on by default, Yelp/TripAdvisor off) gating three independent
+"get reviews" sections. Google's section is the original code, unchanged, just now conditional -
+if you're touching it, the reindent that made it conditional was mechanical (a script added one
+indent level to the whole block; the logic is byte-identical to before Sprint 1).
+
+Yelp and TripAdvisor are pulled by page URL, not Google Place ID - neither platform's Outscraper
+response carries one. `business_platform_links` (a small table, `google_place_id, platform,
+external_url`) holds the confirmed URL for a business on a platform. Nothing matches this
+automatically: a person finds the business on Yelp/TripAdvisor themselves and pastes the URL in,
+the same manual-confirmation spirit as `competitor_relationship_reviews`. A review result that
+can't be matched back to a saved URL is dropped, not guessed at (`_match_query_url` in
+`outscraper_reviews.py`). `load_platform_links` is `@st.cache_data(ttl=60)` (a real bug shipped
+briefly without this decorator - `.clear()` on a plain function raised `AttributeError` the first
+time "Save links" was clicked, fixed 2026-09-28); after a save, only `load_platform_links.clear()`
+is called, not a blanket `st.cache_data.clear()`, per the scoped-invalidation convention below.
+
+**This exact mistake shipped twice** - a second, redundant `get_review_counts.clear()` (that
+function was never `@st.cache_data`-decorated at all) crashed the post-import cleanup step with
+the same `AttributeError`, immediately after `import_reviews` had already committed - so the
+crash looked like the import failed when it had actually already succeeded. Fixed by deleting the
+call rather than decorating the function (a `st.cache_data.clear()` blanket clear already runs
+the very next line, making the scoped call pure dead weight). Lesson for next time touching this
+file: before shipping any new `<name>.clear()` call, grep the target function's own definition for
+`@st.cache_data` first - don't assume it's cached by analogy with a similarly-named function
+elsewhere in the page.
+
+Both platforms' Outscraper endpoints were confirmed against Outscraper's own Python client source
+(github.com/outscraper/outscraper-python), not guessed: Yelp is `/yelp/reviews`, TripAdvisor is
+`/tripadvisor-reviews` - note the URL shapes differ. Outscraper does not publish response field
+names for either, so the first shipped version of `flatten_yelp_reviews_response` /
+`flatten_tripadvisor_reviews_response` guessed a Google-Maps-style shape (a per-business wrapper
+holding a `reviews_data` list) - wrong, and it silently matched nothing rather than erroring, so
+the first real Yelp pull (2026-09-28, Ciscos Karma) came back "successful, 0 reviews imported."
+
+**Confirmed real Yelp shape** (via the page's debug expander, not guessed): a flat
+`[[review, review, ...]]` - no business wrapper at all. Each review dict carries its own
+`query` (the submitted URL) and `business_name` directly, plus `review_rating`, `review_text`,
+`timestamp` (unix), `review_id` (Outscraper's own stable id), `author_title`, `author_id`,
+`author_reviews_count`, and `owner_reply`/`owner_reply_timestamp` (not `owner_answer` - easy to
+get wrong by analogy with Google's naming). No per-review permalink field exists; only
+`author_link` (the reviewer's profile, not the review). Fixed by replacing the Google-style
+`_iter_places` traversal with `_iter_review_dicts`, a shape-agnostic walker that recurses through
+whatever nesting is there and picks out any dict with review-shaped fields (`review_text`, or
+`text` + `rating` together) - so it doesn't assume a wrapper exists OR doesn't exist. Matching a
+review back to a business is now per-review (`_match_query_url`, checking `query` first) rather
+than per-wrapper, since `query` lives on every review row, not once per business.
+
+**Confirmed real TripAdvisor shape** too (2026-09-28, same debug expander): also a flat
+`[[review, review, ...]]`, same convention as Yelp, but with real differences that were worth
+catching before assuming Yelp's field names carried over:
+- **No business name field at all.** `flatten_tripadvisor_reviews_response` requires
+  `place_id_to_name` (the name the caller already knows, threaded from `7_Review_Insights.py`'s
+  `candidate_names` through `current_request["place_id_to_name"]`) - without it every row's `name`
+  is empty and `normalise_review_frame` drops all of them, reproducing the original "0 imported"
+  bug for a different reason. Covered by
+  `test_without_place_id_to_name_every_row_is_invalid_not_silently_empty`.
+- `rating` is the **business's overall rating**, not this review's own - `review_rating` is the
+  one to use. Easy to get backwards; both are present on every row.
+- The owner reply lives under `owner_response`/`owner_response_date`, not `owner_reply`/
+  `owner_answer` (Yelp's naming, which doesn't carry over).
+- TripAdvisor DOES give a genuine per-review permalink (`review_link`) - Yelp does not.
+- No sub-ratings field was present in the real sample (no Food/Service/Value breakdown) - the
+  `sub_ratings` fallbacks stay in the code for a response that does include them, and are simply
+  None otherwise; harmless, not a guess that needs revisiting.
+
+Yelp's `place_id_to_name` fallback is defensive only (its real payload does carry `business_name`
+already) - both flatten functions take the parameter now for a uniform call site, even though only
+TripAdvisor actually needs it.
+
+`business_reviews.review_rating` stays a plain 1-5 int for both new sources (Google, Yelp and
+TripAdvisor are all native 5-star scales) - no rating normalisation was needed this sprint.
+`sub_ratings` (jsonb) carries TripAdvisor's Food/Service/Value sub-scores, when a response has
+them; `platform_rating_scale` / `platform_rating_raw` exist on the table for a future non-5-star
+source but are unused so far.
+
+Checkatrade was scoped and explicitly parked (2026-09-27): it runs an active Cloudflare bot
+challenge (`cf-mitigated: challenge`), not just client-side rendering, so a self-built Playwright
+scraper would mean deliberately engineering around their anti-bot defences - not something to
+build. If it's revisited, the options are a paid scraping vendor that already handles
+Cloudflare-protected sites (shifts the ToS risk the same way Outscraper already does for
+Google/Yelp/TripAdvisor), or manual lookup per client as needed for now.
+
+sql/005 (extends `business_reviews`) and sql/006 (creates `business_platform_links`) are drafted
+but **not applied** - there is no `DATABASE_URL` in this local environment, so applying them
+needs either the user running them in Supabase directly or a session with DB credentials.
+
+### Platform presence gap (`evidence_analysis._platform_presence_candidates`)
+
+A review platform the client has zero reviews on, where at least one leader has some, is its own
+"action" candidate in the reviews layer - separate from `_review_findings` (which compares review
+*content/themes*, not platform presence). Deliberately narrow: only flags a platform at zero
+presence, never "fewer reviews of the same kind" (that's what the theme comparison already does),
+so the two never overlap or double up. It reads `reviews["source"]` (added to
+`review_repository.get_reviews`'s select list alongside the ingestion work above) and is skipped
+entirely, with no error, if a caller's reviews frame has no `source` column at all - keeps every
+older fixture/caller working unchanged. Candidates use the same schema as website/proposition
+candidates (`kind: "action"`, `score`, `evidence`, ...), so they compete fairly in the existing
+top-actions selection and render in LS/RP through the same generic path - no report-template
+changes were needed for this to reach client-facing reports.
+
+### Which review platforms were checked, and why, is now visible in the LS (page 9)
+
+Before 2026-09-29, Yelp/TripAdvisor reviews were already silently pooled into the LS's "Customer
+review evidence" page (`source` has always been selected by the query in
+`poc_audit_assembler.py`'s `_freeze_reviews`, and carried through `freeze_review_set` -
+`REVIEW_EVIDENCE_FIELDS` already included it) - but nothing on the page said so. A reader had no
+way to know more than Google had been checked. Per rob (2026-09-28): the story is not "as many
+reviews from as many sources as possible," it's that each platform is checked for a specific,
+named reason tied to how AI assistants actually ground answers, and that coverage is expected to
+grow over time as new sources become relevant.
+
+- `src/client_summary/reviews.py`'s `build_review_summary` now tallies each business's reviews by
+  `source_counts` (a dict), and returns `target_platforms` - the sources the **target** business
+  itself has saved reviews on, ordered by `PLATFORM_RATIONALE` (Google always first, regardless of
+  which source happens to have more reviews for that business). Comparison businesses' own mixes
+  aren't used to decide which platforms to explain - the callout is about what was checked *for
+  the client*.
+- `PLATFORM_RATIONALE` (same module) is the reviewed wording per platform - deliberately generic
+  ("Yelp review data also informs other AI assistants, including ChatGPT") rather than citing
+  specific unverified partnership claims or stats, since this reaches an actual client and hasn't
+  been independently fact-checked beyond rob's own steer.
+- `src/client_summary/pdf.py`'s `render_reviews` adds a `page.callout('WHERE THIS EVIDENCE COMES
+  FROM', ...)` box (same visual pattern as page 1's recommended-action callout) whenever the
+  target has any saved reviews at all - including the single-platform case, so a Google-only
+  report still gets the "deliberate audit" framing, not just multi-platform ones. The "Text
+  reviews" table cell shows a plain count when only one source is present (unchanged from before),
+  and adds a per-platform breakdown - `"69 (Google 63, Yelp 3, TripAdvisor 3)"` - only once a
+  business genuinely has more than one.
+- A review record with no `source` field at all defaults to Google rather than being dropped or
+  miscounted - defensive, since in practice every `business_reviews` row has always had one.
+
+## Mentioned vs. recommended (LS page 9, always present)
+
+"Recommended" (in a numbered list) and "mentioned" (named anywhere in the answer) are genuinely
+different signals - a business can be named repeatedly without ever being one of the AI's active
+picks. Every existing count in this codebase (`appearances`, `recommendations`, `select_leaders`,
+market share, "leaders" for the website/review comparison cohort) has always meant recommended
+only. This feature is **additive**: mentions surface alongside those numbers, nothing about what
+they've always meant changes. Per rob (2026-09-29): "leaders" stays recommendation-based - a
+mention alone is too weak a signal to build a comparison cohort on.
+
+**The data was already there, unused.** `ai_visibility_analysis.analyse_visibility_response`
+(scan time) already computes `target_mentioned`/`target_recommended` independently per response -
+`find_name_position` checks the raw text for the business's name anywhere, `find_recommendation_position`
+separately checks for a numbered-list appearance. These are real `ai_visibility_results` columns,
+already selected via `select r.*` everywhere `build_recommendation_records` is called, and already
+carried into every frozen response's `parser_reconciliation` block (`persisted_target_mentioned`/
+`persisted_target_recommended`) via `freeze_ai_response` - which the RP's own consistency checks
+already reference. `src/ai_recommendation_intelligence.py:target_mention_summary` reads
+`parser_reconciliation` directly rather than re-deriving validity or the booleans a second time,
+so it can never quietly disagree with the RP's own reconciliation.
+
+**Deliberately target-only, not a per-competitor mention table.** `mentioned_known_businesses`
+(the richer, per-answer breakdown covering every business, not just the target) is only reliable
+for whichever competitor cohort was already selected *before* the scan ran - it is NOT a complete
+picture for a business added to the database afterwards. `target_mentioned`/`target_recommended`
+have no such gap (the target is always entry #1 in `known_businesses`, unconditionally, regardless
+of cohort). A full per-competitor mention breakdown is real, flagged, follow-up work - it would
+need a fresh `find_name_position` pass against the full business directory at report-generation
+time (the same directory `build_recommendation_records` already resolves against), not a read of
+the narrower scan-time snapshot.
+
+**Wiring, all additive, no existing function's behaviour changed:**
+`owner_services_report.build_owner_report` calls `target_mention_summary(responses)` and adds
+`report["target_mention_summary"]` - nothing else in that function changed.
+`client_summary/adapter.py` reads it into `metadata["mention_analysis"]`, alongside (not replacing)
+the existing recommendation-based `questions`/`measured`. `client_summary/pdf.py`'s
+`render_mentions` is **unconditional** (unlike the review pages) - every report has this data, so
+`TOTAL_PAGES` moved from 8 to 9 and the review pages shifted from 9-11 to 10-12. Page 1 gets one
+added sentence, shown only when `mentioned > appearances` (i.e. there's an actual gap worth
+pointing at), pointing to page 9.
+
+**RP finding, not yet fixed:** `poc_audit_pdf.py`'s own headline already computes
+`max(visibility["mentions"], visibility["recommendations"])` and labels it just "appeared in X of Y
+AI responses" - silently using whichever number is larger without saying which one it is. The RP
+already has both figures validated and available (`_validate_cross_evidence` cross-checks
+`visibility["mentions"]` against frozen evidence already); it just isn't shown split out the way
+the LS's new page 9 does. Flagged to rob, not built - `poc_audit_pdf.py` uses absolute-position
+reportlab canvas drawing (`_card`/`_label`/`_paragraph`), a different and more manual rendering
+style than `client_summary/pdf.py`'s cursor-based `Page` class, and deserves its own care rather
+than folding into this pass.
+
 ## Database safety
 
 Do not apply changes to the Supabase/PostgreSQL schema without the user's explicit approval.

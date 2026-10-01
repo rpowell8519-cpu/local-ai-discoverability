@@ -61,7 +61,8 @@ def get_reviews(
             author_title,
             author_reviews_count,
             owner_answer,
-            review_link
+            review_link,
+            source
         from business_reviews
         where google_place_id = any(
             :google_place_ids
