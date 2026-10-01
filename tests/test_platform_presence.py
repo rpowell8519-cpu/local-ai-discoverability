@@ -1,10 +1,4 @@
-"""Platform presence gap: a review-platform finding distinct from review theme comparison.
-
-Narrow claim only - the client has zero reviews on a platform where at least one leader has
-some. Not about review content, and not about "fewer reviews of the same kind" (that's what
-_review_findings already covers). Runs through the public analyse_evidence entry point, matching
-the rest of this test suite's convention of not reaching into evidence_analysis' private helpers.
-"""
+"""Missing collected text is a collection limitation, never inferred platform absence."""
 import pandas as pd
 
 from src.evidence_analysis import analyse_evidence, select_leaders
@@ -38,11 +32,11 @@ def _multi_platform_reviews(*, target_has_yelp=False, leaders_with_yelp=("l1", "
     return pd.DataFrame(rows)
 
 
-def run(reviews):
+def run(reviews, **extra):
     return analyse_evidence(
         target_id=F.T, target_name=F.NAMES[F.T], primary_group="coworking",
         leaders=select_leaders(F.leaders(), F.T), audits=F.audits(), pages_by_run=F.pages_by_run(),
-        propositions=F.PROPOSITIONS, reviews=reviews,
+        propositions=F.PROPOSITIONS, reviews=reviews, **extra,
     )
 
 
@@ -50,44 +44,60 @@ def by_id(result):
     return {c["id"]: c for c in result["candidates"]}
 
 
-def test_a_platform_the_client_has_no_presence_on_but_leaders_do_is_flagged():
+def test_uncollected_platform_text_is_a_finding_without_a_listing_action():
     result = run(_multi_platform_reviews())
     candidates = by_id(result)
-    finding = candidates[f"reviews:platform-{SOURCE_YELP}"]
-    assert finding["kind"] == "action"
+    finding = candidates[f"reviews:collection-{SOURCE_YELP}"]
+    assert finding["kind"] == "finding" and finding["action"] == ""
     assert finding["prevalence"] == "2 of 3"
-    assert "no reviews on Yelp" in finding["observation"]
-    assert "Plus X Innovation Brighton" in finding["observation"] and "Runway East Brighton" in finding["observation"]
+    assert "No completed Yelp review-text check" in finding["observation"]
+    assert "does not establish" in finding["observation"]
+    assert not any(c["id"].startswith("reviews:platform-") for c in result["candidates"])
 
 
 def test_a_platform_the_client_already_has_some_presence_on_is_not_flagged():
     result = run(_multi_platform_reviews(target_has_yelp=True))
-    assert f"reviews:platform-{SOURCE_YELP}" not in by_id(result)
+    assert f"reviews:collection-{SOURCE_YELP}" not in by_id(result)
 
 
 def test_a_platform_no_leader_has_either_is_not_flagged():
     # Nobody has TripAdvisor reviews at all in this fixture - not evidence of a gap.
     result = run(_multi_platform_reviews())
-    assert f"reviews:platform-{SOURCE_TRIPADVISOR}" not in by_id(result)
+    assert f"reviews:collection-{SOURCE_TRIPADVISOR}" not in by_id(result)
 
 
 def test_google_itself_is_never_flagged_when_everyone_already_has_some():
     # Every business in the base fixture already has Google reviews, so there's no Google gap.
     result = run(_multi_platform_reviews())
-    assert f"reviews:platform-{SOURCE}" not in by_id(result)
+    assert f"reviews:collection-{SOURCE}" not in by_id(result)
 
 
-def test_more_leaders_present_gives_a_higher_score_than_fewer():
+def test_collection_limitations_are_not_scored_as_optimization_actions():
     two_leaders = by_id(run(_multi_platform_reviews(leaders_with_yelp=("l1", "l2"))))
     one_leader = by_id(run(_multi_platform_reviews(leaders_with_yelp=("l1",))))
-    key = f"reviews:platform-{SOURCE_YELP}"
-    assert two_leaders[key]["score"] > one_leader[key]["score"]
-    assert two_leaders[key]["confidence"] == "Medium"
-    assert one_leader[key]["confidence"] == "Low"
+    key = f"reviews:collection-{SOURCE_YELP}"
+    assert two_leaders[key]["score"] == one_leader[key]["score"] == 0
+    assert two_leaders[key]["confidence"] == one_leader[key]["confidence"] == "Low"
 
 
 def test_reviews_without_a_source_column_are_handled_gracefully_no_platform_findings():
     # The original fixture predates multi-platform ingestion and has no `source` column at all.
     result = run(F.reviews())
-    assert not [c for c in result["candidates"] if str(c["id"]).startswith("reviews:platform-")]
+    assert not [c for c in result["candidates"] if str(c["id"]).startswith("reviews:collection-")]
     assert result["layers"]["reviews"]["status"] == "used"  # the rest of the reviews layer is unaffected
+
+
+def test_missing_target_reviews_still_discloses_collection_limitations():
+    reviews = _multi_platform_reviews()
+    result = run(reviews[reviews["google_place_id"] != F.T])
+    assert f"reviews:collection-{SOURCE_YELP}" in by_id(result)
+    assert result["layers"]["reviews"]["status"] != "used"
+
+
+def test_checked_zero_is_described_as_no_usable_text_not_no_platform_presence():
+    from src.review_coverage import empty_text_check
+    check = empty_text_check(source_url="https://www.yelp.com/biz/example", checked_at="2025-01-02", note="Read the profile; no accessible text")
+    result = run(_multi_platform_reviews(), review_platform_checks={F.T: {SOURCE_YELP: check}})
+    finding = by_id(result)[f"reviews:collection-{SOURCE_YELP}"]
+    assert "recorded check" in finding["observation"] and "2025-01-02" in finding["observation"]
+    assert finding["kind"] == "finding" and finding["action"] == ""

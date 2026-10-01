@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 
 import importlib
 import inspect
@@ -68,6 +69,8 @@ from src.website_audit_repository import (  # noqa: E402
 )
 from src.review_repository import get_reviews  # noqa: E402
 from src.evidence_analysis import MAX_LEADERS, MIN_LEADERS, analyse_evidence, select_leaders  # noqa: E402
+from src.business_platform_links import load_platform_links  # noqa: E402
+from src.review_coverage import empty_text_check, has_legacy_presence_action  # noqa: E402
 from src.client_summary.actions import has_builtin_profile  # noqa: E402
 from src.ai_visibility_repository import get_visibility_run, get_run_queries, get_run_results  # noqa: E402
 import src.gso_report_adapter as gso_report_adapter  # noqa: E402
@@ -1619,20 +1622,72 @@ if ai_ready and definition is None:
         )
     leaders_now = select_leaders(verified_candidates, selected_place_id, limit=leader_count) if names_ready else []
     evidence_analysis = None
+    review_platform_checks = dict(existing_decisions.get("review_platform_checks") or {})
     if names_ready:
         try:
+            evidence_ids = [selected_place_id, *[str(item["google_place_id"]) for item in leaders_now]]
             audits_frame, pages_frames, reviews_frame = load_evidence_frames(
-                tuple([selected_place_id, *[str(item["google_place_id"]) for item in leaders_now]])
+                tuple(evidence_ids)
             )
+            try:
+                platform_links = load_platform_links(evidence_ids)
+            except Exception:
+                platform_links = None
+                st.caption("Saved platform links could not be loaded; linked-profile coverage is unknown.")
             evidence_analysis = load_analysed_evidence(
                 target_id=selected_place_id, target_name=str(business["business_name"]),
                 primary_group=str(business.get("primary_group") or "generic"), leaders=leaders_now,
                 audits=audits_frame, pages_by_run=pages_frames, propositions=owner_priorities_now, reviews=reviews_frame,
                 type_wording=dict(existing_decisions.get("type_wording") or {}) or None,
+                platform_links=platform_links, review_platform_checks=review_platform_checks,
             )
         except Exception as exc:
             st.warning("The comparison with the most visible businesses could not be run, so the report will not include recommendations from it. "
                        f"({type(exc).__name__})")
+    if evidence_analysis is not None:
+        with st.expander("Review platform collection coverage"):
+            coverage = evidence_analysis.get("review_platform_coverage", [])
+            st.caption("A saved profile link confirms identity. Checked counts below describe usable review text, not published review totals. Not checked does not mean absent.")
+            st.dataframe(pd.DataFrame([{
+                "Business": row["business_name"], "Platform": row["platform"],
+                "Profile": row["profile_status"], "Review-text check": row["status"].replace("_", " "),
+                "Text reviews found": row["found_count"], "Check date": row["checked_at"], "Source": row["source_url"],
+            } for row in coverage]), hide_index=True, use_container_width=True)
+            empty_profiles = [row for row in coverage if row["google_place_id"] == selected_place_id
+                              and row["source_url"] and row["sampled_review_count"] == 0]
+            if empty_profiles:
+                source_row = st.selectbox("Profile to record a review-text check for", empty_profiles,
+                                          format_func=lambda row: row["platform"], key=f"coverage_profile_{selected_place_id}")
+                prior = dict(review_platform_checks.get(selected_place_id, {}).get(source_row["source"]) or {})
+                if prior.get("source_url") != source_row["source_url"]:
+                    prior = {}
+                with st.form(f"coverage_check_{selected_place_id}_{source_row['source']}"):
+                    checked = st.checkbox("I checked this profile and found no usable review text", value=prior.get("status") == "checked")
+                    try:
+                        previous_date = date.fromisoformat(str(prior.get("checked_at") or ""))
+                    except ValueError:
+                        previous_date = date.today()
+                    check_date = st.date_input("Date checked", value=previous_date)
+                    check_note = st.text_area("What was checked and why no usable review text was found", value=prior.get("note", ""))
+                    save_check = st.form_submit_button("Save review-text check")
+                if save_check:
+                    try:
+                        saved_checks = {pid: dict(values) for pid, values in review_platform_checks.items()}
+                        target_checks = saved_checks.setdefault(selected_place_id, {})
+                        if checked:
+                            target_checks[source_row["source"]] = empty_text_check(source_url=source_row["source_url"],
+                                                                                  checked_at=check_date.isoformat(), note=check_note)
+                        else:
+                            target_checks.pop(source_row["source"], None)
+                        save_reviewer_decisions_revision(target_google_place_id=selected_place_id,
+                                                        reviewer_decisions={**existing_decisions, "review_platform_checks": saved_checks}, complete=False)
+                    except Exception as exc:
+                        st.error(f"The review-text check could not be saved: {exc}")
+                    else:
+                        clear_revision_caches()
+                        st.rerun()
+    if has_legacy_presence_action(existing_decisions.get("approved_recommendations")):
+        review_update_reasons.append("review the old platform-presence action, which inferred absence from uncollected review text")
     evidence_candidates = list((evidence_analysis or {}).get("candidates") or [])
     saved_recommendation_choices = dict(existing_decisions.get("recommendation_decisions") or {})
     open_recommendations = [c for c in evidence_candidates if c["id"] not in saved_recommendation_choices]
@@ -2290,13 +2345,15 @@ if ai_ready and definition is None:
             "type_wording": dict(existing_decisions.get("type_wording") or {}),
             "evidence_waivers": {key: missing_layers[key] for key, accepted in waiver_choices.items() if accepted},
             "leader_count": int(leader_count),
+            "review_platform_checks": review_platform_checks,
             "recommendation_decisions": {cid: choice for cid, choice in recommendation_choices.items() if choice != "undecided"},
             "approved_recommendations": [
                 {**candidate, "action": (recommendation_wording.get(candidate["id"]) or candidate["action"]).strip()[:380]}
                 for candidate in evidence_candidates if recommendation_choices.get(candidate["id"]) == "include"
             ],
             "recommendation_basis": (
-                {"layers": evidence_analysis["layers"], "leaders": evidence_analysis["leaders"], "basis": evidence_analysis["basis"]}
+                {"layers": evidence_analysis["layers"], "leaders": evidence_analysis["leaders"], "basis": evidence_analysis["basis"],
+                 "review_platform_coverage": evidence_analysis.get("review_platform_coverage", [])}
                 if evidence_analysis is not None else {}
             ),
             "question_priority_map": {order: choice for order, choice in question_choices.items() if choice},

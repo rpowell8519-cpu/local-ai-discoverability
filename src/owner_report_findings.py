@@ -270,7 +270,8 @@ def derive_owner_content(
                             "observation": (str(basis.get("basis") or "") + ". Sites and dates: " + "; ".join(pages) + ".").strip(". ") + "."})
             for item in website_actions:
                 item["_ref"] = ref
-        review_items = [a for a in approved_findings if a.get("layer") == "reviews"]
+        collection_items = [a for a in approved_findings if str(a.get("signal") or "").startswith("collection:")]
+        review_items = [a for a in approved_findings if a.get("layer") == "reviews" and a not in collection_items]
         if review_items:
             ref = next(f"A{n}" for n in range(1, 99) if f"A{n}" not in taken)
             taken.add(ref)
@@ -278,6 +279,17 @@ def derive_owner_content(
                             "record_id": "review comparison", "date": None, "observation": str(review_items[0].get("basis") or "")})
             for item in review_items:
                 item["_ref"] = ref
+        for item in collection_items:
+            ref = next(f"A{n}" for n in range(1, 99) if f"A{n}" not in taken)
+            taken.add(ref)
+            profiles = "; ".join(
+                f"{e['business']}: {e['note']} ({e.get('url') or 'profile URL not recorded'}, "
+                f"checked {e.get('read_on') or 'date not recorded'})" for e in item.get("evidence", [])
+            )
+            sources.append({"ref": ref, "kind": "analysis", "title": "Review-text collection coverage",
+                            "record_id": item["id"], "date": None,
+                            "observation": str(item.get("basis") or "") + " " + profiles})
+            item["_ref"] = ref
         for item in approved_actions:
             actions.append({
                 "title": f"{len(actions) + 1}. {item['title']}", "need": item["why"], "observation": item["observation"],

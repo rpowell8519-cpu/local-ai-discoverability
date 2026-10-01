@@ -548,23 +548,25 @@ build. If it's revisited, the options are a paid scraping vendor that already ha
 Cloudflare-protected sites (shifts the ToS risk the same way Outscraper already does for
 Google/Yelp/TripAdvisor), or manual lookup per client as needed for now.
 
-sql/005 (extends `business_reviews`) and sql/006 (creates `business_platform_links`) are drafted
-but **not applied** - there is no `DATABASE_URL` in this local environment, so applying them
-needs either the user running them in Supabase directly or a session with DB credentials.
+Read-only inspection on 2026-10-01 confirmed the live database already has the review-source
+fields from sql/005 and `business_platform_links` from sql/006. Do not reapply migrations on
+the basis of the older local note. Schema changes still require explicit user approval.
 
-### Platform presence gap (`evidence_analysis._platform_presence_candidates`)
+### Review platform collection coverage
 
-A review platform the client has zero reviews on, where at least one leader has some, is its own
-"action" candidate in the reviews layer - separate from `_review_findings` (which compares review
-*content/themes*, not platform presence). Deliberately narrow: only flags a platform at zero
-presence, never "fewer reviews of the same kind" (that's what the theme comparison already does),
-so the two never overlap or double up. It reads `reviews["source"]` (added to
-`review_repository.get_reviews`'s select list alongside the ingestion work above) and is skipped
-entirely, with no error, if a caller's reviews frame has no `source` column at all - keeps every
-older fixture/caller working unchanged. Candidates use the same schema as website/proposition
-candidates (`kind: "action"`, `score`, `evidence`, ...), so they compete fairly in the existing
-top-actions selection and render in LS/RP through the same generic path - no report-template
-changes were needed for this to reach client-facing reports.
+Missing stored review text never establishes platform absence. `src/review_coverage.py`
+separates linked profile identity from collection completion: `not_checked` has an unknown
+found count; `checked` records N usable sampled text reviews, including an explicit zero.
+Confirmed `business_platform_links` supply identity URLs, not collection completion.
+Operators can record a dated, explained empty check in the report generator. It is saved in
+the existing append-only reviewer revision JSON as `review_platform_checks`; calculated
+per-business/source coverage is captured in `recommendation_basis.review_platform_coverage`.
+Checks of replaced profile URLs do not establish coverage for the replacement.
+
+`evidence_analysis._platform_presence_candidates` now emits collection **findings**, never
+listing-building actions or optimization scores. Existing `reviews:platform-*` approvals
+need re-review before generating a new generic report; issued snapshots and legacy fixtures
+remain unchanged. See `docs/proposition-evidence-implementation-plan.md` for the broader plan.
 
 ### Which review platforms were checked, and why, is now visible in the LS (page 9)
 
