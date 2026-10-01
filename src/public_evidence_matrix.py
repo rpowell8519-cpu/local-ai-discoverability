@@ -14,7 +14,7 @@ from src.review_ingestion import SOURCE
 from src.review_profile_metrics import SOURCE_PLATFORMS
 from src.site_checks import SAVED_TEXT_CAP, scan_contact_details
 
-VERSION = "saved-evidence-matrix-v1"
+VERSION = "saved-evidence-matrix-v2"
 
 
 def _date(value):
@@ -25,11 +25,12 @@ def _date(value):
 
 def observation(*, place_id, source_class, source_record_id, source_url, captured_at,
                 raw_value, kind, field, normalized_value=None, source_published_at=None,
-                identity_basis="stored_business_link") -> dict[str, Any]:
+                identity_basis="stored_business_link", source_url_basis="stored_source_url") -> dict[str, Any]:
     if not place_id or not source_record_id:
         raise ValueError("Canonical identity and underlying record reference are required")
     row = {"google_place_id": str(place_id), "source_class": source_class,
            "source_record_id": str(source_record_id), "source_url": source_url,
+           "source_url_basis": source_url_basis,
            "captured_at": _date(captured_at), "source_published_at": _date(source_published_at),
            "raw_value": raw_value, "normalized_value": normalized_value, "kind": kind,
            "field": field, "adapter_version": VERSION, "identity_basis": identity_basis,
@@ -66,10 +67,10 @@ def proposition_mentions(text: str, catalogue, aliases) -> list[dict[str, Any]]:
     return mentions
 
 
-def _mention_observations(*, place_id, source_class, record_id, text, source_url, captured_at, catalogue, aliases, published_at=None):
+def _mention_observations(*, place_id, source_class, record_id, text, source_url, captured_at, catalogue, aliases, published_at=None, source_url_basis="stored_source_url"):
     return [{**observation(place_id=place_id, source_class=source_class, source_record_id=record_id,
                           source_url=source_url, captured_at=captured_at, source_published_at=published_at,
-                          raw_value=m["excerpt"], kind="proposition_candidate", field=m["proposition_key"]), **m}
+                          raw_value=m["excerpt"], kind="proposition_candidate", field=m["proposition_key"], source_url_basis=source_url_basis), **m}
             for m in proposition_mentions(text, catalogue, aliases)]
 
 
@@ -141,7 +142,8 @@ def build_evidence_matrix(*, business, listing, audit, pages, reviews, platform_
         # Rating is deliberately never read: stars cannot determine proposition sentiment.
         observations.extend(_mention_observations(place_id=pid, source_class=source_class,
             record_id=r.get("id") or r["review_id"], text=str(r.get("review_text") or ""),
-            source_url=r.get("review_link") or coverage_by_source.get(source, {}).get("source_url"),
+            source_url=r.get("review_link") or r.get("location_link") or coverage_by_source.get(source, {}).get("source_url"),
+            source_url_basis="review_permalink" if r.get("review_link") else "collected_profile_url" if r.get("location_link") else "linked_profile_reference" if coverage_by_source.get(source, {}).get("source_url") else "unknown",
             captured_at=r.get("imported_at"), published_at=r.get("review_datetime_utc"), catalogue=catalogue, aliases=aliases))
     # Identical source/sentence observations are one item, not repeated support.
     observations = list({o["evidence_id"]: o for o in observations}.values())

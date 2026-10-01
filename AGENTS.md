@@ -593,9 +593,25 @@ and unapproved proposition candidates. Exact phrase matches/polarity hints are `
 never approved support; whole-review stars are ignored. Candidate source counts are not
 substantive breadth. Google is a comparison source, not canonical truth. Capped text cannot
 prove a missing/conflicting contact value, and MISSING is scoped to saved readable text.
-The hashes do not make mutable existing source records an immutable archive. Durable captures,
-collection attempts and review decisions remain B follow-up work; do not use this preview
-to freeze new report/research evidence. See `docs/public-evidence-matrix-increment-b.md`.
+The hashes do not make mutable existing source records an immutable archive. The durable B layer
+below preserves copies and reviewed decisions; the preview alone must not freeze new report/research
+evidence. See `docs/public-evidence-matrix-increment-b.md`.
+
+### Durable evidence (Increment B schema applied; feature branch)
+
+`public_evidence_archive.py` preserves saved-source payloads/catalogue/projections and validates
+content hashes. Archive time is not retrieval time. `public_evidence_archive_repository.py`
+has explicit writers only: atomic capture/observations, serialized append-only review revisions,
+and actual completed collection outcomes. Support needs confirmed identity/origin and a reviewer
+explanation; wholly uncertain evidence keeps unknown breadth. Syndicated claims do not add breadth.
+The new Evidence Review page stops before write controls when its migration is missing; loading
+either page never writes. QA must mock every write/control or remain read-only. The four-table
+`sql/20261001174111_public_evidence_archive.sql` is **applied**, following Rob's explicit approval
+on 1 October 2026 (live version `20261001204207`, name `public_evidence_archive`). Do not reapply
+the local artifact or automatically archive historic data. Live read-only QA confirmed empty B
+stores, unchanged legacy counts/tested intents, RLS and SELECT/INSERT-only service grants.
+No archive, review decision or attempt was written during deployment. Code is prepared for a
+feature PR; merging or subsequent DDL is separate. See `docs/durable-public-evidence-increment-b.md`.
 
 ### Which review platforms were checked, and why, is now visible in the LS (page 9)
 
