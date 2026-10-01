@@ -169,6 +169,18 @@ def test_saved_review_hash_changes_with_content_and_is_platform_specific():
         observation(**{**kwargs, "place_id": ""}, raw_value="Lovely balayage")
 
 
+def test_review_original_profile_url_survives_replaced_link_and_fallback_is_labelled():
+    review = {**REVIEW, "source": SOURCE_YELP, "location_link": "https://yelp.example/original-salon"}
+    links = [{"google_place_id": "place-cisco", "platform": "yelp", "external_url": "https://yelp.example/replacement-profile"}]
+    result = matrix(reviews=[review], links=links)
+    evidence = result['observations'][0]
+    assert evidence['source_url'] == review['location_link']
+    assert evidence['source_url_basis'] == 'collected_profile_url'
+    result = matrix(reviews=[{**review, "location_link": None}], links=links)
+    assert result['observations'][0]['source_url_basis'] == 'linked_profile_reference'
+    assert evidence['adapter_version'] == 'saved-evidence-matrix-v2'
+
+
 def test_repository_uses_read_only_transaction_and_latest_capture_ordering():
     engine, connection = MagicMock(), MagicMock()
     engine.connect.return_value.__enter__.return_value = connection

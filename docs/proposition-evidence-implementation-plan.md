@@ -8,10 +8,13 @@ Rob authorized starting local Increment A and subsequently continuing local evid
 see [its implementation and migration review](evidence-foundations-increment-a.md).
 Rob previously authorized committing the prerequisite
 fix and opening its own PR on `fix/platform-review-coverage`. The approved A migration and its
-SELECT/INSERT permission correction are applied; no further schema changes, business-data writes,
-paid collection or snapshot freezes are authorized by this document. Increment B now has
-a local read-only saved-source matrix preview; durable observations/review decisions and C–F
-remain future work. See [the preview and remaining B scope](public-evidence-matrix-increment-b.md).
+SELECT/INSERT permission correction are applied. Rob separately approved the four-table B migration
+on 1 October 2026; it is applied as live version `20261001204207`. No subsequent schema changes,
+business-data writes, paid collection or snapshot freezes are authorized by this document.
+Increment B now has a read-only saved-source matrix and a durable capture/review implementation;
+its new production stores remain empty following read-only deployment checks. C–F remain future work.
+See [the preview](public-evidence-matrix-increment-b.md)
+and [durable B scope/migration review](durable-public-evidence-increment-b.md).
 
 ## Product boundary
 
