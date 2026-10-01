@@ -41,7 +41,9 @@ import src.llm_providers.gemini_provider as gemini_provider
 import src.llm_providers.openai_provider as openai_provider
 
 repository_mode = inspect.signature(visibility_repository.create_visibility_run).parameters.get("benchmark_mode")
-if repository_mode is None or repository_mode.default != "search_grounded":
+if (repository_mode is None or repository_mode.default != "search_grounded"
+        or "prompts" not in inspect.signature(visibility_repository.create_visibility_run).parameters
+        or "target_propositions" not in inspect.signature(visibility_repository.create_visibility_run).parameters):
     visibility_repository = importlib.reload(visibility_repository)
 if (
     getattr(visibility_runner, "SUPPORTED_BENCHMARK_MODES", frozenset()) != frozenset({"model_memory", "search_grounded"})
@@ -1108,6 +1110,8 @@ if run_button:
     }
 
     run_id = create_visibility_run(
+        prompts=prompt_records,
+        target_propositions=list(dict((st.session_state.get(BRIEFS_STATE_KEY, {}).get(str(target_id)) or durable_owner_brief or {}).get("owner_context") or {}).get("priority_services") or []),
         target_google_place_id=(
             str(target_id)
         ),

@@ -48,7 +48,8 @@ import src.llm_providers.gemini_provider as gemini_provider
 import src.llm_providers.openai_provider as openai_provider
 
 repository_mode = inspect.signature(discovery_repository.create_discovery_run).parameters.get("benchmark_mode")
-if repository_mode is None or repository_mode.default != "search_grounded":
+if (repository_mode is None or repository_mode.default != "search_grounded"
+        or "prompts" not in inspect.signature(discovery_repository.create_discovery_run).parameters):
     discovery_repository = importlib.reload(discovery_repository)
 if (
     getattr(visibility_runner, "SUPPORTED_BENCHMARK_MODES", frozenset()) != frozenset({"model_memory", "search_grounded"})
@@ -733,6 +734,7 @@ if (
         }
 
         created = create_discovery_run(
+            prompts=prompt_records,
             target_business_name=(
                 target_name.strip()
             ),

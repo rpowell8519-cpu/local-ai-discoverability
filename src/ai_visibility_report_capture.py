@@ -112,4 +112,6 @@ def provider_report_metadata(provider: str, payload: Any, benchmark_mode: str) -
         "citation_status": citation_status,
         "citations": deduplicated,
         "refused": refused,
+        "reported_model": raw.get("model") or raw.get("modelVersion") or None,
+        "model_version_status": "reported_identifier" if raw.get("model") or raw.get("modelVersion") else "unavailable",
     }

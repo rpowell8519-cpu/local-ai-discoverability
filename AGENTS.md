@@ -568,6 +568,35 @@ listing-building actions or optimization scores. Existing `reviews:platform-*` a
 need re-review before generating a new generic report; issued snapshots and legacy fixtures
 remain unchanged. See `docs/proposition-evidence-implementation-plan.md` for the broader plan.
 
+### Evidence foundations (Increment A schema applied; feature branch)
+
+`src/proposition_catalog.py` resolves existing `ai_visibility_runs.target_propositions`
+and confirmed question mappings; it never invents historical intent. `review_profile_metrics.py`
+separates published metrics from sampled text. `measurement_panels.py` fingerprints exact
+configuration; optional `ai_measurement_waves` stores new run/panel/series metadata in the
+creation transaction. Different core/focused panels and unknown served versions cannot be
+silently compared. The read-only Evidence Foundations page exposes missing provenance.
+Rob explicitly approved application on 1 October 2026. The four stores from
+`sql/20261001124625_evidence_foundations.sql` are **applied** to Supabase. Verification found
+inherited service-role ALL grants; `sql/20261001160431_evidence_foundation_service_permissions.sql`
+was applied to enforce the same approved SELECT/INSERT-only design. Do not reapply either file.
+See `docs/evidence-foundations-increment-a.md` for live migration versions and validation.
+No legacy backfill or profile-history writes happen automatically. Rob approved committing/pushing
+the feature branch and opening a PR; do not confuse that approval with merging or further DDL.
+
+### Public evidence matrix (Increment B preview)
+
+`src/public_evidence_repository.py` reads existing source records in a repeatable-read,
+read-only transaction; `public_evidence_matrix.py` creates versioned projections with source
+IDs, dates and hashes. The Evidence Foundations page separates collection, fact comparison
+and unapproved proposition candidates. Exact phrase matches/polarity hints are `REVIEW_REQUIRED`,
+never approved support; whole-review stars are ignored. Candidate source counts are not
+substantive breadth. Google is a comparison source, not canonical truth. Capped text cannot
+prove a missing/conflicting contact value, and MISSING is scoped to saved readable text.
+The hashes do not make mutable existing source records an immutable archive. Durable captures,
+collection attempts and review decisions remain B follow-up work; do not use this preview
+to freeze new report/research evidence. See `docs/public-evidence-matrix-increment-b.md`.
+
 ### Which review platforms were checked, and why, is now visible in the LS (page 9)
 
 Before 2026-09-29, Yelp/TripAdvisor reviews were already silently pooled into the LS's "Customer

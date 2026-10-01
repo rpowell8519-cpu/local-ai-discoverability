@@ -9,6 +9,8 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
 from src.database import get_engine
+from src.evidence_foundations_repository import record_measurement_wave
+from src.measurement_panels import build_panel
 
 GSO_REPORT_METADATA_VERSION = 1
 
@@ -38,8 +40,15 @@ def create_visibility_run(
     prompt_count: int,
     repeat_count: int = 1,
     benchmark_mode: str = "search_grounded",
+    target_propositions: list[str] | None = None,
+    prompts: list[dict[str, Any]] | None = None,
 ) -> str:
     run_id = str(uuid.uuid4())
+    panel = build_panel(prompts=prompts, providers=providers, models=models,
+                        location_context=location_context, benchmark_mode=benchmark_mode,
+                        repeat_count=repeat_count, primary_group=primary_group) if prompts is not None else None
+    if prompts is not None and len(prompts) != prompt_count:
+        raise ValueError("Panel prompt count differs from the run prompt count")
     engine = get_engine()
 
     query = text(
@@ -55,6 +64,7 @@ def create_visibility_run(
             models,
             prompt_count,
             repeat_count,
+            target_propositions,
             status
         )
         values (
@@ -68,6 +78,7 @@ def create_visibility_run(
             cast(:models as jsonb),
             :prompt_count,
             :repeat_count,
+            cast(:target_propositions as jsonb),
             'running'
         )
         """
@@ -93,6 +104,7 @@ def create_visibility_run(
                 "models": json.dumps(
                     models
                 ),
+                "target_propositions": json.dumps(target_propositions or []),
                 "prompt_count":
                     int(prompt_count),
                 "repeat_count":
@@ -104,6 +116,8 @@ def create_visibility_run(
                     ),
             },
         )
+        if panel is not None:
+            record_measurement_wave(connection, run_id=run_id, target_id=target_google_place_id, panel=panel)
 
     return run_id
 
