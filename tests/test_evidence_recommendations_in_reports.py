@@ -150,6 +150,22 @@ def test_review_observations_become_gaps_citing_the_review_comparison():
     assert report["sources"][ref]["kind"] == "analysis" and "Google review text" in report["sources"][ref]["text"]
 
 
+def test_collection_limitation_is_cited_separately_and_never_becomes_an_action():
+    from tests.test_platform_presence import run, _multi_platform_reviews
+    from src.review_ingestion import SOURCE_YELP
+    finding = next(c for c in run(_multi_platform_reviews())["candidates"]
+                   if c["id"] == f"reviews:collection-{SOURCE_YELP}")
+    payload = payload_with(("reviews:booking--reservations",))
+    payload["report"]["owner_report"]["evidence_recommendations"].append(finding)
+    report = build_owner_report(payload)
+    gap = next(g for g in report["config"]["gaps"] if "Yelp review evidence" in g["title"])
+    assert "does not establish" in gap["body"]
+    source = report["sources"][gap["refs"][0]]
+    assert source["title"] == "Review-text collection coverage" and "Review text not checked" in source["text"]
+    assert not any("presence" in a["deliverable"].lower() for a in report["config"]["actions"])
+    assert not any("Yelp" in a["task"] for a in summary_for(payload)["actions"])
+
+
 def test_with_nothing_approved_the_full_report_keeps_its_honest_investigation_action():
     actions = build_owner_report(payload_with(()))["config"]["actions"]
     assert actions[-1]["title"].endswith("Investigate the topics where the business appeared least")

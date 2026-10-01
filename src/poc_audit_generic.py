@@ -17,6 +17,7 @@ from src.business_matching import (
     owner_competitor_entries, plan_subjects, undecided_items,
 )
 from src.report_priorities import build_service_groups
+from src.review_coverage import has_legacy_presence_action
 
 
 def _number(value: Any) -> float | None:
@@ -111,6 +112,8 @@ def assemble_generic_report_payload(
         raise ValueError("The report review must be completed before generation")
     run_id = str(audit_revision.get("benchmark_run_id") or "")
     decisions_input = dict(audit_revision.get("reviewer_decisions") or {})
+    if has_legacy_presence_action(decisions_input.get("approved_recommendations")):
+        raise ValueError("Review the saved platform-presence recommendation again: missing collected text does not establish platform absence")
     cohort_ids = [str(item) for item in decisions_input.get("cohort_place_ids") or []]
     owner_place_ids = [str(pid) for pid in dict(decisions_input.get("owner_competitor_places") or {}).values() if str(pid)]
     if len(cohort_ids) > MAX_COMPARISON_BUSINESSES or len(set(cohort_ids)) != len(cohort_ids):

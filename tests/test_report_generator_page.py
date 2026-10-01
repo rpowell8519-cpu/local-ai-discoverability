@@ -92,6 +92,8 @@ class _Connection:
             return _Result(scalar=100 if (params or {}).get("google_place_id") == TARGET_ID else 0)
         if "from business_reviews" in sql:
             return _Result([])
+        if "from business_platform_links" in sql:
+            return _Result([])
         if "from ai_visibility_queries" in sql:
             return _Result(
                 {"base_prompt_order": i, "prompt_category": "Owner priority", "prompt_source": "owner_brief", "prompt_text": q}
@@ -145,6 +147,7 @@ def run_page(audit, *, extra=(), secrets=None):
     saved = mock.Mock(return_value={"revision": 4})
     patches = [
         mock.patch("src.database.get_engine", return_value=_Engine()),
+        mock.patch("src.business_platform_links.get_engine", return_value=_Engine()),
         mock.patch("src.report_audit_repository.get_latest_report_audit", return_value=audit),
         mock.patch("src.report_audit_repository.list_report_audit_revisions", return_value=[audit] if audit else []),
         mock.patch("src.report_audit_candidates.load_report_candidates", return_value=CANDIDATES),
@@ -746,6 +749,48 @@ def test_included_recommendations_are_saved_with_the_reviewers_wording_and_the_b
         assert len(decisions["approved_recommendations"]) == 1
         assert decisions["approved_recommendations"][0]["action"] == "Our own wording for the client."
         assert decisions["recommendation_basis"]["layers"] and decisions["recommendation_basis"]["leaders"] is not None
+        assert decisions["recommendation_basis"]["review_platform_coverage"]
+
+
+@pytest.mark.parametrize("old_profile", [False, True])
+def test_linked_profile_empty_check_is_saved_as_a_durable_draft_review(old_profile):
+    import pandas as pd
+    from src.review_ingestion import SOURCE_YELP
+    links = pd.DataFrame([{"google_place_id": TARGET_ID, "platform": "yelp",
+                           "external_url": "https://www.yelp.com/biz/wrap-brighton"}])
+    decisions = dict(NAMES_DECIDED)
+    if old_profile:
+        decisions["review_platform_checks"] = {TARGET_ID: {SOURCE_YELP: {
+            "status": "checked", "found_count": 0, "source_url": "https://www.yelp.com/biz/old-profile",
+            "checked_at": "2025-01-02", "note": "Checked the old profile", "method": "operator_text_check",
+        }}}
+    at, saved, stack = run_page(revision(decisions), extra=[
+        mock.patch("src.business_platform_links.load_platform_links", return_value=links),
+    ])
+    with stack:
+        assert not at.exception, [e.value for e in at.exception]
+        table = next(df.value for df in at.dataframe if "Review-text check" in df.value.columns)
+        row = table[(table["Business"] == TARGET_NAME) & (table["Platform"] == "Yelp")].iloc[0]
+        assert row["Profile"] == "linked" and row["Review-text check"] == "not checked"
+        checkbox = next(c for c in at.checkbox if c.label == "I checked this profile and found no usable review text")
+        assert checkbox.value is False
+        checkbox.check()
+        note = next(t for t in at.text_area if t.label == "What was checked and why no usable review text was found")
+        note.set_value("Read the confirmed profile; no accessible text reviews.")
+        button(at, "Save review-text check").click().run()
+        assert not at.exception, [e.value for e in at.exception]
+        check = saved.call_args.kwargs["reviewer_decisions"]["review_platform_checks"][TARGET_ID][SOURCE_YELP]
+        assert check["status"] == "checked" and check["found_count"] == 0
+        assert check["source_url"] == links.iloc[0]["external_url"] and check["checked_at"]
+        assert saved.call_args.kwargs["complete"] is False
+
+
+def test_legacy_platform_action_requires_review_before_new_report_generation():
+    decisions = {**COMPLETE, "approved_recommendations": [{"id": "reviews:platform-yelp"}]}
+    at, _, stack = run_page(revision(decisions, complete=True))
+    with stack:
+        assert not at.exception, [e.value for e in at.exception]
+        assert any("old platform-presence action" in warning.value for warning in at.warning)
 
 
 def test_a_failed_comparison_is_said_plainly_and_does_not_break_the_page():
