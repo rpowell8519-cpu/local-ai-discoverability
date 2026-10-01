@@ -40,6 +40,8 @@ repository_mode = inspect.signature(visibility_repository.create_visibility_run)
 if (
     repository_mode is None
     or repository_mode.default != "search_grounded"
+    or "prompts" not in inspect.signature(visibility_repository.create_visibility_run).parameters
+    or "target_propositions" not in inspect.signature(visibility_repository.create_visibility_run).parameters
     or getattr(visibility_repository, "GSO_REPORT_METADATA_VERSION", 0) != 1
 ):
     visibility_repository = importlib.reload(visibility_repository)
@@ -1151,6 +1153,8 @@ if next_step["key"] == "benchmark":
 
         try:
             run_id = create_visibility_run(
+                prompts=prompt_records,
+                target_propositions=list(dict(saved_brief.get("owner_context") or {}).get("priority_services") or []),
                 target_google_place_id=selected_place_id,
                 target_business_name=str(business["business_name"]),
                 primary_group=str(business.get("primary_group") or "generic"),

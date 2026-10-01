@@ -38,3 +38,11 @@ def test_missing_citation_metadata_is_unavailable_not_zero():
     result = provider_report_metadata("Gemini", {"steps": []}, "search_grounded")
     assert result["citation_status"] == "unavailable"
     assert result["citations"] == []
+
+
+def test_reported_model_is_kept_separately_without_inventing_a_missing_version():
+    result = provider_report_metadata("OpenAI", {"model": "returned-model-version"}, "search_grounded")
+    assert result["reported_model"] == "returned-model-version"
+    assert result["model_version_status"] == "reported_identifier"
+    result = provider_report_metadata("Gemini", {}, "model_memory")
+    assert result["reported_model"] is None and result["model_version_status"] == "unavailable"

@@ -1,10 +1,17 @@
 # Proposition and evidence layer: revised implementation specification
 
 Updated 1 October 2026 following the repository/document review and Rob's corrections.
-This records the selected plan. Only the small prerequisite coverage fix is implemented;
-increments A–F below remain proposed. Rob subsequently authorized committing the prerequisite
-fix and opening its own PR on `fix/platform-review-coverage`. No schema migration, production
-write, paid collection, snapshot freeze or implementation of A–F is authorized by this document.
+This records the selected plan. The prerequisite coverage fix is merged. Increment A's schema
+is applied following Rob's explicit approval; its code and the B preview are approved for a feature PR.
+A–F below describe the staged plan.
+Rob authorized starting local Increment A and subsequently continuing local evidence work;
+see [its implementation and migration review](evidence-foundations-increment-a.md).
+Rob previously authorized committing the prerequisite
+fix and opening its own PR on `fix/platform-review-coverage`. The approved A migration and its
+SELECT/INSERT permission correction are applied; no further schema changes, business-data writes,
+paid collection or snapshot freezes are authorized by this document. Increment B now has
+a local read-only saved-source matrix preview; durable observations/review decisions and C–F
+remain future work. See [the preview and remaining B scope](public-evidence-matrix-increment-b.md).
 
 ## Product boundary
 

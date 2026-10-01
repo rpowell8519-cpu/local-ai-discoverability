@@ -8,6 +8,8 @@ import pandas as pd
 from sqlalchemy import text
 
 from src.database import get_engine
+from src.evidence_foundations_repository import record_measurement_wave
+from src.measurement_panels import build_panel
 
 
 def create_discovery_run(
@@ -27,6 +29,7 @@ def create_discovery_run(
     prompt_count: int,
     repeat_count: int,
     benchmark_mode: str = "search_grounded",
+    prompts: list[dict[str, Any]] | None = None,
 ) -> dict[str, str]:
     run_id = str(
         uuid.uuid4()
@@ -44,6 +47,11 @@ def create_discovery_run(
     )
 
     engine = get_engine()
+    panel = build_panel(prompts=prompts, providers=providers, models=models,
+                        location_context=location_context, benchmark_mode=benchmark_mode,
+                        repeat_count=repeat_count, primary_group=primary_group) if prompts is not None else None
+    if prompts is not None and len(prompts) != prompt_count:
+        raise ValueError("Panel prompt count differs from the run prompt count")
 
     query = text(
         """
@@ -143,6 +151,9 @@ def create_discovery_run(
                     ),
             },
         )
+
+        if panel is not None:
+            record_measurement_wave(connection, run_id=run_id, target_id=target_id, panel=panel)
 
     return {
         "run_id":
