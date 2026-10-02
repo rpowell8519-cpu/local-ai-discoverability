@@ -12,7 +12,13 @@ SELECT/INSERT permission correction are applied. Rob separately approved the fou
 on 1 October 2026; it is applied as live version `20261001204207`. No subsequent schema changes,
 business-data writes, paid collection or snapshot freezes are authorized by this document.
 Increment B now has a read-only saved-source matrix and a durable capture/review implementation;
-its new production stores remain empty following read-only deployment checks. C–F remain future work.
+its new production stores were empty following read-only deployment checks. Rob subsequently
+authorised “merge and then pilot, then on to c” on 1 October, and resumed on 2 October. A/B are
+merged (PRs #15/#16). The pilot archived two businesses' exact saved evidence, with no human
+review approvals or new collection. C's positioning/action code and a tested unapplied one-table
+migration are now prepared; D–F remain future work. C's new schema still requires separate
+explicit approval. See [the pilot](evidence-pilot-2026-10-02.md) and
+[C's implementation](positioning-triangulation-increment-c.md).
 See [the preview](public-evidence-matrix-increment-b.md)
 and [durable B scope/migration review](durable-public-evidence-increment-b.md).
 
