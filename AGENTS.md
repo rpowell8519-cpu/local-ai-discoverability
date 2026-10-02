@@ -616,7 +616,7 @@ No archive, review decision or attempt was written during deployment. B merged a
 attempts remain empty. Provisional Codex assessments are not human approvals. See
 `docs/durable-public-evidence-increment-b.md` and `docs/evidence-pilot-2026-10-02.md`.
 
-### Positioning and actions (Increment C code; migration pending approval)
+### Positioning and actions (Increment C applied; merged PR #17)
 
 `positioning_triangulation.py` reads immutable B evidence/latest decisions, saved owner priority
 labels and A's confirmed question links. Unknown owner intent/test coverage/review evidence stays
@@ -627,9 +627,12 @@ The new Positioning page loads read-only. `interventions.py` validates downloada
 `intervention_repository.py` appends revisions explicitly with stale-edit protection. Unknown
 effort/baseline series and actual implementation dates/completion evidence remain separate.
 Existing approved report actions are links, not copied approvals; reports/golden snapshots are
-unchanged. `sql/20261002085635_positioning_interventions.sql` is a tested **DRAFT, NOT APPLIED**;
-the save control stays disabled until its separate explicit schema approval/application. Do not
-interpret the pilot/C development authorisation as this new migration's approval. See
+unchanged. Rob merged PR #17 (`006af7c`) and explicitly approved the named C migration on
+2 October. `sql/20261002085635_positioning_interventions.sql` is **APPLIED** as live version
+`20261002093735`, name `positioning_interventions`. Its historical DRAFT header is retained;
+do not reapply it. Read-only verification confirmed RLS/SELECT-INSERT-only service grants,
+both guards and enabled save controls for Cisco/Wild Flor. The action table remains empty;
+no human excerpt approval or action was invented for QA. This approval does not cover further DDL. See
 `docs/positioning-triangulation-increment-c.md`.
 
 ### Which review platforms were checked, and why, is now visible in the LS (page 9)

@@ -15,9 +15,10 @@ Increment B now has a read-only saved-source matrix and a durable capture/review
 its new production stores were empty following read-only deployment checks. Rob subsequently
 authorised “merge and then pilot, then on to c” on 1 October, and resumed on 2 October. A/B are
 merged (PRs #15/#16). The pilot archived two businesses' exact saved evidence, with no human
-review approvals or new collection. C's positioning/action code and a tested unapplied one-table
-migration are now prepared; D–F remain future work. C's new schema still requires separate
-explicit approval. See [the pilot](evidence-pilot-2026-10-02.md) and
+review approvals or new collection. C merged as PR #17 (`006af7c`). Rob separately explicitly
+approved its one-table migration on 2 October; it is applied as live version `20261002093735`,
+with save controls verified and the action table still empty. D–F remain future work, with
+further schema changes requiring their own approval. See [the pilot](evidence-pilot-2026-10-02.md) and
 [C's implementation](positioning-triangulation-increment-c.md).
 See [the preview](public-evidence-matrix-increment-b.md)
 and [durable B scope/migration review](durable-public-evidence-increment-b.md).
