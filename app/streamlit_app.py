@@ -246,6 +246,8 @@ with evidence_column:
     st.page_link(
         "pages/6_Website_Benchmark.py", label="Compare website features", icon="📊"
     )
+    st.page_link("pages/12_Evidence_Review.py", label="Review preserved evidence", icon="📚")
+    st.page_link("pages/13_Positioning.py", label="Compare positioning and track actions", icon="🧭")
 
 with testing_column:
     st.markdown("**AI testing**")

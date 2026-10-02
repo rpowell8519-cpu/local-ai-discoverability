@@ -568,7 +568,7 @@ listing-building actions or optimization scores. Existing `reviews:platform-*` a
 need re-review before generating a new generic report; issued snapshots and legacy fixtures
 remain unchanged. See `docs/proposition-evidence-implementation-plan.md` for the broader plan.
 
-### Evidence foundations (Increment A schema applied; feature branch)
+### Evidence foundations (Increment A schema applied; merged PR #15)
 
 `src/proposition_catalog.py` resolves existing `ai_visibility_runs.target_propositions`
 and confirmed question mappings; it never invents historical intent. `review_profile_metrics.py`
@@ -597,7 +597,7 @@ The hashes do not make mutable existing source records an immutable archive. The
 below preserves copies and reviewed decisions; the preview alone must not freeze new report/research
 evidence. See `docs/public-evidence-matrix-increment-b.md`.
 
-### Durable evidence (Increment B schema applied; feature branch)
+### Durable evidence (Increment B schema applied; merged PR #16)
 
 `public_evidence_archive.py` preserves saved-source payloads/catalogue/projections and validates
 content hashes. Archive time is not retrieval time. `public_evidence_archive_repository.py`
@@ -610,8 +610,27 @@ either page never writes. QA must mock every write/control or remain read-only. 
 on 1 October 2026 (live version `20261001204207`, name `public_evidence_archive`). Do not reapply
 the local artifact or automatically archive historic data. Live read-only QA confirmed empty B
 stores, unchanged legacy counts/tested intents, RLS and SELECT/INSERT-only service grants.
-No archive, review decision or attempt was written during deployment. Code is prepared for a
-feature PR; merging or subsequent DDL is separate. See `docs/durable-public-evidence-increment-b.md`.
+No archive, review decision or attempt was written during deployment. B merged as PR #16
+(`c28c1af`). Rob separately authorised the Cisco/Wild Flor pilot on 1 October and resumed it on
+2 October: two exact saved-source captures and 112 observations are now archived; decisions and
+attempts remain empty. Provisional Codex assessments are not human approvals. See
+`docs/durable-public-evidence-increment-b.md` and `docs/evidence-pilot-2026-10-02.md`.
+
+### Positioning and actions (Increment C code; migration pending approval)
+
+`positioning_triangulation.py` reads immutable B evidence/latest decisions, saved owner priority
+labels and A's confirmed question links. Unknown owner intent/test coverage/review evidence stays
+unknown. The versioned adjustable rules count distinct customer source records, never repeated
+excerpts, owner/syndicated copy, stars or independent people. Suggestions are provisional and
+not demand, ranking factors or causes. Unresolved labels are not fuzzy-mapped or auto-added.
+The new Positioning page loads read-only. `interventions.py` validates downloadable action drafts;
+`intervention_repository.py` appends revisions explicitly with stale-edit protection. Unknown
+effort/baseline series and actual implementation dates/completion evidence remain separate.
+Existing approved report actions are links, not copied approvals; reports/golden snapshots are
+unchanged. `sql/20261002085635_positioning_interventions.sql` is a tested **DRAFT, NOT APPLIED**;
+the save control stays disabled until its separate explicit schema approval/application. Do not
+interpret the pilot/C development authorisation as this new migration's approval. See
+`docs/positioning-triangulation-increment-c.md`.
 
 ### Which review platforms were checked, and why, is now visible in the LS (page 9)
 
