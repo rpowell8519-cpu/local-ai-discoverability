@@ -71,6 +71,8 @@ class _Connection:
 
     def execute(self, statement, params=None):
         sql = " ".join(str(statement).lower().split())
+        if "to_regclass('public.ai_measurement_waves')" in sql:
+            return _Result(scalar=False)
         if "from business_features bf" in sql and "lateral" in sql:
             return _Result(
                 {

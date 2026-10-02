@@ -616,7 +616,7 @@ No archive, review decision or attempt was written during deployment. B merged a
 attempts remain empty. Provisional Codex assessments are not human approvals. See
 `docs/durable-public-evidence-increment-b.md` and `docs/evidence-pilot-2026-10-02.md`.
 
-### Positioning and actions (Increment C code; migration pending approval)
+### Positioning and actions (Increment C applied; merged PR #17)
 
 `positioning_triangulation.py` reads immutable B evidence/latest decisions, saved owner priority
 labels and A's confirmed question links. Unknown owner intent/test coverage/review evidence stays
@@ -627,10 +627,31 @@ The new Positioning page loads read-only. `interventions.py` validates downloada
 `intervention_repository.py` appends revisions explicitly with stale-edit protection. Unknown
 effort/baseline series and actual implementation dates/completion evidence remain separate.
 Existing approved report actions are links, not copied approvals; reports/golden snapshots are
-unchanged. `sql/20261002085635_positioning_interventions.sql` is a tested **DRAFT, NOT APPLIED**;
-the save control stays disabled until its separate explicit schema approval/application. Do not
-interpret the pilot/C development authorisation as this new migration's approval. See
+unchanged. Rob merged PR #17 (`006af7c`) and explicitly approved the named C migration on
+2 October. `sql/20261002085635_positioning_interventions.sql` is **APPLIED** as live version
+`20261002093735`, name `positioning_interventions`. Its historical DRAFT header is retained;
+do not reapply it. Read-only verification confirmed RLS/SELECT-INSERT-only service grants,
+both guards and enabled save controls for Cisco/Wild Flor. The action table remains empty;
+no human excerpt approval or action was invented for QA. This approval does not cover further DDL. See
 `docs/positioning-triangulation-increment-c.md`.
+
+### Focused monitoring (Increment D)
+
+`focused_monitoring.py` projects exact linked recommendations onto a frozen family/provider/cohort
+grid; unknown identities/models and incomplete answer plans cannot supply a strict comparison.
+The existing A wave settings store the independent cohort/family mapping. `14_Focused_Monitoring.py`
+loads read-only and separates prepare/export from explicit owner-agreed paid execution/retry.
+No new schema, scheduler or snapshot freeze is involved. `core_run_filter` keeps focused waves out
+of main Visibility/report benchmark selectors, while historical exact run loading stays available.
+Provider metadata now preserves observed search markers separately from configured mode/citations;
+absence remains unknown. Contextual change is target delta minus median eligible comparator delta,
+never causal. Selected saved-source dates, bundles/overlap and unknown implementation dates stay
+visible. See `docs/focused-monitoring-increment-d.md`. Human pilot approvals/owner facts are not
+invented by QA, and no paid wave has been run as validation.
+Rob separately supplied five Wild Flor owner search goals on 2 October; they were explicitly
+recorded verbatim as owner-brief revision 1 (`ddf8a676-17df-47a8-824a-a11915d1a957`), with no benchmark
+attached or reviewer approval. The previous wine/private-dining run context is not substituted for
+those goals. New priority labels remain unresolved by the starter catalogue. See the pilot record.
 
 ### Which review platforms were checked, and why, is now visible in the LS (page 9)
 

@@ -278,14 +278,16 @@ def load_evidence_status(google_place_id: str) -> dict[str, Any]:
     """Read the latest evidence available for one canonical business."""
 
     with get_engine().connect() as connection:
+        core_filter = visibility_repository.core_run_filter(connection)
         completed_runs = connection.execute(
             text(
-                """
+                f"""
                 select id, started_at, completed_at, prompt_count, repeat_count
                 from ai_visibility_runs
                 where
                     target_google_place_id = :google_place_id
                     and status = 'completed'
+                    {core_filter}
                 order by completed_at desc nulls last, started_at desc, id desc
                 """
             ),

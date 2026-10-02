@@ -42,11 +42,16 @@ def create_visibility_run(
     benchmark_mode: str = "search_grounded",
     target_propositions: list[str] | None = None,
     prompts: list[dict[str, Any]] | None = None,
+    panel_kind: str = "core",
+    panel_settings: dict[str, Any] | None = None,
 ) -> str:
     run_id = str(uuid.uuid4())
     panel = build_panel(prompts=prompts, providers=providers, models=models,
                         location_context=location_context, benchmark_mode=benchmark_mode,
-                        repeat_count=repeat_count, primary_group=primary_group) if prompts is not None else None
+                        repeat_count=repeat_count, primary_group=primary_group,
+                        panel_kind=panel_kind, settings=panel_settings) if prompts is not None else None
+    if panel_kind not in {"core", "focused"} or (panel_kind == "focused" and panel is None):
+        raise ValueError("Focused runs require a frozen prompt panel")
     if prompts is not None and len(prompts) != prompt_count:
         raise ValueError("Panel prompt count differs from the run prompt count")
     engine = get_engine()
@@ -117,7 +122,9 @@ def create_visibility_run(
             },
         )
         if panel is not None:
-            record_measurement_wave(connection, run_id=run_id, target_id=target_google_place_id, panel=panel)
+            recorded = record_measurement_wave(connection, run_id=run_id, target_id=target_google_place_id, panel=panel)
+            if panel_kind == "focused" and not recorded:
+                raise ValueError("Focused runs require measurement-wave storage")
 
     return run_id
 
@@ -494,19 +501,19 @@ def get_latest_run(
 ) -> dict[str, Any]:
     engine = get_engine()
 
-    query = text(
-        """
-        select *
-        from ai_visibility_runs
-        where
-            target_google_place_id =
-                :target_google_place_id
-        order by started_at desc
-        limit 1
-        """
-    )
-
     with engine.connect() as connection:
+        exclusion = core_run_filter(connection)
+        query = text(
+            f"""
+            select *
+            from ai_visibility_runs
+            where target_google_place_id = :target_google_place_id
+                {exclusion}
+            order by started_at desc
+            limit 1
+            """
+        )
+
         row = connection.execute(
             query,
             {
@@ -516,6 +523,16 @@ def get_latest_run(
         ).mappings().first()
 
     return dict(row) if row else {}
+
+
+def core_run_filter(connection) -> str:
+    """Keep optional focused runs out of canonical report/benchmark selection.
+
+    The fixed SQL fragment also keeps pre-foundation installations usable.
+    """
+    ready = connection.execute(text("select to_regclass('public.ai_measurement_waves') is not null")).scalar_one()
+    return ("and not exists (select 1 from public.ai_measurement_waves w "
+            "where w.run_id=ai_visibility_runs.id and w.panel_kind='focused')") if ready else ""
 
 
 def get_visibility_run(run_id: str) -> dict[str, Any]:
