@@ -167,3 +167,14 @@ def test_family_mapping_and_cohort_change_panel_identity():
         if change == "family": kwargs["prompts"][0]["family"] = "wedding hair"
         else: kwargs["comparator_ids"].pop()
         assert focused_panel(**kwargs)["panel_id"] != base["panel_id"]
+
+
+def test_verified_dateless_claude_snapshots_are_provider_scoped():
+    from src.focused_monitoring import _versioned_identifier
+    assert _versioned_identifier('claude-sonnet-5-5', 'Claude')
+    assert _versioned_identifier('claude-sonnet-5', 'Claude')
+    assert not _versioned_identifier('claude-sonnet-5-5', 'OpenAI')
+    assert not _versioned_identifier('claude-sonnet-4-5', 'Claude')
+    assert not _versioned_identifier('claude-sonnet-latest', 'Claude')
+    assert not _versioned_identifier('claude-sonnet-99', 'Claude')
+    assert not _versioned_identifier('gemini-3.6-flash', 'Gemini')
