@@ -84,4 +84,13 @@ EVIDENCE_SQL_TEST_ENGINE=/path/to/node_modules/@electric-sql/pglite/dist/index.j
 Live read-only Cisco/Wild Flor walkthrough details and unchanged source counts are in the pilot
 record. The new writer's live insert remains unverified until schema approval; synthetic SQL and
 mocked repository/form tests establish its behavior before that approval. Opt-in live/paid tests
-remain disabled. Final regression results are recorded below after the clean-checkout run.
+remain disabled.
+
+Final full-suite run from a clean detached checkout of code commit `fb5e8c1`: **830 passed,
+73 subtests passed, 13 skipped, zero failures**, in 125.57 seconds. Compilation, `pip check`,
+`git diff --check` and isolated SQL tests passed. The final live read-only walkthroughs passed
+again with unchanged counts. Subsequent packaging changes only add these validation details.
+
+The proposed SQL SHA-256 is
+`a64ff273413eec0f5cf10b666be35b5c5c8d8f716bd68a9d486b02113d732ea6`.
+Approval requested is for this exact one-table migration, not A/B reapplication or a backfill.
