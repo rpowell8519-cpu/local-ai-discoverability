@@ -52,3 +52,11 @@ analysis states. Production walkthroughs use database-enforced read-only connect
 
 Restart Streamlit after merging to load the new page. A real focused wave and human excerpt
 reviews remain operational work; the existing pilot runs do not qualify as research observations.
+
+Final clean-checkout validation of code commit `5ec70f6`: **884 passed, 73 subtests passed,
+13 skipped, zero failures**. Compilation and dependency checks passed. Eight live read-only
+walkthroughs covered Evidence Review, Positioning, Focused Monitoring and Evidence Research for
+both Cisco and Wild Flor. Historical runs were explicitly excluded as expected. Counts remained
+44 runs, 3,481 reviews, 2,390 raw listings, 99 report revisions, two captures, 112 observations,
+and zero decisions, attempts, interventions or measurement waves. The additional report revision
+relative to the earlier D walkthrough is the previously authorised Wild Flor owner brief, not QA.
