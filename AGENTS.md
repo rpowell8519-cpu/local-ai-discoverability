@@ -648,6 +648,10 @@ absence remains unknown. Contextual change is target delta minus median eligible
 never causal. Selected saved-source dates, bundles/overlap and unknown implementation dates stay
 visible. See `docs/focused-monitoring-increment-d.md`. Human pilot approvals/owner facts are not
 invented by QA, and no paid wave has been run as validation.
+Rob separately supplied five Wild Flor owner search goals on 2 October; they were explicitly
+recorded verbatim as owner-brief revision 1 (`ddf8a676-17df-47a8-824a-a11915d1a957`), with no benchmark
+attached or reviewer approval. The previous wine/private-dining run context is not substituted for
+those goals. New priority labels remain unresolved by the starter catalogue. See the pilot record.
 
 ### Which review platforms were checked, and why, is now visible in the LS (page 9)
 

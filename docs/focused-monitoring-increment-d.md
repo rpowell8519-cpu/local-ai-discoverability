@@ -61,8 +61,11 @@ overlap and unknown dates are flagged. Day-only implementation dates cannot reso
 The Cisco/Wild Flor continuation produced a local full-context review packet with 12 proposed
 excerpt judgments and four validated investigation/action drafts. The mixed Cisco balayage review
 was corrected to retain initial dissatisfaction and subsequent successful repair. Cisco's existing
-completed question mappings were preserved; Wild Flor's proposed mappings/owner facts await
-confirmation. These are proposals, not human approvals or agreed production interventions.
+completed question mappings were preserved. Rob subsequently supplied five different Wild Flor
+search goals, recorded through the existing owner-brief writer as revision 1 (no benchmark attached).
+The initial wine/private-dining mapping proposals were not promoted as owner priorities; their local
+action drafts are paused. Excerpt judgments and action drafts are proposals, not human approvals
+or agreed production interventions.
 See [pilot record](evidence-pilot-2026-10-02.md).
 
 Six live AppTest walkthroughs (Evidence Review, Positioning and Focused Monitoring for each pilot
@@ -76,6 +79,10 @@ model changes, raw mentions/duplicate slots, fuzzy identity, fixed zero comparat
 insufficient cohorts, action bundles/overlap, source timing, paid-control gating, exact-plan retry and
 main-benchmark separation. All page writes/paid execution are mocked. No paid calls, new public
 collection, decisions, interventions, migration application or historical backfill occurred in QA.
+
+Final clean-checkout validation of code commit `1edd633` passed **862 tests and 73 subtests**,
+with 13 skipped and zero failures. Python compilation and dependency checks passed. The six live
+read-only walkthroughs were repeated after the final code changes and again preserved all counts.
 
 After merge, restart the Streamlit process so the new page and repository signatures are loaded.
 No SQL deployment step is needed. A real paid focused wave and human pilot sign-off remain operator

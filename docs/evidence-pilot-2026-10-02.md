@@ -59,7 +59,7 @@ question map links question 5 to Bridal hair and question 7 to Balayage. Those l
 even though the latest run's `target_propositions` is empty. Unresolved question mappings prevent
 claims that other catalogue propositions were not tested.
 
-Wild Flor has no saved owner brief or completed question map. The run's context records private
+At the initial pilot inspection, Wild Flor had no saved owner brief or completed question map. The run's context records private
 dining and wine, and its prompt wording is visible, but C keeps owner intent and tested links
 unknown until confirmed. A run context entry is not an independently confirmed question mapping.
 
@@ -83,10 +83,35 @@ The voucher navigation candidate supplies no substantive private-dining support,
 “don't need to break the bank” is not a negative private-dining judgment.
 
 Cisco's existing completed Q5/Q7 mappings are already usable and have not been overwritten.
-Proposed Wild Flor Q7/private-dining and Q8/wine mappings are held for confirmation with its
-owner priorities. Four investigation/action drafts retain Not yet agreed priority, unassigned
+The initial proposed Wild Flor Q7/private-dining and Q8/wine mappings were not confirmed as owner
+priorities; Rob subsequently supplied the five different goals below. Four investigation/action drafts retain Not yet agreed priority, unassigned
 ownership, unknown effort and no implementation/baseline series. Preparing these drafts
 does not save decisions, approve owner facts or create agreed production interventions.
+
+## Owner goals supplied and recorded
+
+Rob answered the missing-owner-context question on 2 October with these exact strings:
+
+- Best restaurant in Brighton
+- Best restuarant in Hove
+- Best fine dining in Brighton & Hove
+- Best date night restaurant in Brighton
+- Most impressive restaurant in Brighton
+
+These were recorded verbatim as desired searches and positioning priorities in Wild Flor's first
+owner-brief revision, `ddf8a676-17df-47a8-824a-a11915d1a957`, using the existing explicit repository
+writer. The known-for field retains those aspirations; it does not assert bestness as fact.
+Provenance identifies Rob's supplied goals and Codex's recording role. No historical benchmark
+was attached, no reviewer completion/approved recommendation was invented and Cisco's workflow
+was preserved. These new labels remain unresolved by the starter proposition catalogue; no
+fuzzy taxonomy aliases were added. The Wild Flor wine/private-dining action drafts are paused
+as local proposals, rather than promoted as owner-priority interventions.
+
+Read-back matched all five questions/priority labels, revision 1 and the empty benchmark/reviewer
+state. This authorised owner-data write raised report revisions from 98 to 99; runs remained 44,
+decisions/interventions/waves remained zero. It occurred after the read-only QA counts above.
+The current owner questions can now be selected in the existing report workflow; a paid run still
+requires explicit operator execution.
 
 ## Read-only verification
 
