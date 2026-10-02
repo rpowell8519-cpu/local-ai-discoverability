@@ -40,6 +40,19 @@ def provider_report_metadata(provider: str, payload: Any, benchmark_mode: str) -
     sources: list[dict[str, str]] = []
     measured = False
     refused = False
+    search_calls: list[dict[str, Any]] = []
+    # Preserve observed tool markers separately from configured mode and citations.
+    # An absent marker is unknown, never proof that no search happened.
+    blocks = raw.get("output", []) if name == "openai" else (
+        raw.get("content", []) if name in {"claude", "anthropic"} else raw.get("steps", []))
+    for block in blocks or []:
+        if not isinstance(block, dict):
+            continue
+        is_search = (name == "openai" and block.get("type") == "web_search_call") or (
+            name in {"claude", "anthropic"} and block.get("type") == "server_tool_use" and block.get("name") == "web_search") or (
+            name in {"gemini", "google"} and block.get("type") == "google_search_call")
+        if is_search:
+            search_calls.append({k: block[k] for k in ("id", "type", "name", "status", "action", "input", "arguments") if k in block})
 
     if name == "openai":
         for output in raw.get("output", []) or []:
@@ -114,4 +127,6 @@ def provider_report_metadata(provider: str, payload: Any, benchmark_mode: str) -
         "refused": refused,
         "reported_model": raw.get("model") or raw.get("modelVersion") or None,
         "model_version_status": "reported_identifier" if raw.get("model") or raw.get("modelVersion") else "unavailable",
+        "search_use_status": "observed" if search_calls else "unavailable",
+        "search_calls": search_calls,
     }

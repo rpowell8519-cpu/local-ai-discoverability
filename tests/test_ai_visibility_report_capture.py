@@ -46,3 +46,13 @@ def test_reported_model_is_kept_separately_without_inventing_a_missing_version()
     assert result["model_version_status"] == "reported_identifier"
     result = provider_report_metadata("Gemini", {}, "model_memory")
     assert result["reported_model"] is None and result["model_version_status"] == "unavailable"
+
+
+def test_actual_search_markers_are_preserved_without_inference_from_mode_or_citations():
+    for provider,payload in (("OpenAI", {"output": [{"type": "web_search_call", "id": "search", "status": "completed", "action": {"type": "search", "query": "salons"}}]}),
+                            ("Claude", {"content": [{"type": "server_tool_use", "name": "web_search", "input": {"query": "salons"}}]}),
+                            ("Gemini", {"steps": [{"type": "google_search_call", "id": "search"}]})):
+        captured = provider_report_metadata(provider,payload,"search_grounded")
+        assert captured["search_use_status"] == "observed" and len(captured["search_calls"]) == 1
+    absent = provider_report_metadata("OpenAI", {"output": []}, "search_grounded")
+    assert absent["search_use_status"] == "unavailable" and absent["search_calls"] == []

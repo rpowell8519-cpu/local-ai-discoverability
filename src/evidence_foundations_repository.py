@@ -27,7 +27,8 @@ def list_business_runs(place_id: str, *, engine=None) -> list[dict[str, Any]]:
     with (engine or get_engine()).connect() as connection:
         rows = connection.execute(text("""
             select id, target_google_place_id, target_business_name, target_propositions,
-                   benchmark_mode, models, providers, status, started_at, prompt_count, repeat_count
+                   benchmark_mode, models, providers, status, started_at, completed_at,
+                   primary_group, location_context, prompt_count, repeat_count
             from public.ai_visibility_runs where target_google_place_id=:place_id
             order by started_at desc, id desc
         """), {"place_id": place_id}).mappings().all()

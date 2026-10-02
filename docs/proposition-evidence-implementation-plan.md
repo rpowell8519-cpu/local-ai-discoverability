@@ -159,6 +159,10 @@ historical implementation dates. Intervention persistence is an additive schema 
 
 ## Increment D: focused monitoring and before/after
 
+Implemented on `feature/focused-monitoring` using the existing wave/settings store; no new schema.
+See [implementation and validation](focused-monitoring-increment-d.md). Paid pilot waves and
+human excerpt/owner sign-off remain separate from code validation.
+
 Execute optional focused panels separately from canonical benchmarks. Preserve citations and
 actual tool use where providers supply them. Add compatibility checks before comparisons and
 show denominator/completion differences, provider/model changes and evidence freshness.

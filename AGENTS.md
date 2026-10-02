@@ -635,6 +635,20 @@ both guards and enabled save controls for Cisco/Wild Flor. The action table rema
 no human excerpt approval or action was invented for QA. This approval does not cover further DDL. See
 `docs/positioning-triangulation-increment-c.md`.
 
+### Focused monitoring (Increment D)
+
+`focused_monitoring.py` projects exact linked recommendations onto a frozen family/provider/cohort
+grid; unknown identities/models and incomplete answer plans cannot supply a strict comparison.
+The existing A wave settings store the independent cohort/family mapping. `14_Focused_Monitoring.py`
+loads read-only and separates prepare/export from explicit owner-agreed paid execution/retry.
+No new schema, scheduler or snapshot freeze is involved. `core_run_filter` keeps focused waves out
+of main Visibility/report benchmark selectors, while historical exact run loading stays available.
+Provider metadata now preserves observed search markers separately from configured mode/citations;
+absence remains unknown. Contextual change is target delta minus median eligible comparator delta,
+never causal. Selected saved-source dates, bundles/overlap and unknown implementation dates stay
+visible. See `docs/focused-monitoring-increment-d.md`. Human pilot approvals/owner facts are not
+invented by QA, and no paid wave has been run as validation.
+
 ### Which review platforms were checked, and why, is now visible in the LS (page 9)
 
 Before 2026-09-29, Yelp/TripAdvisor reviews were already silently pooled into the LS's "Customer
