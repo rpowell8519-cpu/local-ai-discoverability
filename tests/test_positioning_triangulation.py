@@ -87,6 +87,21 @@ def test_unconfirmed_no_support_cannot_become_unproven_ambition():
     assert r["customer_support_records"] is None and r["suggestion"] == "NEEDS_REVIEW"
 
 
+def test_reviewed_customer_origin_is_distinct_from_the_hosting_source_class():
+    cap, _, _, _ = inputs()
+    bundle = deepcopy(cap['payload']['source_bundle'])
+    bundle['reviews'] = []
+    bundle['audit'] = {'id':'audit', 'google_place_id':'place', 'audit_status':'completed'}
+    bundle['pages'] = [{'id':f'page-{i}', 'audit_run_id':'audit', 'http_status':200,
+                        'text_excerpt':'I love my balayage.'} for i in range(2)]
+    catalogue, aliases = starter_catalogue()
+    cap = {'id':cap['id'], **build_capture(bundle, catalogue, aliases)}
+    # A human must establish testimonial origin from context; hosting on a website alone is insufficient.
+    r = row(triangulate(cap, reviews(cap, origin='customer_report')))
+    assert r['customer_support_records'] == 2 and r['suggestion'] == 'CUSTOMER_STRENGTH'
+    assert row(triangulate(cap, reviews(cap, origin='owner_claim')))['customer_support_records'] is None
+
+
 def test_thresholds_and_withdrawal_change_suggestions_without_changing_sources():
     cap, brief, run, questions = inputs()
     before = deepcopy(cap)

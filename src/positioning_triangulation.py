@@ -58,7 +58,7 @@ def triangulate(capture, decisions, *, owner_brief=None, run=None, questions=(),
         tested = True if mapped else (False if mapping_complete else None)
         strong = len(records) >= rules.min_customer_records and len(classes) >= rules.min_customer_source_classes
         customer_candidates = [o for o in observations if o["source_class"].endswith("_reviews")]
-        customer_definitive = [o for o in customer_candidates if o["evidence_id"] in latest and
+        customer_definitive = [o for o in observations if o["evidence_id"] in latest and
                               latest[o["evidence_id"]]["origin"] == "customer_report" and
                               latest[o["evidence_id"]]["identity_confirmed"] and
                               latest[o["evidence_id"]]["decision"] != "UNCERTAIN"]
