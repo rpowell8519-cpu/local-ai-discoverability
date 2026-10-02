@@ -37,8 +37,13 @@ rows. Completed denominators exclude failures, truncations, blank answers and er
 Missing queries, edited question text, duplicate answers, unexpected providers, fingerprint errors
 and incomplete grids block strict comparison. Core/focused panels, different targets, different
 series/configurations and reversed/same-run pairs cannot be compared. All returned model identifiers
-are visible; missing, mixed or undated aliases cannot establish a fixed served model version.
-A conservative date/version-suffix check is disclosed and does not verify internal model weights.
+are visible; missing, mixed or unverified undated aliases cannot establish a fixed served version.
+A conservative date/version-suffix check is supplemented by explicitly verified Claude snapshot
+IDs (`claude-sonnet-5`, `claude-sonnet-5-5`). Anthropic documents these dateless IDs as pinned
+snapshots; older convenience aliases and unreviewed IDs remain excluded. This does not verify
+internal model weights or freeze provider serving infrastructure. See
+[Anthropic's versioning documentation](https://platform.claude.com/docs/en/about-claude/models/model-ids-and-versions),
+checked 2 October 2026.
 
 For a compatible pair, the target's appearance-rate change is shown in percentage points. The
 contextual value subtracts the median eligible comparator change for the same family/provider/panel.

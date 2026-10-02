@@ -249,6 +249,7 @@ with evidence_column:
     st.page_link("pages/12_Evidence_Review.py", label="Review preserved evidence", icon="📚")
     st.page_link("pages/13_Positioning.py", label="Compare positioning and track actions", icon="🧭")
     st.page_link("pages/14_Focused_Monitoring.py", label="Monitor focused before/after results", icon="📈")
+    st.page_link("pages/15_Evidence_Research.py", label="Explore evidence research", icon="🔬")
 
 with testing_column:
     st.markdown("**AI testing**")

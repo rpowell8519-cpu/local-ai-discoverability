@@ -47,9 +47,13 @@ def _date(value):
         return None
 
 
-def _versioned_identifier(value):
-    # Undated aliases cannot establish a fixed served version. This deliberately
-    # conservative lexical check does not assert any provider's internal version.
+def _versioned_identifier(value, provider=None):
+    # Verified 2026-10-02: Claude's 4.6+ canonical IDs pin snapshots even without dates.
+    # Explicitly reviewed IDs only; do not accept arbitrary future IDs or older aliases.
+    # https://platform.claude.com/docs/en/about-claude/models/model-ids-and-versions
+    if provider == "Claude" and value in {"claude-sonnet-5", "claude-sonnet-5-5"}:
+        return True
+    # Other undated identifiers remain unknown. This lexical check cannot verify weights.
     return bool(value and re.search(r"(?:20\d{2}-\d{2}-\d{2}|20\d{6}|-\d{3}$)", str(value)))
 
 
@@ -169,7 +173,7 @@ def summarise_wave(*, run, wave, queries, results, businesses, aliases=None):
         values = {m["reported_model"] for m in metadata if m["provider"] == provider and m["reported_model"]}
         reports = [m for m in metadata if m["provider"] == provider]
         reported[provider] = sorted(values)
-        if len(values) == 1 and reports and all(_versioned_identifier(m["reported_model"]) for m in reports):
+        if len(values) == 1 and reports and all(_versioned_identifier(m["reported_model"], provider) for m in reports):
             versions[provider] = next(iter(values))
     return {"version": VERSION, "run_id": str(run["id"]), "target_google_place_id": target,
         "started_at": str(run.get("started_at") or ""), "wave": wave,

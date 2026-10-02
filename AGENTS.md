@@ -635,7 +635,7 @@ both guards and enabled save controls for Cisco/Wild Flor. The action table rema
 no human excerpt approval or action was invented for QA. This approval does not cover further DDL. See
 `docs/positioning-triangulation-increment-c.md`.
 
-### Focused monitoring (Increment D)
+### Focused monitoring (Increment D; merged PR #18)
 
 `focused_monitoring.py` projects exact linked recommendations onto a frozen family/provider/cohort
 grid; unknown identities/models and incomplete answer plans cannot supply a strict comparison.
@@ -652,6 +652,17 @@ Rob separately supplied five Wild Flor owner search goals on 2 October; they wer
 recorded verbatim as owner-brief revision 1 (`ddf8a676-17df-47a8-824a-a11915d1a957`), with no benchmark
 attached or reviewer approval. The previous wine/private-dining run context is not substituted for
 those goals. New priority labels remain unresolved by the starter catalogue. See the pilot record.
+
+### Internal research (Increment E)
+
+`research_evidence.py` projects saved focused cohorts with dated profile/sample/support features.
+Late archives or review decisions cannot become historical exposure; missing/stale/uncertain values
+are excluded from associations, not imputed as zeros. Legacy raw profile records remain mutable
+and are disclosed as such. `research_evidence_repository.py` batches bounded reads in a read-only
+repeatable-read transaction. `15_Evidence_Research.py` provides distributions, scatterplots and
+Spearman associations within compatible strata, with business-cluster intervals only when coverage
+permits. Counts reuse D, including independent zero-appearance businesses. No paid calls, writes,
+schema changes or client ranking-factor claims. See `docs/research-evidence-increment-e.md`.
 
 ### Which review platforms were checked, and why, is now visible in the LS (page 9)
 
