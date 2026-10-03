@@ -12,7 +12,7 @@ from src.llm_providers.base import (
 
 
 # Used by Streamlit pages to refresh a provider retained across deployments.
-REQUIRED_SEARCH_VERSION = 1
+REQUIRED_SEARCH_VERSION = 2
 
 ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
 
@@ -35,9 +35,13 @@ def call_anthropic(
         "messages": [{"role": "user", "content": prompt}],
     }
     if benchmark_mode == "search_grounded":
-        # Enabling the tool alone leaves search optional. These benchmarks
-        # require live search, so do not let Claude answer from memory.
-        request_body["tool_choice"] = {"type": "tool", "name": "web_search"}
+        # Sonnet 5.5 rejects forced tool choice. The system instruction requires
+        # search and the response guard below still rejects ungrounded answers.
+        # https://platform.claude.com/docs/en/models/sonnet-5-5/whats-new-sonnet-5-5
+        request_body["tool_choice"] = (
+            {"type": "auto"} if model == "claude-sonnet-5-5"
+            else {"type": "tool", "name": "web_search"}
+        )
         request_body["tools"] = [{
             "type": "web_search_20260318",
             "name": "web_search",
