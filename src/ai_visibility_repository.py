@@ -10,7 +10,7 @@ from sqlalchemy.exc import DBAPIError
 
 from src.database import get_engine
 from src.evidence_foundations_repository import record_measurement_wave
-from src.measurement_panels import build_panel
+from src.measurement_panels import PANEL_KINDS, build_panel
 
 GSO_REPORT_METADATA_VERSION = 1
 
@@ -50,8 +50,8 @@ def create_visibility_run(
                         location_context=location_context, benchmark_mode=benchmark_mode,
                         repeat_count=repeat_count, primary_group=primary_group,
                         panel_kind=panel_kind, settings=panel_settings) if prompts is not None else None
-    if panel_kind not in {"core", "focused"} or (panel_kind == "focused" and panel is None):
-        raise ValueError("Focused runs require a frozen prompt panel")
+    if panel_kind not in PANEL_KINDS or (panel_kind != "core" and panel is None):
+        raise ValueError("Focused and free-check runs require a frozen prompt panel")
     if prompts is not None and len(prompts) != prompt_count:
         raise ValueError("Panel prompt count differs from the run prompt count")
     engine = get_engine()
@@ -123,8 +123,8 @@ def create_visibility_run(
         )
         if panel is not None:
             recorded = record_measurement_wave(connection, run_id=run_id, target_id=target_google_place_id, panel=panel)
-            if panel_kind == "focused" and not recorded:
-                raise ValueError("Focused runs require measurement-wave storage")
+            if panel_kind != "core" and not recorded:
+                raise ValueError("Focused and free-check runs require measurement-wave storage")
 
     return run_id
 
@@ -526,13 +526,15 @@ def get_latest_run(
 
 
 def core_run_filter(connection) -> str:
-    """Keep optional focused runs out of canonical report/benchmark selection.
+    """Keep every non-core run (focused, free check) out of canonical report/benchmark selection.
+
+    Runs without a recorded wave predate the panel store and remain core.
 
     The fixed SQL fragment also keeps pre-foundation installations usable.
     """
     ready = connection.execute(text("select to_regclass('public.ai_measurement_waves') is not null")).scalar_one()
     return ("and not exists (select 1 from public.ai_measurement_waves w "
-            "where w.run_id=ai_visibility_runs.id and w.panel_kind='focused')") if ready else ""
+            "where w.run_id=ai_visibility_runs.id and w.panel_kind<>'core')") if ready else ""
 
 
 def get_visibility_run(run_id: str) -> dict[str, Any]:

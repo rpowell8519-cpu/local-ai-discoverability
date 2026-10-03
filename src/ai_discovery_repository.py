@@ -30,6 +30,8 @@ def create_discovery_run(
     repeat_count: int,
     benchmark_mode: str = "search_grounded",
     prompts: list[dict[str, Any]] | None = None,
+    panel_kind: str = "core",
+    panel_settings: dict[str, Any] | None = None,
 ) -> dict[str, str]:
     run_id = str(
         uuid.uuid4()
@@ -49,7 +51,10 @@ def create_discovery_run(
     engine = get_engine()
     panel = build_panel(prompts=prompts, providers=providers, models=models,
                         location_context=location_context, benchmark_mode=benchmark_mode,
-                        repeat_count=repeat_count, primary_group=primary_group) if prompts is not None else None
+                        repeat_count=repeat_count, primary_group=primary_group,
+                        panel_kind=panel_kind, settings=panel_settings) if prompts is not None else None
+    if panel_kind != "core" and panel is None:
+        raise ValueError("Focused and free-check runs require a frozen prompt panel")
     if prompts is not None and len(prompts) != prompt_count:
         raise ValueError("Panel prompt count differs from the run prompt count")
 
@@ -153,7 +158,9 @@ def create_discovery_run(
         )
 
         if panel is not None:
-            record_measurement_wave(connection, run_id=run_id, target_id=target_id, panel=panel)
+            recorded = record_measurement_wave(connection, run_id=run_id, target_id=target_id, panel=panel)
+            if panel_kind != "core" and not recorded:
+                raise ValueError("Focused and free-check runs require measurement-wave storage")
 
     return {
         "run_id":
