@@ -9,14 +9,16 @@ from typing import Any
 from src.llm_providers.base import instruction_for_mode
 
 PANEL_VERSION = "measurement-panel-v1"
+# Only core runs feed canonical reports and benchmarks; every other kind is kept out by core_run_filter.
+PANEL_KINDS = frozenset({"core", "focused", "free_check"})
 PROVIDER_FILES = {"OpenAI": "openai_provider.py", "Claude": "anthropic_provider.py", "Gemini": "gemini_provider.py"}
 
 
 def build_panel(*, prompts: list[dict[str, Any]], providers: list[str], models: dict[str, str],
                 location_context: str, benchmark_mode: str, repeat_count: int,
                 primary_group: str, panel_kind: str = "core", settings: dict[str, Any] | None = None) -> dict[str, Any]:
-    if panel_kind not in {"core", "focused"}:
-        raise ValueError("Panel kind must be core or focused")
+    if panel_kind not in PANEL_KINDS:
+        raise ValueError("Panel kind must be core, focused or free_check")
     if not prompts or len(prompts) != len({p["prompt"] for p in prompts}):
         raise ValueError("Panel prompts must be nonempty and distinct")
     if isinstance(repeat_count, bool) or int(repeat_count) < 1:

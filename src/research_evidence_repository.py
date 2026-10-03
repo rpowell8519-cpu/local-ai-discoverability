@@ -24,7 +24,10 @@ def list_research_runs(*, engine=None, limit=100):
         return _rows(connection, """
             select id,target_google_place_id,target_business_name,primary_group,location_context,
                    benchmark_mode,providers,models,status,started_at,completed_at,prompt_count,repeat_count
-            from public.ai_visibility_runs order by started_at desc,id desc limit :limit
+            from public.ai_visibility_runs r
+            where not exists (select 1 from public.ai_measurement_waves w
+                              where w.run_id=r.id and w.panel_kind='free_check')
+            order by started_at desc,id desc limit :limit
         """, {"limit": limit})
 
 
