@@ -53,7 +53,7 @@ if (repository_mode is None or repository_mode.default != "search_grounded"
     discovery_repository = importlib.reload(discovery_repository)
 if (
     getattr(visibility_runner, "SUPPORTED_BENCHMARK_MODES", frozenset()) != frozenset({"model_memory", "search_grounded"})
-    or getattr(anthropic_provider, "REQUIRED_SEARCH_VERSION", 0) != 1
+    or getattr(anthropic_provider, "REQUIRED_SEARCH_VERSION", 0) != 2
     or visibility_runner.call_anthropic is not anthropic_provider.call_anthropic
 ):
     provider_base = importlib.reload(provider_base)

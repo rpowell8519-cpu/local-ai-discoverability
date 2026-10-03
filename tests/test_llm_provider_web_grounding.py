@@ -127,3 +127,27 @@ def test_gemini_consumer_web_uses_google_search_interaction() -> None:
     assert result.output_tokens == 35
     assert result.total_tokens == 155
     assert result.reasoning_tokens == 4
+
+
+@pytest.mark.parametrize('searched', [True, False])
+def test_sonnet_55_uses_supported_choice_but_requires_observed_search(searched):
+    content = [{'type': 'text', 'text': '1. Example'}]
+    if searched:
+        content.insert(0, {'type': 'server_tool_use', 'name': 'web_search'})
+    payload = {'stop_reason': 'end_turn', 'content': content, 'usage': {}}
+    with patch('src.llm_providers.anthropic_provider.requests.post', return_value=_response(payload)) as post:
+        if searched:
+            result = call_anthropic(api_key='test', model='claude-sonnet-5-5', prompt='Best restaurant?',
+                                    benchmark_mode='search_grounded', location_context='Hove')
+            assert result.response_complete
+        else:
+            with pytest.raises(ProviderError, match='without completing a live web search'):
+                call_anthropic(api_key='test', model='claude-sonnet-5-5', prompt='Best restaurant?',
+                               benchmark_mode='search_grounded', location_context='Hove')
+    body = post.call_args.kwargs['json']
+    assert body['tool_choice'] == {'type': 'auto'}
+    assert body['max_tokens'] == 1200
+    assert body['tools'][0]['max_uses'] == 3
+    assert body['tools'][0]['user_location']['city'] == 'Hove'
+    assert 'Search the live web before answering' in body['system']
+    assert post.call_count == 1
