@@ -23,3 +23,7 @@ so prepare a new panel rather than rewriting or retrying the old wave with diffe
 request behavior. No migration is required. No additional paid verification is bundled
 with this fix. Regression tests mock provider responses, checking both searched and
 unsearched answers and preservation of other model behavior.
+
+Clean-checkout validation of `22ce98d`: **886 tests passed, 73 subtests passed, 13 skipped**,
+zero failures. Python compilation and dependency checks passed. Browser/paid execution with the
+corrected adapter has not been performed; the hot-reload guards are covered by subprocess tests.
