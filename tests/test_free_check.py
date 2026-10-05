@@ -97,6 +97,27 @@ def test_missing_flags_and_fuzzy_matches_are_never_counted_as_confirmed():
     ]
 
 
+def test_target_recommendation_uses_the_name_resolver_not_only_the_scan_flag():
+    # The owner typed one spelling; the answers list another. The scan-time flag saw a mention only.
+    results = full_results({("q2", "Claude"): result("q2", "Claude", mentioned=True),
+                            ("q5", "OpenAI"): result("q5", "OpenAI", mentioned=True),
+                            ("q3", "Gemini"): result("q3", "Gemini", mentioned=True)})
+    recommendations = [
+        rec("q2", "Claude", "The Synthetic Bistro", place_id=TARGET, status="exact_group"),
+        rec("q5", "OpenAI", "The Synthetic Bistro", place_id=TARGET, status="exact"),
+        rec("q3", "Gemini", "Synthetic Bistrot", place_id=TARGET, status="fuzzy"),  # not confident: not counted
+        rec("q1", "Gemini", "The Synthetic Bistro", place_id=TARGET, status="exact"),
+        rec("q4", "Claude", "Rival One"),
+    ]
+    results = [r for r in results if not (r["query_id"] == "q1" and r["provider"] == "Gemini")]  # invalid answer
+    out = project(results, recommendations)
+    assert out["target"]["recommended_answers"] == 2 and out["target"]["mentioned_answers"] == 3
+    assert [q["target_recommended"] for q in out["questions"]] == [0, 1, 0, 0, 1]
+    assert sum(p["target_recommended"] for p in out["providers"]) == 2
+    assert out["businesses"] == [{"name": "Rival One", "answers": 1, "identity": "unverified", "is_target": False}]
+    assert out["rank"]["position"] == 1
+
+
 def test_no_combined_rank_without_adequate_coverage():
     one_provider_missing = [result(q["id"], p) for q in QUERIES for p in PROVIDERS if p != "Gemini"]
     assert project(one_provider_missing, [])["rank"] is None
@@ -238,3 +259,17 @@ def test_worker_refuses_to_start_without_every_provider_key():
     settings = worker.load_settings({"OPENAI_API_KEY": "a", "ANTHROPIC_API_KEY": "b", "GEMINI_API_KEY": "c",
                                      "ANTHROPIC_MODEL": "override", "FREE_CHECK_DAILY_CAP": "4"})
     assert settings["models"]["Claude"] == "override" and settings["daily_cap"] == 4
+
+
+def test_reproject_rebuilds_a_delivered_summary_without_provider_calls():
+    saved = []
+    delivered = {**CHECK, "status": "completed", "run_id": "run-1"}
+    with harness("completed") as calls, \
+         patch.object(worker.jobs, "load_check", lambda connection, check_id: dict(delivered)), \
+         patch.object(worker.jobs, "replace_projection", lambda connection, **k: saved.append(k)):
+        projection = worker.reproject_check("check-1", engine=Engine())
+        assert calls["execute"] == [] and calls["created"] == []
+    assert saved == [{"check_id": "check-1", "projection": projection}] and projection["valid_answers"] == 15
+    with patch.object(worker.jobs, "load_check", lambda connection, check_id: {**CHECK, "status": "queued", "run_id": None}):
+        with pytest.raises(ValueError, match="delivered"):
+            worker.reproject_check("check-1", engine=Engine())
