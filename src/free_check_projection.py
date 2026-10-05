@@ -91,6 +91,14 @@ def build_projection(*, business_name: str, questions: list[str], providers: lis
                      "target_recommended": count(target_rows, order=i, recommended=True)}
                     for i, text in enumerate(questions, start=1)]
 
+    # One cell per question and provider, so the results page can show exactly where the business
+    # was and was not recommended. An answer that never completed is "missing", never "not recommended".
+    cell_state = {(row["order"], row["provider"]): "recommended" if row["recommended"] else "not_recommended"
+                  for row in target_rows}
+    cells = [{"order": order, "provider": provider,
+              "state": cell_state.get((order, provider), "missing")}
+             for order in range(1, len(questions) + 1) for provider in providers]
+
     adequate = (expected > 0 and len(valid) >= expected * MINIMUM_COVERAGE
                 and all(p["valid"] > 0 for p in per_provider))
     rank = None
@@ -121,5 +129,6 @@ def build_projection(*, business_name: str, questions: list[str], providers: lis
         "businesses": businesses,
         "providers": per_provider,
         "questions": per_question,
+        "cells": cells,
         "caveats": caveats,
     }

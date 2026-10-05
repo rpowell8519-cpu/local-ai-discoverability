@@ -118,6 +118,20 @@ def test_target_recommendation_uses_the_name_resolver_not_only_the_scan_flag():
     assert out["rank"]["position"] == 1
 
 
+def test_cells_show_each_question_and_provider_and_keep_missing_distinct():
+    results = full_results({("q1", "OpenAI"): result("q1", "OpenAI", recommended=True),
+                            ("q2", "Claude"): result("q2", "Claude", status="failed")})
+    out = project(results, [rec("q3", "Gemini", "The Synthetic Bistro", place_id=TARGET, status="exact")])
+    cells = {(c["order"], c["provider"]): c["state"] for c in out["cells"]}
+    assert len(out["cells"]) == 15
+    assert cells[(1, "OpenAI")] == "recommended" and cells[(3, "Gemini")] == "recommended"
+    assert cells[(2, "Claude")] == "missing" and cells[(1, "Claude")] == "not_recommended"
+    for question in out["questions"]:
+        assert question["target_recommended"] == sum(
+            1 for (order, _), state in cells.items() if order == question["order"] and state == "recommended")
+    assert project([], [])["cells"][0]["state"] == "missing"
+
+
 def test_no_combined_rank_without_adequate_coverage():
     one_provider_missing = [result(q["id"], p) for q in QUERIES for p in PROVIDERS if p != "Gemini"]
     assert project(one_provider_missing, [])["rank"] is None
