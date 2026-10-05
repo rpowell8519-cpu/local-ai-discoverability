@@ -273,3 +273,25 @@ def test_reproject_rebuilds_a_delivered_summary_without_provider_calls():
     with patch.object(worker.jobs, "load_check", lambda connection, check_id: {**CHECK, "status": "queued", "run_id": None}):
         with pytest.raises(ValueError, match="delivered"):
             worker.reproject_check("check-1", engine=Engine())
+
+
+def test_wake_endpoint_answers_but_does_no_work():
+    import urllib.error
+    import urllib.request
+    with patch.object(worker, "process_one") as process_one:
+        server = worker.start_wake_server(0)
+        try:
+            base = f"http://127.0.0.1:{server.server_address[1]}"
+            for path in ("/health", "/wake", "/"):
+                with urllib.request.urlopen(base + path, timeout=5) as response:
+                    assert response.status == 200 and response.read() == b"ok\n"
+            request = urllib.request.Request(base + "/wake", data=b"{}", method="POST")
+            with urllib.request.urlopen(request, timeout=5) as response:
+                assert response.status == 200
+            with pytest.raises(urllib.error.HTTPError) as missing:
+                urllib.request.urlopen(base + "/admin", timeout=5)
+            assert missing.value.code == 404
+        finally:
+            server.shutdown()
+            server.server_close()
+        process_one.assert_not_called()

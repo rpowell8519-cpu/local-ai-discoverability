@@ -1,16 +1,21 @@
-# Render blueprint for the free-check background worker (src/free_check_worker.py).
+# Render blueprint for the free-check worker (src/free_check_worker.py).
 # It makes paid AI provider calls. The secrets below are entered in the Render dashboard and are
 # never stored in this repository. The Streamlit app is deployed separately and is not affected.
+#
+# Runs as a FREE web service: Render has no free background-worker plan. A free web service sleeps
+# after about 15 minutes without a request, so the website requests /wake when a check is submitted
+# and while one is in progress. To make it always-on instead, change plan to starter.
 services:
-  - type: worker
+  - type: web
     name: free-check-worker
     runtime: python
     region: frankfurt
-    plan: starter
+    plan: free
     branch: main
     autoDeploy: true
     buildCommand: pip install -r requirements.txt
-    startCommand: python -m src.free_check_worker
+    startCommand: python -m src.free_check_worker --serve
+    healthCheckPath: /health
     envVars:
       - key: PYTHON_VERSION
         value: 3.12.3
