@@ -45,10 +45,19 @@ def build_projection(*, business_name: str, questions: list[str], providers: lis
     def count(rows, **match):
         return sum(1 for r in rows if all(r.get(k) == v for k, v in match.items()))
 
-    target_rows = [{"order": order_by_query[str(r["query_id"])], "provider": str(r["provider"]),
-                    "recommended": _flag(r.get("target_recommended")),
-                    "mentioned": _flag(r.get("target_mentioned")) or _flag(r.get("target_recommended"))}
-                   for r in valid]
+    # The target counts as recommended when the full name resolver places it in the answer's
+    # numbered recommendations, exactly as canonical reports count. The scan-time flag alone is too
+    # literal: it misses "The Lion and Lobster" when the owner typed "Lion & Lobster".
+    resolved_target = {(str(rec.get("query_id")), str(rec.get("provider"))) for rec in recommendations
+                       if str(rec.get("google_place_id") or "") == target_id
+                       and rec.get("resolution_status") in CONFIDENT_RESOLUTIONS}
+    target_rows = []
+    for r in valid:
+        recommended = (_flag(r.get("target_recommended"))
+                       or (str(r["query_id"]), str(r["provider"])) in resolved_target)
+        target_rows.append({"order": order_by_query[str(r["query_id"])], "provider": str(r["provider"]),
+                            "recommended": recommended,
+                            "mentioned": recommended or _flag(r.get("target_mentioned"))})
     target_recommended = count(target_rows, recommended=True)
 
     # Other businesses: one count per valid answer, grouped by resolved listing when there is one.

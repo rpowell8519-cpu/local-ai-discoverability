@@ -96,6 +96,11 @@ assert.equal(delivered.error_code, null);
 assert.deepEqual(delivered.result_projection, projection);
 assert.equal((await job(first.id)).state, 'succeeded');
 assert.equal((await run('COMPLETE_JOB_SQL', {id: leased.id, worker_id: 'worker-a', completed_calls: 15})).affectedRows, 0, 'cannot complete twice');
+// A delivered summary can be rebuilt; an undelivered check cannot be given one.
+const corrected = {schema_version: 'free-check-projection-v1', valid_answers: 15, corrected: true};
+assert.equal((await run('REPLACE_PROJECTION_SQL', {id: first.id, version: corrected.schema_version, projection: JSON.stringify(corrected)})).affectedRows, 1);
+assert.deepEqual((await check(first.id)).result_projection, corrected);
+assert.equal((await run('REPLACE_PROJECTION_SQL', {id: second.id, version: corrected.schema_version, projection: JSON.stringify(corrected)})).affectedRows, 0);
 
 // A partial delivery records why.
 const third = await submit(3);

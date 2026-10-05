@@ -1,7 +1,8 @@
 """Background worker that executes customer free checks.
 
-Run with:  python -m src.free_check_worker           (poll forever)
-           python -m src.free_check_worker --once    (process at most one job, then exit)
+Run with:  python -m src.free_check_worker                     (poll forever)
+           python -m src.free_check_worker --once              (process at most one job, then exit)
+           python -m src.free_check_worker --reproject <id>    (rebuild a saved summary; no calls)
 
 It makes paid provider calls. It reuses the same run creation, call execution, recommendation
 parsing and name resolution as the operator AI Discovery Scan, so a free check measures exactly
@@ -69,6 +70,38 @@ def _directory(engine, target_id: str, business_name: str) -> pd.DataFrame:
     return pd.concat([pd.DataFrame(rows), pd.DataFrame([stub])], ignore_index=True)
 
 
+def project_saved_run(check: dict[str, Any], *, run_id: str, engine) -> dict[str, Any]:
+    """Build the customer-safe summary from a run's saved answers. Makes no provider calls."""
+    business_name = check["business_name"].strip()
+    run = get_visibility_run(run_id)
+    target_id = str(run["target_google_place_id"])
+    results = get_run_results(run_id)
+    recommendations = build_recommendation_records(
+        results=results, businesses=_directory(engine, target_id, business_name),
+        aliases=load_entity_aliases(), target_google_place_id=target_id,
+        commercial_competitor_ids=set(), primary_group=PRIMARY_GROUP)
+    return build_projection(
+        business_name=business_name, questions=list(check["questions"]), providers=PROVIDERS,
+        queries=get_run_queries(run_id).to_dict("records"), results=results.to_dict("records"),
+        recommendations=recommendations.to_dict("records"), target_id=target_id,
+        measured_at=str(run.get("completed_at") or run.get("started_at") or ""),
+        benchmark_mode=BENCHMARK_MODE)
+
+
+def reproject_check(check_id: str, *, engine=None, save: bool = True) -> dict[str, Any]:
+    """Rebuild a delivered check's summary from its saved answers, e.g. after a counting fix."""
+    engine = engine or get_engine()
+    with engine.begin() as connection:
+        check = jobs.load_check(connection, check_id)
+    if check["status"] not in {"completed", "partial"} or not check.get("run_id"):
+        raise ValueError("Only a delivered check with a saved run can be re-projected")
+    projection = project_saved_run(check, run_id=str(check["run_id"]), engine=engine)
+    if save:
+        with engine.begin() as connection:
+            jobs.replace_projection(connection, check_id=check_id, projection=projection)
+    return projection
+
+
 def run_job(job: dict[str, Any], *, settings: dict[str, Any], worker_id: str, engine=None) -> str:
     """Execute one leased job to a delivered, retried or failed outcome. Returns that outcome."""
     engine = engine or get_engine()
@@ -126,19 +159,7 @@ def run_job(job: dict[str, Any], *, settings: dict[str, Any], worker_id: str, en
                                    error=f"Run ended {status}; missing answers will be retried")
         return "retry"
 
-    results = get_run_results(run_id)
-    queries = get_run_queries(run_id)
-    recommendations = build_recommendation_records(
-        results=results, businesses=_directory(engine, target_id, business_name),
-        aliases=load_entity_aliases(), target_google_place_id=target_id,
-        commercial_competitor_ids=set(), primary_group=PRIMARY_GROUP)
-    run = get_visibility_run(run_id)
-    projection = build_projection(
-        business_name=business_name, questions=list(check["questions"]), providers=PROVIDERS,
-        queries=queries.to_dict("records"), results=results.to_dict("records"),
-        recommendations=recommendations.to_dict("records"), target_id=target_id,
-        measured_at=str(run.get("completed_at") or run.get("started_at") or ""),
-        benchmark_mode=BENCHMARK_MODE)
+    projection = project_saved_run(check, run_id=run_id, engine=engine)
     with engine.begin() as connection:
         jobs.complete_job(connection, job_id=job_id, worker_id=worker_id, check_status=status,
                           projection=projection, completed_calls=projection["valid_answers"])
@@ -170,8 +191,15 @@ def process_one(*, settings: dict[str, Any], worker_id: str, engine=None) -> str
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--once", action="store_true", help="process at most one job, then exit")
+    parser.add_argument("--reproject", metavar="CHECK_ID",
+                        help="rebuild one delivered check's summary from saved answers; no provider calls")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    if args.reproject:
+        projection = reproject_check(args.reproject)
+        log.info("Re-projected %s: target recommended in %s of %s answers", args.reproject,
+                 projection["target"]["recommended_answers"], projection["valid_answers"])
+        return
     settings = load_settings()
     worker_id = f"{socket.gethostname()}:{os.getpid()}"
     engine = get_engine()

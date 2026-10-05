@@ -80,6 +80,11 @@ COMPLETE_CHECK_SQL = """
             error_code=case when :status='partial' then 'some_answers_missing' else null end
         from public.visibility_jobs j where j.id=:id and c.id=j.check_id
     """
+REPLACE_PROJECTION_SQL = """
+        update public.customer_checks
+        set result_projection=cast(:projection as jsonb), result_projection_version=:version
+        where id=:id and status in ('completed', 'partial')
+    """
 RELEASE_SQL = """
         update public.visibility_jobs
         set state='queued', lease_owner=null, lease_expires_at=null,
@@ -151,3 +156,11 @@ def release_for_retry(connection, *, job_id: str, worker_id: str, error: str,
     """Hand the job back to the queue. fail_exhausted_jobs closes it once attempts run out."""
     _owned(connection, RELEASE_SQL, {"id": job_id, "worker_id": worker_id, "delay_seconds": int(delay_seconds),
           "error": str(error)[:500]})
+
+
+def replace_projection(connection, *, check_id: str, projection: dict[str, Any]) -> None:
+    """Swap a delivered check's summary for one rebuilt from the same saved answers."""
+    if connection.execute(text(REPLACE_PROJECTION_SQL), {
+            "id": check_id, "version": projection["schema_version"],
+            "projection": json.dumps(projection, ensure_ascii=False, allow_nan=False)}).rowcount != 1:
+        raise RuntimeError("Check is not delivered, so its summary was not replaced")
