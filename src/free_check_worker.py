@@ -3,6 +3,11 @@
 Run with:  python -m src.free_check_worker                     (poll forever)
            python -m src.free_check_worker --once              (process at most one job, then exit)
            python -m src.free_check_worker --reproject <id>    (rebuild a saved summary; no calls)
+           python -m src.free_check_worker --serve             (poll forever behind a small web endpoint)
+
+--serve exists for hosts whose free plan only runs web services and puts them to sleep when no
+request arrives. The website requests /wake when a check is submitted; the host starts this process
+and the normal polling loop drains the queue. The endpoint itself does no work and needs no secret.
 
 It makes paid provider calls. It reuses the same run creation, call execution, recommendation
 parsing and name resolution as the operator AI Discovery Scan, so a free check measures exactly
@@ -10,7 +15,7 @@ what an operator scan measures; only the customer-safe summary is new. Runs are 
 free_check panel kind, which core_run_filter keeps out of canonical reports and benchmarks.
 
 Required environment: DATABASE_URL, OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY.
-Optional: OPENAI_MODEL, ANTHROPIC_MODEL, GEMINI_MODEL, FREE_CHECK_DAILY_CAP.
+Optional: OPENAI_MODEL, ANTHROPIC_MODEL, GEMINI_MODEL, FREE_CHECK_DAILY_CAP, PORT (with --serve).
 """
 from __future__ import annotations
 
@@ -18,7 +23,9 @@ import argparse
 import logging
 import os
 import socket
+import threading
 import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
 import pandas as pd
@@ -188,9 +195,37 @@ def process_one(*, settings: dict[str, Any], worker_id: str, engine=None) -> str
     return outcome
 
 
+class _WakeHandler(BaseHTTPRequestHandler):
+    """Answers the host's health check and the website's wake-up request. Triggers nothing itself."""
+
+    def _reply(self) -> None:
+        known = self.path.split("?")[0] in {"/", "/health", "/wake"}
+        body = b"ok\n" if known else b"not found\n"
+        self.send_response(200 if known else 404)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(body)
+
+    do_GET = do_POST = do_HEAD = _reply
+
+    def log_message(self, format, *args):  # noqa: A002 - keep request noise out of the worker log
+        return
+
+
+def start_wake_server(port: int) -> ThreadingHTTPServer:
+    server = ThreadingHTTPServer(("0.0.0.0", port), _WakeHandler)
+    threading.Thread(target=server.serve_forever, name="wake-endpoint", daemon=True).start()
+    return server
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--once", action="store_true", help="process at most one job, then exit")
+    parser.add_argument("--serve", action="store_true",
+                        help="also answer /health and /wake on $PORT, for sleep-when-idle web hosts")
     parser.add_argument("--reproject", metavar="CHECK_ID",
                         help="rebuild one delivered check's summary from saved answers; no provider calls")
     args = parser.parse_args()
@@ -203,6 +238,10 @@ def main() -> None:
     settings = load_settings()
     worker_id = f"{socket.gethostname()}:{os.getpid()}"
     engine = get_engine()
+    if args.serve:
+        port = int(os.environ.get("PORT") or 10000)
+        start_wake_server(port)
+        log.info("Wake endpoint listening on port %s", port)
     log.info("Free-check worker %s started; daily cap %s", worker_id, settings["daily_cap"])
     while True:
         outcome = process_one(settings=settings, worker_id=worker_id, engine=engine)
