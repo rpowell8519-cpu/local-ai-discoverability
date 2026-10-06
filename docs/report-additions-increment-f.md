@@ -78,21 +78,13 @@ zero failures** (independently run, not just reported). `python -m compileall -q
 included in that total; every pre-existing test, including the Cisco's Karma and Wild Flor LS/RP
 regression fixtures, is unaffected.
 
-## Working-tree note (2026-10-06)
+## Working-tree note (2026-10-06, resolved)
 
 This branch was built in the same local checkout as an unrelated, concurrently active session
 working on a separate `feature/free-check-identity-and-email` branch. A branch checkout made while
 that session had uncommitted changes in progress caused both sessions' uncommitted work to become
 briefly visible on whichever branch was checked out at a given moment. No commits were lost or
-cross-contaminated — `git add -A` was caught and reverted before anything was staged, and this
-branch's own files were never added to the other session's commit. As of writing, this increment's
-files exist only as uncommitted changes in the working tree; they have deliberately not been
-`git add`ed or committed yet, to avoid racing with the other session's own pending commit. Commit
-this branch's exact file list (not `-A`) once the working tree is confirmed to hold only one
-session's changes at a time:
-
-```
-app/pages/10_AI_Report_Generator.py src/client_summary/adapter.py src/client_summary/pdf.py
-src/poc_audit_generic.py src/positioning_report_summary.py tests/test_client_summary_positioning.py
-tests/test_positioning_report_summary.py docs/report-additions-increment-f.md
-```
+cross-contaminated: `git add -A` was caught and reverted before anything was staged, and the other
+session's own commit (`4a743d7`, an explicit file list, not `-A`) never picked up this branch's
+files. Once that session's commit landed, this branch's exact file list was checked out cleanly,
+re-validated, and committed here as `45ad25a` — nothing merged or pushed, pending review.
