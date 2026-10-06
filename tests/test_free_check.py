@@ -160,7 +160,7 @@ CHECK = {"id": "check-1", "owner_user_id": "owner-1", "business_name": " Synthet
          "website": None, "services": "private dining", "questions": QUESTIONS, "claimed_google_place_id": None}
 SETTINGS = {"api_keys": {p: "synthetic" for p in PROVIDERS}, "models": dict(worker.DEFAULT_MODELS),
             "daily_cap": 10, "email": None}
-EMAIL = {"api_key": "synthetic-key", "sender": "Found.Brighton <hello@example.org>", "site_url": "https://example.org"}
+EMAIL = {"api_key": "synthetic-key", "sender": "Found.in.Brighton <hello@example.org>", "site_url": "https://example.org"}
 
 
 def job(**changes):
