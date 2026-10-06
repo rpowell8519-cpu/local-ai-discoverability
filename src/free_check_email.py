@@ -19,7 +19,7 @@ from typing import Any
 log = logging.getLogger("free_check_email")
 
 RESEND_URL = "https://api.resend.com/emails"
-DEFAULT_SITE_URL = "https://found-brighton.vercel.app"
+DEFAULT_SITE_URL = "https://foundinbrighton.ai"
 
 
 def email_settings(environ) -> dict[str, str] | None:
@@ -56,12 +56,12 @@ def build_results_email(*, business_name: str, projection: dict[str, Any], site_
         how,
         "You are receiving this because you ran a free visibility check with this email address. "
         "We do not send marketing emails.",
-        "Found.Brighton",
+        "Found.in.Brighton",
     ])
     safe = html.escape
     body = f"""<div style="background:#f5f2e9;padding:32px 16px;font-family:Arial,Helvetica,sans-serif;color:#203c33;">
   <div style="max-width:520px;margin:0 auto;background:#fffdf8;border:1px solid #cbd1c3;border-radius:12px;padding:32px;">
-    <p style="margin:0 0 24px;font-size:20px;font-weight:bold;color:#244b3b;">Found.Brighton</p>
+    <p style="margin:0 0 24px;font-size:20px;font-weight:bold;color:#244b3b;">Found.in.Brighton</p>
     <h1 style="margin:0 0 16px;font-size:24px;line-height:1.3;color:#203c33;">Your visibility check is ready</h1>
     <p style="margin:0 0 16px;font-size:18px;line-height:1.5;color:#203c33;"><strong>{safe(headline)}</strong></p>
     <p style="margin:0 0 24px;font-size:16px;line-height:1.6;color:#4d5f56;">{safe(context)}</p>
