@@ -72,6 +72,7 @@ from src.website_audit_repository import (  # noqa: E402
 from src.review_repository import get_reviews  # noqa: E402
 from src.evidence_analysis import MAX_LEADERS, MIN_LEADERS, analyse_evidence, select_leaders  # noqa: E402
 from src.business_platform_links import load_platform_links  # noqa: E402
+from src.positioning_report_summary import build_positioning_candidates  # noqa: E402
 from src.review_coverage import empty_text_check, has_legacy_presence_action  # noqa: E402
 from src.client_summary.actions import has_builtin_profile  # noqa: E402
 from src.ai_visibility_repository import get_visibility_run, get_run_queries, get_run_results  # noqa: E402
@@ -2234,6 +2235,41 @@ if ai_ready and definition is None:
                             max_chars=380,
                             key=f"rec_wording_{selected_place_id}_{position}",
                         )
+        positioning_choices: dict[str, str] = {}
+        saved_positioning_choices = dict(existing_decisions.get("positioning_summary_decisions") or {})
+        try:
+            attached_run = get_visibility_run(saved_benchmark_run_id) if saved_benchmark_run_id else None
+            positioning_candidates = build_positioning_candidates(selected_place_id, benchmark_run=attached_run)
+        except Exception as exc:
+            positioning_candidates = []
+            st.caption(f":gray[Positioning evidence could not be loaded ({type(exc).__name__}); none is included.]")
+        if positioning_candidates:
+            st.markdown("**Positioning evidence (Evidence Review / Positioning)**")
+            st.caption(
+                "Each one compares the owner's stated priorities, reviewed customer evidence and confirmed tested "
+                "questions for one proposition. These are diagnostic suggestions, not AI ranking factors or proof of "
+                "demand. Nothing goes into the report until you include it."
+            )
+            for position, candidate in enumerate(positioning_candidates):
+                with st.container(border=True):
+                    st.markdown(f"**{candidate['proposition']}** · :gray[{candidate['suggestion']}]")
+                    st.write(candidate["reason"])
+                    if candidate["customer_support_records"] is not None:
+                        st.caption(
+                            f"Reviewed customer support: {candidate['customer_support_records']} saved record(s) across "
+                            f"{candidate['customer_source_classes']} source class(es)."
+                        )
+                    for action in candidate["interventions"]:
+                        st.caption(f"Recorded action ({action['status']}): {action['hypothesis']}")
+                    saved_choice = saved_positioning_choices.get(candidate["proposition_key"], "undecided")
+                    positioning_choices[candidate["proposition_key"]] = st.radio(
+                        "Include in the report?",
+                        options=["undecided", "include", "leave_out"],
+                        index=["undecided", "include", "leave_out"].index(saved_choice if saved_choice in ("include", "leave_out") else "undecided"),
+                        format_func={"undecided": "Not decided", "include": "Include", "leave_out": "Leave out"}.get,
+                        horizontal=True,
+                        key=f"pos_choice_{selected_place_id}_{position}",
+                    )
         headline = st.text_area(
             "Plain-English headline",
             value=str(existing_decisions.get("headline") or ""),
@@ -2292,6 +2328,7 @@ if ai_ready and definition is None:
         order for order, choice in question_choices.items() if not choice
     ] if checking else []
     open_recs = [cid for cid, choice in recommendation_choices.items() if choice == "undecided"] if checking else []
+    open_positioning = [key for key, choice in positioning_choices.items() if choice == "undecided"] if checking else []
     open_waivers = [key for key, accepted in waiver_choices.items() if not accepted] if checking else []
     target_items = [item for item in name_choices if item["subject"].key == TARGET_KEY] if checking else []
     chosen_places = ({name: ("" if choice == "__none__" else choice) for name, choice in owner_place_choices.items() if choice != ""}
@@ -2308,7 +2345,7 @@ if ai_ready and definition is None:
     conflicts = conflicting_confirmations(identity_plan, {
         "confirmed_target_names": [i["name"] for i in target_items if i["choice"] == "yes"], "name_links": links,
     }) if checking else []
-    if complete_review and (open_names or unchosen_owners or unlinked_questions or open_recs or open_waivers or conflicts):
+    if complete_review and (open_names or unchosen_owners or unlinked_questions or open_recs or open_positioning or open_waivers or conflicts):
         problems = []
         if unchosen_owners:
             problems.append(
@@ -2327,6 +2364,11 @@ if ai_ready and definition is None:
             titles = {c["id"]: c["title"] for c in evidence_candidates}
             problems.append(
                 "which recommendations from the evidence to include: " + ", ".join(f"“{titles[cid]}”" for cid in open_recs)
+            )
+        if open_positioning:
+            labels = {c["proposition_key"]: c["proposition"] for c in positioning_candidates}
+            problems.append(
+                "which positioning evidence to include: " + ", ".join(f"“{labels[key]}”" for key in open_positioning)
             )
         if open_waivers:
             problems.append(
@@ -2356,6 +2398,11 @@ if ai_ready and definition is None:
             "approved_recommendations": [
                 {**candidate, "action": (recommendation_wording.get(candidate["id"]) or candidate["action"]).strip()[:380]}
                 for candidate in evidence_candidates if recommendation_choices.get(candidate["id"]) == "include"
+            ],
+            "positioning_summary_decisions": {key: choice for key, choice in positioning_choices.items() if choice != "undecided"},
+            "approved_positioning_summary": [
+                candidate for candidate in positioning_candidates
+                if positioning_choices.get(candidate["proposition_key"]) == "include"
             ],
             "recommendation_basis": (
                 {"layers": evidence_analysis["layers"], "leaders": evidence_analysis["leaders"], "basis": evidence_analysis["basis"],

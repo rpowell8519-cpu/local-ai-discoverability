@@ -1,4 +1,5 @@
-"""In-memory client summary, with three extra pages when saved review sets exist.
+"""In-memory client summary, with three extra pages when saved review sets exist, plus one more
+when a reviewer has included at least one positioning finding (see render_positioning).
 
 Vendored from the streamlit-client-report package supplied on 2026-09-21, then restyled to
 match the approved Garden Bar draft: same palette, stat tiles, callout boxes and bar scaling,
@@ -126,7 +127,7 @@ class Page:
         c.setFont('Helvetica', 8)
         c.setFillColor(GREY)
         c.drawString(LEFT, H - 808, f"AI visibility | Baseline audit: {long_date(d['audit_date'])}")
-        extra = 3 if d.get('review_analysis') else 0
+        extra = (3 if d.get('review_analysis') else 0) + (1 if d.get('positioning_summary') else 0)
         c.drawRightString(RIGHT, H - 808, f'{number} / {TOTAL_PAGES + extra}')
         self.top = 78
         self.eyebrow(eyebrow)
@@ -653,8 +654,11 @@ def _render(payload, level):
     page.end()
 
     render_mentions(page, d)
-    if d.get('review_analysis'):
+    has_reviews = bool(d.get('review_analysis'))
+    if has_reviews:
         render_reviews(page, d)
+    if d.get('positioning_summary'):
+        render_positioning(page, d, 13 if has_reviews else 10)
     canvas.save()
     return out.getvalue()
 
@@ -830,4 +834,30 @@ def render_reviews(page, data):
     page.para('Method: keyword matching, not an assessment of meaning or sentiment. A mention can be positive, negative or incidental; '
               'no match does not mean the service was never delivered. Themes and linked question groups can overlap, so do not add the rows together. '
               'The benchmark does not establish whether an AI tool read these reviews or used them to select a business.', 'small')
+    page.end()
+
+
+def render_positioning(page, data, number):
+    """Reviewer-approved positioning findings only. Present only when at least one exists -
+    every finding here was explicitly included by a reviewer in step 5 of the report generator,
+    never auto-generated from an unreviewed candidate or a cross-business statistical association.
+    """
+
+    rows = data.get('positioning_summary') or []
+    page.start(number, 'Positioning evidence', 'What reviewed evidence says about your priorities',
+               'Each row compares your stated priorities with customer evidence our team reviewed against your saved '
+               'website and review records. These are findings about your evidence, not an AI ranking score or proof '
+               'of search demand.')
+    table_rows = []
+    for row in rows:
+        support = (f"{row['support_records']} record(s), {row['source_classes']} source(s)"
+                  if row.get('support_records') is not None else 'Not yet reviewed')
+        action = '; '.join(f"{a['status']}: {a['note']}" for a in row.get('actions') or []) or '-'
+        table_rows.append([row['proposition'], row['finding'], support, action])
+    draw_table(page, ['Priority', 'What reviewed evidence found', 'Customer evidence', 'Recorded action'],
+              table_rows, [95, 190, 97, 125])
+    page.para('Reviewed evidence means a named member of our team read the specific saved page, review or listing '
+              'behind each finding; it is not an automated score. Customer evidence counts distinct saved review '
+              'records, not independent customers or a representative sample of all reviews. A recorded action records '
+              'what we agreed to do and why; it does not promise a change in AI recommendations.', 'small')
     page.end()

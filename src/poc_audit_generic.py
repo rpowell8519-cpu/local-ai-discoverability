@@ -351,6 +351,7 @@ def assemble_generic_report_payload(
             "auto_findings": True,
             "evidence_recommendations": [dict(item) for item in decisions_input.get("approved_recommendations") or []],
             "recommendation_basis": dict(decisions_input.get("recommendation_basis") or {}),
+            "positioning_summary": [dict(item) for item in decisions_input.get("approved_positioning_summary") or []],
             "type_wording": dict(decisions_input.get("type_wording") or {}),
             "site_findings": [dict(finding) for finding in site_findings],
             "listing_reviews": {

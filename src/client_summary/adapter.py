@@ -119,6 +119,37 @@ def _comparison_evidence(owner_config: Mapping[str, Any], approved: list[dict[st
     }]
 
 
+_SUGGESTION_WORDING = {
+    "STRATEGIC_CORE": "A priority you named, reviewed customer evidence and a tested question all line up here.",
+    "HIDDEN_STRENGTH": "Reviewed customer evidence supports this, though it isn't currently tested in your benchmark.",
+    "CUSTOMER_STRENGTH": "Reviewed customer evidence supports this, independently of whether you named it as a priority.",
+    "UNPROVEN_AMBITION": "You named this as a priority, but the reviewed customer evidence does not yet support it.",
+    "CONFLICTED_EVIDENCE": "Reviewed evidence includes a contradiction here; this needs investigation before acting on it.",
+}
+
+
+def _positioning_summary(owner_config: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Reviewer-approved positioning findings only; never raw excerpts or unreviewed candidates."""
+
+    rows = []
+    for item in owner_config.get("positioning_summary") or []:
+        wording = _SUGGESTION_WORDING.get(str(item.get("suggestion")))
+        if not wording:
+            continue
+        actions = [
+            {"status": str(a.get("status")), "note": _shorten(str(a.get("hypothesis") or ""), 180)}
+            for a in item.get("interventions") or []
+        ]
+        rows.append({
+            "proposition": _shorten(str(item.get("proposition") or ""), 60),
+            "finding": wording,
+            "support_records": item.get("customer_support_records"),
+            "source_classes": item.get("customer_source_classes"),
+            "actions": actions[:3],
+        })
+    return rows[:6]
+
+
 def _evidence_layers(owner_config: Mapping[str, Any], approved: list[dict[str, Any]]) -> list[str]:
     """What the approved recommendations were drawn from, so the summary can say so and never overstate."""
 
@@ -288,6 +319,7 @@ def build_client_summary_report(
         "evidence_layers": _evidence_layers(owner_config, approved),
         "review_analysis": build_review_summary(report, group),
         "mention_analysis": mention_analysis,
+        "positioning_summary": _positioning_summary(owner_config),
         "evidence": [
             {"id": str(f["id"]), "observation": str(f["observation"]), "source": str(f["source"])}
             for f in findings
