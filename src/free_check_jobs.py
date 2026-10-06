@@ -85,6 +85,8 @@ REPLACE_PROJECTION_SQL = """
         set result_projection=cast(:projection as jsonb), result_projection_version=:version
         where id=:id and status in ('completed', 'partial')
     """
+OWNER_EMAIL_SQL = "select email from auth.users where id=:owner_user_id"
+LISTING_SQL = "select business_name, primary_group from public.business_features where google_place_id=:place_id"
 RELEASE_SQL = """
         update public.visibility_jobs
         set state='queued', lease_owner=null, lease_expires_at=null,
@@ -164,3 +166,14 @@ def replace_projection(connection, *, check_id: str, projection: dict[str, Any])
             "id": check_id, "version": projection["schema_version"],
             "projection": json.dumps(projection, ensure_ascii=False, allow_nan=False)}).rowcount != 1:
         raise RuntimeError("Check is not delivered, so its summary was not replaced")
+
+
+def owner_email(connection, owner_user_id: str) -> str | None:
+    """The confirmed address the check belongs to, for the results-ready notification only."""
+    return connection.execute(text(OWNER_EMAIL_SQL), {"owner_user_id": owner_user_id}).scalar_one_or_none()
+
+
+def confirmed_listing(connection, place_id: str) -> dict[str, Any] | None:
+    """The directory listing an owner confirmed as theirs, or None if it has since been removed."""
+    row = connection.execute(text(LISTING_SQL), {"place_id": place_id}).mappings().first()
+    return dict(row) if row else None
