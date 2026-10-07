@@ -241,6 +241,7 @@ evidence_column, testing_column, data_column = st.columns(3)
 
 with evidence_column:
     st.markdown("**Evidence**")
+    st.page_link("pages/1_Client_Evidence.py", label="See a client's evidence in one place", icon="🧾")
     st.page_link("pages/5_Website_Audits.py", label="Check a website", icon="🌐")
     st.page_link("pages/7_Review_Insights.py", label="Pull customer reviews", icon="⭐")
     st.page_link(
