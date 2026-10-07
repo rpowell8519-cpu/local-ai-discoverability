@@ -48,6 +48,8 @@ GROUP_LABELS = {
     "workspaces": "Workspaces",
     "cleaning_services": "Cleaning services",
     "childcare_nurseries": "Nurseries & childcare",
+    "building_trades": "Builders & building trades",
+    "saunas": "Saunas",
     "other": "Other local business",
 }
 
@@ -329,6 +331,93 @@ GROUP_RULES = {
             "childminder",
         },
     },
+    # Firms that build, extend and renovate, with the trades that do that work on site. Plumbers,
+    # electricians, architects, surveyors and suppliers are left out: owners do not compare them
+    # with a builder, so each would need its own group.
+    "building_trades": {
+        "category_values": {
+            "construction company",
+            "building firm",
+            "builder",
+            "home builder",
+            "custom home builder",
+            "contractor",
+            "general contractor",
+            "building restoration service",
+            "interior construction contractor",
+            "property maintenance",
+            "roofing contractor",
+            "roofing service",
+            "carpenter",
+            "plasterer",
+            "bricklayer",
+            "painter and decorator",
+            "kitchen renovator",
+            "bathroom renovator",
+            "garage builder",
+            "concrete contractor",
+        },
+        "type_values": {
+            "construction company",
+            "building firm",
+            "builder",
+            "home builder",
+            "custom home builder",
+            "contractor",
+            "general contractor",
+            "building restoration service",
+            "interior construction contractor",
+            "property maintenance",
+            "roofing contractor",
+            "roofing service",
+            "carpenter",
+            "plasterer",
+            "bricklayer",
+            "painter and decorator",
+            "kitchen renovator",
+            "bathroom renovator",
+            "garage builder",
+            "concrete contractor",
+        },
+        "subtype_values": {
+            "construction company",
+            "building firm",
+            "builder",
+            "home builder",
+            "custom home builder",
+            "contractor",
+            "general contractor",
+            "building restoration service",
+            "interior construction contractor",
+            "property maintenance",
+            "roofing contractor",
+            "roofing service",
+            "carpenter",
+            "plasterer",
+            "bricklayer",
+            "painter and decorator",
+            "kitchen renovator",
+            "bathroom renovator",
+            "garage builder",
+            "concrete contractor",
+        },
+    },
+    # A sauna is its own visit, not a beauty treatment. A spa that also lists a sauna stays in
+    # Beauty & wellness on the strength of its own category and type.
+    "saunas": {
+        "category_values": {
+            "sauna",
+            "public sauna",
+        },
+        "type_values": {
+            "sauna",
+            "public sauna",
+        },
+        "subtype_values": {
+            "sauna",
+            "public sauna",
+        },
+    },
 }
 
 
@@ -371,6 +460,13 @@ GROUP_RELATIONSHIPS = {
     "childcare_nurseries": {
         "childcare_nurseries": 1.00,
         "workspaces": 0.15,
+    },
+    "building_trades": {
+        "building_trades": 1.00,
+    },
+    "saunas": {
+        "saunas": 1.00,
+        "beauty_wellness": 0.35,
     },
 }
 

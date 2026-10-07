@@ -15,7 +15,8 @@ what an operator scan measures; only the customer-safe summary is new. Runs are 
 free_check panel kind, which core_run_filter keeps out of canonical reports and benchmarks.
 
 Required environment: DATABASE_URL, OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY.
-Optional: OPENAI_MODEL, ANTHROPIC_MODEL, GEMINI_MODEL, FREE_CHECK_DAILY_CAP, PORT (with --serve).
+Optional: OPENAI_MODEL, ANTHROPIC_MODEL, GEMINI_MODEL, FREE_CHECK_DAILY_CAP, PORT (with --serve);
+RESEND_API_KEY + FREE_CHECK_EMAIL_FROM (+ FREE_CHECK_SITE_URL) to email owners when results are ready.
 """
 from __future__ import annotations
 
@@ -39,6 +40,7 @@ from src.ai_visibility_repository import (create_visibility_queries, get_run_que
                                           get_visibility_run)
 from src.ai_visibility_runner import build_retry_plan, execute_calls, finalise_run_from_results
 from src.database import get_engine
+from src.free_check_email import email_settings, send_results_email
 from src.free_check_projection import build_projection
 
 log = logging.getLogger("free_check_worker")
@@ -60,7 +62,8 @@ def load_settings(environ=os.environ) -> dict[str, Any]:
         raise RuntimeError("Missing provider keys: " + ", ".join(missing))
     return {"api_keys": api_keys,
             "models": {p: str(environ.get(MODEL_NAMES[p]) or DEFAULT_MODELS[p]) for p in PROVIDERS},
-            "daily_cap": int(environ.get("FREE_CHECK_DAILY_CAP") or jobs.DAILY_NEW_CHECK_CAP)}
+            "daily_cap": int(environ.get("FREE_CHECK_DAILY_CAP") or jobs.DAILY_NEW_CHECK_CAP),
+            "email": email_settings(environ)}
 
 
 def _prompts(check: dict[str, Any]) -> list[dict[str, Any]]:
@@ -72,9 +75,14 @@ def _directory(engine, target_id: str, business_name: str) -> pd.DataFrame:
         rows = connection.execute(text(
             "select google_place_id, business_name, primary_group, business_format from business_features"
         )).mappings().all()
+    directory = pd.DataFrame(rows, columns=["google_place_id", "business_name", "primary_group", "business_format"])
+    # A business the owner typed in has no listing, so it joins the directory for this check only.
+    # A listing the owner confirmed is already there and is matched under its own name and aliases.
+    if target_id in set(directory["google_place_id"]):
+        return directory
     stub = {"google_place_id": target_id, "business_name": business_name,
             "primary_group": PRIMARY_GROUP, "business_format": None}
-    return pd.concat([pd.DataFrame(rows), pd.DataFrame([stub])], ignore_index=True)
+    return pd.concat([directory, pd.DataFrame([stub])], ignore_index=True)
 
 
 def project_saved_run(check: dict[str, Any], *, run_id: str, engine) -> dict[str, Any]:
@@ -86,7 +94,7 @@ def project_saved_run(check: dict[str, Any], *, run_id: str, engine) -> dict[str
     recommendations = build_recommendation_records(
         results=results, businesses=_directory(engine, target_id, business_name),
         aliases=load_entity_aliases(), target_google_place_id=target_id,
-        commercial_competitor_ids=set(), primary_group=PRIMARY_GROUP)
+        commercial_competitor_ids=set(), primary_group=str(run.get("primary_group") or PRIMARY_GROUP))
     return build_projection(
         business_name=business_name, questions=list(check["questions"]), providers=PROVIDERS,
         queries=get_run_queries(run_id).to_dict("records"), results=results.to_dict("records"),
@@ -125,14 +133,25 @@ def run_job(job: dict[str, Any], *, settings: dict[str, Any], worker_id: str, en
         run_id = str(job["run_id"])
         run = get_visibility_run(run_id)
         target_id, models = str(run["target_google_place_id"]), dict(run["models"])
+        search_name = str(run.get("target_dataset_match_name") or business_name)
         plan = build_retry_plan(queries=get_run_queries(run_id), results=get_run_results(run_id),
                                 providers=PROVIDERS)
     else:
         models = settings["models"]
+        # "Is this you?": when the owner confirmed a directory listing, measure that listing under
+        # its listed name. The claim is the owner's own and is recorded as such, not as a reviewed match.
+        listing = None
+        if check.get("claimed_google_place_id"):
+            with engine.begin() as connection:
+                listing = jobs.confirmed_listing(connection, str(check["claimed_google_place_id"]))
+        search_name = str(listing["business_name"]).strip() if listing else business_name
         created = create_discovery_run(
-            target_business_name=business_name, target_google_place_id=None,
-            target_resolution_status="unresolved", target_dataset_match_name=None,
-            primary_group=PRIMARY_GROUP, category_label="Free check",
+            target_business_name=business_name,
+            target_google_place_id=str(check["claimed_google_place_id"]) if listing else None,
+            target_resolution_status="owner_confirmed" if listing else "unresolved",
+            target_dataset_match_name=search_name if listing else None,
+            primary_group=(listing.get("primary_group") if listing else None) or PRIMARY_GROUP,
+            category_label="Free check",
             location_context=check["location"].strip(), website=check.get("website") or "",
             description=check["services"].strip(), propositions=[],
             providers=PROVIDERS, models=models, prompt_count=len(prompts), repeat_count=1,
@@ -153,8 +172,8 @@ def run_job(job: dict[str, Any], *, settings: dict[str, Any], worker_id: str, en
 
     if plan:
         execute_calls(run_id=run_id, call_plan=plan, models=models, api_keys=settings["api_keys"],
-                      target_google_place_id=target_id, target_business_name=business_name,
-                      known_businesses=[{"google_place_id": target_id, "business_name": business_name}],
+                      target_google_place_id=target_id, target_business_name=search_name,
+                      known_businesses=[{"google_place_id": target_id, "business_name": search_name}],
                       benchmark_mode=BENCHMARK_MODE, location_context=check["location"].strip(),
                       progress_callback=progress)
     status = finalise_run_from_results(run_id=run_id, expected_call_count=expected)
@@ -170,7 +189,25 @@ def run_job(job: dict[str, Any], *, settings: dict[str, Any], worker_id: str, en
     with engine.begin() as connection:
         jobs.complete_job(connection, job_id=job_id, worker_id=worker_id, check_status=status,
                           projection=projection, completed_calls=projection["valid_answers"])
+    notify_owner(check, projection, settings=settings, engine=engine)
     return status
+
+
+def notify_owner(check: dict[str, Any], projection: dict[str, Any], *, settings: dict[str, Any], engine) -> bool:
+    """Tell the owner their saved results are ready. Best effort: it can never undo a delivered check."""
+    email = settings.get("email")
+    if not email:
+        return False
+    try:
+        with engine.begin() as connection:
+            address = jobs.owner_email(connection, str(check["owner_user_id"]))
+        if not address:
+            return False
+        return send_results_email(to=address, business_name=check["business_name"],
+                                  projection=projection, settings=email)
+    except Exception as error:
+        log.warning("Results email step failed (%s)", type(error).__name__)
+        return False
 
 
 def process_one(*, settings: dict[str, Any], worker_id: str, engine=None) -> str | None:
