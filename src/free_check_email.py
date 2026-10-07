@@ -44,7 +44,10 @@ def build_results_email(*, business_name: str, projection: dict[str, Any], site_
         headline = f"{name} was not recommended in the {valid} completed answers."
     partial = (f" {expected - valid} of {expected} answers could not be collected and are left out."
                if valid < expected else "")
-    context = ("That is a snapshot of five customer questions put to three AI providers on one day, "
+    # Say how many questions this check actually asked: saved checks may predate a change in the count.
+    asked = len(projection.get("questions") or [])
+    count = {3: "three ", 5: "five "}.get(asked, f"{asked} " if asked else "")
+    context = (f"That is a snapshot of {count}customer questions put to three AI providers on one day, "
                "not a measure of every search." + partial)
     how = ("Open the link and sign in with this email address. We will send you a fresh sign-in link; "
            "there is no password.")

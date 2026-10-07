@@ -382,6 +382,25 @@ def test_results_email_states_the_saved_count_and_nothing_it_was_not_given():
     assert "3 of 15 answers could not be collected and are left out." in none["text"]
 
 
+def test_results_email_names_the_number_of_questions_the_check_asked():
+    def text(questions):
+        projection = {**sample_projection(), "questions": [{"order": n} for n in range(1, questions + 1)]}
+        return mail.build_results_email(business_name="Quiet Cafe", projection=projection,
+                                        site_url="https://example.org")["text"]
+    assert "a snapshot of three customer questions put to three AI providers" in text(3)
+    assert "a snapshot of five customer questions put to three AI providers" in text(5)
+    assert "a snapshot of customer questions put to three AI providers" in text(0)
+
+
+def test_a_three_question_check_expects_nine_answers():
+    results = [result(q["id"], p) for q in QUERIES[:3] for p in PROVIDERS]
+    out = build_projection(business_name="Synthetic Bistro", questions=QUESTIONS[:3], providers=PROVIDERS,
+                           queries=QUERIES[:3], results=results, recommendations=[], target_id=TARGET,
+                           measured_at="2026-10-07T12:00:00+00:00", benchmark_mode="search_grounded")
+    assert (out["expected_answers"], len(out["cells"]), len(out["questions"])) == (9, 9, 3)
+    assert all(p["expected"] == 3 for p in out["providers"])
+
+
 def test_email_is_off_unless_both_the_key_and_the_sender_are_set():
     assert mail.email_settings({}) is None
     assert mail.email_settings({"RESEND_API_KEY": "k"}) is None
