@@ -30,7 +30,7 @@ except Exception as exc:
 if not businesses:
     st.info("No canonical businesses are available.")
     st.stop()
-active = st.session_state.get(ACTIVE_REPORT_PROJECT_KEY)
+active = st.session_state.get(ACTIVE_REPORT_PROJECT_KEY) or st.session_state.get("client_evidence_business")
 index = next((i for i, b in enumerate(businesses) if b["google_place_id"] == active), 0)
 business = st.selectbox("Business", businesses, index=index, format_func=lambda b: b["business_name"])
 pid = str(business["google_place_id"])
