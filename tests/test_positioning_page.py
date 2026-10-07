@@ -10,7 +10,7 @@ from streamlit.testing.v1 import AppTest
 
 from test_positioning_triangulation import inputs
 
-PAGE = str(Path(__file__).resolve().parents[1] / 'app/pages/13_Positioning.py')
+PAGE = str(Path(__file__).resolve().parents[1] / 'app/shelved_pages/13_Positioning.py')
 
 
 def page(ready=False, *, captures=True, cap_override=None):
