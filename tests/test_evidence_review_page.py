@@ -16,7 +16,7 @@ from src.review_ingestion import SOURCE
 PAGE = str(Path(__file__).resolve().parents[1] / 'app/pages/12_Evidence_Review.py')
 
 
-def run_page(*, ready=True, decided=False):
+def run_page(*, ready=True, decided=False, secrets=None):
     catalogue, aliases = starter_catalogue()
     business = {"google_place_id": "place-1", "business_name": "Synthetic Salon"}
     bundle = {"business": business, "listing": None, "audit": None, "pages": [], "platform_links": [], "checks": {},
@@ -39,7 +39,10 @@ def run_page(*, ready=True, decided=False):
     stack.enter_context(patch('src.public_evidence_archive_repository.save_collection_attempt', return_value='attempt-1'))
     save_cap = stack.enter_context(patch('src.public_evidence_archive_repository.save_capture', return_value='capture-1'))
     save_review = stack.enter_context(patch('src.public_evidence_archive_repository.save_decision', return_value='decision-1'))
-    at = AppTest.from_file(PAGE).run()
+    at = AppTest.from_file(PAGE)
+    for key, value in (secrets or {}).items():
+        at.secrets[key] = value
+    at.run()
     return at, stack, save_cap, save_review
 
 
@@ -130,3 +133,43 @@ def test_reviewer_name_is_remembered_after_a_saved_decision():
         at.run()
         assert save_review.call_count == 1 and not at.exception
         assert next(t for t in at.text_input if t.label == 'Reviewer').value == 'Rob'
+
+
+def test_ai_drafts_are_offered_only_when_connected_and_never_saved_without_approval():
+    offline, stack, save_cap, save_review = run_page(secrets={"ANTHROPIC_API_KEY": ""})
+    with stack:
+        assert any('AI service is not connected' in i.value for i in offline.info)
+        assert not any('Draft decisions' in b.label for b in offline.button)
+    at, stack, save_cap, save_review = run_page(secrets={"ANTHROPIC_API_KEY": "synthetic"})
+    drafted = lambda call, excerpts: [{"evidence_id": e["evidence_id"], "decision": "EXPLICIT_SUPPORT",
+                                       "origin": "customer_report", "reason": "Praises the balayage."} for e in excerpts]
+    with stack, patch('src.type_wording.call_claude', return_value=lambda system, prompt: ''), \
+            patch('src.evidence_decision_drafts.draft_decisions', side_effect=drafted) as drafter:
+        next(b for b in at.button if b.label.startswith('Draft decisions for 1 excerpts')).click()
+        at.run()
+        assert not at.exception and not at.error and drafter.call_count == 1
+        assert drafter.call_args.args[1][0]["topic"] == "Balayage", "the model sees the topic's label, not its key"
+        assert not save_review.called, "drafting alone saves nothing"
+        next(b for b in at.button if b.label == 'Save 1 decisions').click()
+        at.run()
+        assert any('Tick the confirmation' in e.value for e in at.error) and not save_review.called
+        next(c for c in at.checkbox if c.label.startswith('I have read these drafts')).check()
+        next(t for t in at.text_input if t.label == 'Approving reviewer').set_value('Rob')
+        next(b for b in at.button if b.label == 'Save 1 decisions').click()
+        at.run()
+        assert not at.exception and save_review.call_count == 1
+        saved = save_review.call_args.kwargs
+        assert (saved['decision'], saved['origin'], saved['reviewer'], saved['identity_confirmed']) == \
+            ('EXPLICIT_SUPPORT', 'customer_report', 'Rob', True)
+        assert saved['note'] == 'Praises the balayage. (AI-drafted, approved by the reviewer.)'
+
+
+def test_an_unusable_ai_reply_saves_nothing_and_says_so():
+    from src.evidence_decision_drafts import InvalidDraftError
+    at, stack, save_cap, save_review = run_page(secrets={"ANTHROPIC_API_KEY": "synthetic"})
+    with stack, patch('src.type_wording.call_claude', return_value=lambda system, prompt: ''), \
+            patch('src.evidence_decision_drafts.draft_decisions', side_effect=InvalidDraftError('The reply did not contain drafts.')):
+        next(b for b in at.button if b.label.startswith('Draft decisions')).click()
+        at.run()
+        assert not at.exception and any('could not be used' in e.value for e in at.error)
+        assert not save_review.called and not any(b.label.startswith('Save ') and 'decisions' in b.label for b in at.button)

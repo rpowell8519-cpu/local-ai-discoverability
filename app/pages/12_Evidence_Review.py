@@ -10,6 +10,7 @@ import streamlit as st
 
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 
+from src.evidence_decision_drafts import DRAFT_NOTE, InvalidDraftError, draft_decisions
 from src.evidence_foundations_repository import list_foundation_businesses, load_catalogue
 from src.public_evidence_archive import DECISIONS, ORIGINS, summarize_reviewed_evidence
 from src.public_evidence_archive_repository import (
@@ -18,6 +19,16 @@ from src.public_evidence_archive_repository import (
 )
 from src.public_evidence_repository import load_public_evidence_bundle
 from src.report_generator_readiness import ACTIVE_REPORT_PROJECT_KEY
+from src.type_wording import InvalidWordingError, call_claude
+
+DRAFT_MODEL = "claude-sonnet-5"
+
+
+def secret_value(key: str) -> str:
+    try:
+        return str(st.secrets.get(key, "") or "")
+    except Exception:
+        return ""
 
 st.set_page_config(page_title="Evidence Review", page_icon="📚", layout="wide")
 st.title("Evidence review")
@@ -147,6 +158,60 @@ if observations:
             st.error(str(exc))
         except Exception as exc:
             st.error(f"Decision could not be saved ({type(exc).__name__}).")
+if undecided:
+    st.subheader("Draft the remaining decisions with AI")
+    st.caption("An AI model reads each undecided excerpt and drafts a decision and a reason. Nothing is saved until you "
+               "have read the drafts, changed any you disagree with, and approved them under your name. Website text is "
+               "always the owner's own claim and review text the customer's; the model cannot change that.")
+    drafts_key = f"decision_drafts_{capture['id']}"
+    labels = {p["proposition_key"]: p["label"] for p in capture["payload"]["catalogue"]}
+    claude_key = secret_value("ANTHROPIC_API_KEY")
+    if not claude_key:
+        st.info("The AI service is not connected, so drafts are unavailable. Review excerpts one at a time above.")
+    elif st.button(f"Draft decisions for {len(undecided)} excerpts (a few short paid requests)", key=f"draft_go_{capture['id']}"):
+        try:
+            with st.spinner("Drafting decisions…"):
+                st.session_state[drafts_key] = draft_decisions(call_claude(claude_key, DRAFT_MODEL), [
+                    {"evidence_id": o["evidence_id"], "topic": labels.get(o["field"], o["field"]),
+                     "source_class": o["source_class"], "raw_value": o["raw_value"]} for o in undecided])
+        except (InvalidDraftError, InvalidWordingError) as exc:
+            st.error(f"The drafts could not be used: {exc} Nothing was saved; try again or review one at a time.")
+        except Exception as exc:
+            st.error(f"Drafting failed ({type(exc).__name__}). Nothing was saved.")
+    by_id = {o["evidence_id"]: o for o in undecided}
+    drafts = [d for d in st.session_state.get(drafts_key, []) if d["evidence_id"] in by_id]
+    if drafts:
+        edited = st.data_editor(pd.DataFrame([{
+            "Topic": labels.get(by_id[d["evidence_id"]]["field"], by_id[d["evidence_id"]]["field"]),
+            "Source": by_id[d["evidence_id"]]["source_class"], "Excerpt": by_id[d["evidence_id"]]["raw_value"],
+            "Decision": d["decision"], "Origin": d["origin"], "Reason": d["reason"]} for d in drafts]),
+            hide_index=True, width="stretch", disabled=["Topic", "Source", "Excerpt"],
+            key=f"draft_table_{capture['id']}_{hash(tuple((d['evidence_id'], d['decision'], d['reason']) for d in drafts))}",
+            column_config={"Decision": st.column_config.SelectboxColumn(options=list(DECISIONS), required=True),
+                           "Origin": st.column_config.SelectboxColumn(options=list(ORIGINS), required=True),
+                           "Reason": st.column_config.TextColumn(required=True)})
+        with st.form(f"approve_drafts_{capture['id']}"):
+            draft_confirmed = st.checkbox("I have read these drafts and confirm the excerpts refer to this business")
+            draft_reviewer = st.text_input("Approving reviewer", value=st.session_state.get("evidence_reviewer", ""))
+            approve = st.form_submit_button(f"Save {len(drafts)} decisions")
+        if approve:
+            if not draft_confirmed or not draft_reviewer.strip():
+                st.error("Tick the confirmation and give your name before saving.")
+            else:
+                failed = []
+                for draft, row in zip(drafts, edited.to_dict("records")):
+                    try:
+                        save_decision(str(capture["id"]), evidence_id=draft["evidence_id"], decision=row["Decision"],
+                            origin=row["Origin"], identity_confirmed=True, reviewer=draft_reviewer,
+                            note=f"{str(row['Reason']).strip()} ({DRAFT_NOTE}.)")
+                    except Exception as exc:
+                        failed.append(f"{row['Excerpt'][:60]}: {exc if isinstance(exc, ValueError) else type(exc).__name__}")
+                st.session_state["evidence_reviewer"] = draft_reviewer
+                if failed:
+                    st.session_state[f"draft_failures_{capture['id']}"] = failed
+                st.rerun()
+    for failure in st.session_state.pop(f"draft_failures_{capture['id']}", []):
+        st.error(f"Not saved: {failure}")
 with st.expander("Preserved primary context and capture provenance"):
     st.write({k: str(capture[k]) for k in ("id", "archived_at", "archived_by", "payload_sha256")})
     st.json(capture["payload"]["source_bundle"])
