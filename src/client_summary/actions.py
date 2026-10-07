@@ -58,13 +58,18 @@ _PROFILES: dict[str, BusinessProfile] = {
         questions="access hours, guests, contracts and facilities",
     ),
 }
+# Keyed by the groups a business is actually stored under (src/taxonomy.py GROUP_LABELS), plus the
+# older informal names still used by saved briefs and fixtures. A group left out here gets the
+# general wording, or wording drafted for its type and approved by the reviewer.
 _GROUPS = {
     **dict.fromkeys(
-        ("bar", "bars", "cafe", "cafes", "food_drink", "hospitality_food_drink",
-         "pub", "pubs", "restaurant", "restaurants"), "hospitality"),
-    **dict.fromkeys(("hair_beauty", "salon", "salons", "beauty"), "beauty"),
-    **dict.fromkeys(("cleaning_services", "trades", "trade", "home_services", "plumber", "electrician"), "trades"),
-    **dict.fromkeys(("coworking", "workspace", "office_space"), "workspace"),
+        ("bars_pubs", "coffee_cafes", "restaurants",
+         "bar", "bars", "cafe", "cafes", "food_drink", "hospitality_food_drink",
+         "pub", "pubs", "restaurant"), "hospitality"),
+    **dict.fromkeys(("hair_services", "beauty_wellness", "hair_beauty", "salon", "salons", "beauty"), "beauty"),
+    **dict.fromkeys(("cleaning_services", "building_trades",
+                     "trades", "trade", "home_services", "plumber", "electrician"), "trades"),
+    **dict.fromkeys(("workspaces", "coworking", "workspace", "office_space"), "workspace"),
 }
 
 _OWNER_TOPIC = "Business owner supplies the facts; website provider publishes them"
