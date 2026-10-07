@@ -241,16 +241,11 @@ evidence_column, testing_column, data_column = st.columns(3)
 
 with evidence_column:
     st.markdown("**Evidence**")
-    st.page_link("pages/1_Client_Evidence.py", label="See a client's evidence in one place", icon="🧾")
     st.page_link("pages/5_Website_Audits.py", label="Check a website", icon="🌐")
     st.page_link("pages/7_Review_Insights.py", label="Pull customer reviews", icon="⭐")
     st.page_link(
         "pages/6_Website_Benchmark.py", label="Compare website features", icon="📊"
     )
-    st.page_link("pages/12_Evidence_Review.py", label="Review preserved evidence", icon="📚")
-    st.page_link("pages/13_Positioning.py", label="Compare positioning and track actions", icon="🧭")
-    st.page_link("pages/14_Focused_Monitoring.py", label="Monitor focused before/after results", icon="📈")
-    st.page_link("pages/15_Evidence_Research.py", label="Explore evidence research", icon="🔬")
 
 with testing_column:
     st.markdown("**AI testing**")

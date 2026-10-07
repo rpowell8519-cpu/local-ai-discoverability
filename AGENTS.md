@@ -568,6 +568,16 @@ listing-building actions or optimization scores. Existing `reviews:platform-*` a
 need re-review before generating a new generic report; issued snapshots and legacy fixtures
 remain unchanged. See `docs/proposition-evidence-implementation-plan.md` for the broader plan.
 
+### The evidence pages are shelved (7 October 2026)
+
+Rob shelved the evidence layer's operator pages until a client pays for a progress check: they were
+ahead of the business and confusing in the app. Client Evidence, Evidence Foundations, Evidence
+Review, Positioning, Focused Monitoring and Evidence Research now live in `app/shelved_pages/`, which
+Streamlit does not show. Their code in `src/`, their stores and their saved data are untouched and
+their tests still run. To bring one back, `git mv` it into `app/pages/` and restore its link on the
+home page. Do not extend this layer (vocabulary, name confirmation, Increment F) without Rob asking.
+The sections below describe it as built.
+
 ### Evidence foundations (Increment A schema applied; merged PR #15)
 
 `src/proposition_catalog.py` resolves existing `ai_visibility_runs.target_propositions`

@@ -13,7 +13,7 @@ from streamlit.testing.v1 import AppTest
 from src.measurement_panels import build_panel
 from src.proposition_catalog import starter_catalogue
 
-PAGE = str(Path(__file__).resolve().parents[1] / "app/pages/11_Evidence_Foundations.py")
+PAGE = str(Path(__file__).resolve().parents[1] / "app/shelved_pages/11_Evidence_Foundations.py")
 RUN = {"id": "run-1", "target_google_place_id": "place-cisco", "target_propositions": ["Wedding hair", "Upholstry Cleaning"],
        "benchmark_mode": "search_grounded", "started_at": datetime(2025, 8, 5, tzinfo=timezone.utc)}
 PROFILE = {"profile_observations": [{"published_review_count": 214, "rating": 4.8, "observed_at": "2025-08-05"}],

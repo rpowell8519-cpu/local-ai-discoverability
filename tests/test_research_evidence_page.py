@@ -8,7 +8,7 @@ from src.research_evidence import build_dataset
 from test_focused_monitoring import fixture,summary
 from test_research_evidence import evidence
 
-PAGE=str(Path(__file__).resolve().parents[1]/"app/pages/15_Evidence_Research.py")
+PAGE=str(Path(__file__).resolve().parents[1]/"app/shelved_pages/15_Evidence_Research.py")
 
 
 def page(dataset):

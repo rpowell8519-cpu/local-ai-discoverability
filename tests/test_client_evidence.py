@@ -97,7 +97,7 @@ def run_page(*, runs, summaries_by_run, captures=()):
     import streamlit as st
     from streamlit.testing.v1 import AppTest
     st.cache_data.clear()
-    page = str(Path(__file__).resolve().parents[1] / "app" / "pages" / "1_Client_Evidence.py")
+    page = str(Path(__file__).resolve().parents[1] / "app" / "shelved_pages" / "1_Client_Evidence.py")
     stack = ExitStack()
     patches = {
         "src.evidence_foundations_repository.list_foundation_businesses": [BUSINESS],

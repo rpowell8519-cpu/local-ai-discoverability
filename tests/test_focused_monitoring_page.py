@@ -6,7 +6,7 @@ from streamlit.testing.v1 import AppTest
 
 from test_focused_monitoring import fixture, DIRECTORY, summary
 
-PAGE = str(Path(__file__).resolve().parents[1]/"app/pages/14_Focused_Monitoring.py")
+PAGE = str(Path(__file__).resolve().parents[1]/"app/shelved_pages/14_Focused_Monitoring.py")
 
 
 def page():

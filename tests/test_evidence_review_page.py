@@ -13,7 +13,7 @@ from src.public_evidence_archive import build_capture
 from src.public_evidence_archive_repository import ARCHIVE_TABLES
 from src.review_ingestion import SOURCE
 
-PAGE = str(Path(__file__).resolve().parents[1] / 'app/pages/12_Evidence_Review.py')
+PAGE = str(Path(__file__).resolve().parents[1] / 'app/shelved_pages/12_Evidence_Review.py')
 
 
 def run_page(*, ready=True, decided=False, secrets=None):
