@@ -111,3 +111,21 @@ def test_the_limit_is_seven_others_so_eight_businesses_with_the_client():
     from src.report_competitors import MAX_COMPARISON_BUSINESSES
 
     assert MAX_COMPARISON_BUSINESSES == 7
+
+
+def test_a_listing_with_no_address_and_placeholder_coordinates_has_no_known_distance() -> None:
+    # What Outscraper returns for a service-area business that hides its address.
+    hidden = {"city": None, "address": None, "latitude": "47.73855", "longitude": "12.5088275"}
+    rival = {"latitude": 50.83, "longitude": -0.17, "city": "Hove", "address": "1 Church Road, Hove"}
+    unknown = classify_location(rival, target=hidden, primary_group="building_trades")
+    assert unknown["location_classification"] == "unknown" and unknown["distance_miles"] is None
+    assert unknown["location_reason"] == "Location could not be checked automatically."
+    # The owner's stated service areas still decide who is local.
+    local = classify_location(rival, target=hidden, primary_group="building_trades", service_areas=["Hove"])
+    assert local["location_classification"] == "local" and "Hove" in local["location_reason"]
+    # A competitor with a placeholder position is unknown too, never "hundreds of miles away".
+    target = {"city": "Brighton", "address": "1 North Street", "latitude": 50.8225, "longitude": -0.1372}
+    assert classify_location(hidden, target=target, primary_group="building_trades")["location_classification"] == "unknown"
+    # Address fields present but empty mean the position is not to be trusted, even inside the UK.
+    blank = {"city": "", "address": "nan", "latitude": 50.8225, "longitude": -0.1372}
+    assert classify_location(rival, target=blank, primary_group="building_trades")["distance_miles"] is None

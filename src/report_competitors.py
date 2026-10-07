@@ -10,10 +10,13 @@ from typing import Any, Iterable, Mapping
 # their close peers. Everything else uses the wider default until decided otherwise.
 # A nursery is chosen even more locally than a salon (daily drop-off), so it uses the
 # same tight radius rather than the wide default meant for something like a workspace.
+# The first line holds the groups a business is actually stored under (src/taxonomy.py
+# GROUP_LABELS); the rest are older informal names still used by saved briefs and fixtures.
 LOCAL_WALK_IN_GROUPS = frozenset({
+    "bars_pubs", "coffee_cafes", "restaurants", "hair_services", "beauty_wellness", "childcare_nurseries",
     "bar", "bars", "cafe", "cafes", "food_drink", "hair_beauty",
-    "hospitality_food_drink", "pub", "pubs", "restaurant", "restaurants",
-    "salon", "salons", "childcare_nurseries",
+    "hospitality_food_drink", "pub", "pubs", "restaurant",
+    "salon", "salons",
 })
 WALK_IN_CATCHMENT_MILES = 3.0
 DEFAULT_CATCHMENT_MILES = 15.0
@@ -41,11 +44,36 @@ def _coordinate(value: Any) -> float | None:
     return result if math.isfinite(result) else None
 
 
-def distance_miles(first: Mapping[str, Any], second: Mapping[str, Any]) -> float | None:
-    lat1, lon1 = _coordinate(first.get("latitude")), _coordinate(first.get("longitude"))
-    lat2, lon2 = _coordinate(second.get("latitude")), _coordinate(second.get("longitude"))
-    if None in {lat1, lon1, lat2, lon2}:
+def _position(place: Mapping[str, Any]) -> tuple[float, float] | None:
+    """A usable position, or None.
+
+    A listing that hides its address (a service-area business) is given placeholder coordinates,
+    seen far outside the British Isles. Using them would report every competitor as hundreds of
+    miles away, so a position outside these islands, or one on a record that carries address
+    fields with nothing in them, is treated as unknown.
+    """
+    latitude, longitude = _coordinate(place.get("latitude")), _coordinate(place.get("longitude"))
+    if latitude is None or longitude is None:
         return None
+    if not (49.0 <= latitude <= 61.0 and -11.0 <= longitude <= 2.0):
+        return None
+    address_fields = [place[key] for key in ("city", "address") if key in place]
+    if address_fields and not any(_has_text(value) for value in address_fields):
+        return None
+    return latitude, longitude
+
+
+def _has_text(value: Any) -> bool:
+    if value is None or (isinstance(value, float) and value != value):
+        return False
+    return str(value).strip().casefold() not in {"", "none", "nan"}
+
+
+def distance_miles(first: Mapping[str, Any], second: Mapping[str, Any]) -> float | None:
+    start, end = _position(first), _position(second)
+    if start is None or end is None:
+        return None
+    (lat1, lon1), (lat2, lon2) = start, end
     phi1, phi2 = math.radians(lat1), math.radians(lat2)
     dphi, dlambda = math.radians(lat2 - lat1), math.radians(lon2 - lon1)
     a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2

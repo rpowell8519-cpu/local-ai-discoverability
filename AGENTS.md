@@ -312,16 +312,22 @@ at import time — its keys (`bars_pubs`, `coffee_cafes`, `hair_services`, `beau
 `other`) are the *real* values stored for a business, defined in `src/taxonomy.py`
 (`GROUP_LABELS`/`GROUP_RULES`).
 
-**Known live gap, found while adding `childcare_nurseries`:** `client_summary/actions.py._GROUPS`
-(built-in wording) and `report_competitors.LOCAL_WALK_IN_GROUPS` (the tight 3-mile catchment) use a
-different, hand-picked vocabulary (`"coworking"`, `"salon"`, `"hair_beauty"`, ...) that does not match
-any of the real `primary_group` values above except `cleaning_services`. Every test fixture across the
-suite also uses that same hand-picked vocabulary, which is why this went uncaught: nothing exercises
-the real taxonomy keys. In its current state, no real business likely ever gets the built-in wording
-or the tight walk-in catchment it should — both silently fall through to the generic default. Flagged
-to the user; not fixed, because it changes report content and catchment for every existing vertical,
-not just the one this session was asked to add. `childcare_nurseries` itself is defined once, in both
-places, with the same key, so it does not have this problem.
+**Wording and catchment follow the stored groups (fixed 7 October 2026).** `client_summary/actions.py._GROUPS`
+(built-in wording) and `report_competitors.LOCAL_WALK_IN_GROUPS` (the tight 3-mile catchment) once used
+only informal names (`"coworking"`, `"salon"`, `"hair_beauty"`, ...) that no stored business has, so
+nearly every report silently got the general wording and the wide catchment. Both now list the real
+`primary_group` keys first and keep the informal names for saved briefs and fixtures.
+`tests/test_real_group_wording_and_catchment.py` names every stored group with its wording and
+catchment, and fails when a group is added to the taxonomy without that decision. Deliberately left on
+the general wording and wide catchment: `nightlife_entertainment`, `saunas`, `other` (and
+`childcare_nurseries` for wording). A saved report keeps its reviewer-chosen radius and any
+reviewer-approved drafted wording; a report re-rendered without drafted wording picks up the built-in
+wording for its group.
+
+A listing that hides its address (a service-area business) arrives from Outscraper with no city or
+address and placeholder coordinates far from the UK. `classify_location` treats such a position as
+unknown rather than reporting every competitor as hundreds of miles away; the owner's stated service
+areas then decide who is local.
 
 A business already imported before a new group like `childcare_nurseries` existed keeps its old
 `primary_group` (import-time classification is not retroactive); Data Admin's "Rebuild business
