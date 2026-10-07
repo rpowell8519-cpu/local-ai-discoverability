@@ -16,7 +16,7 @@ from src.review_ingestion import SOURCE
 PAGE = str(Path(__file__).resolve().parents[1] / 'app/pages/12_Evidence_Review.py')
 
 
-def run_page(*, ready=True):
+def run_page(*, ready=True, decided=False):
     catalogue, aliases = starter_catalogue()
     business = {"google_place_id": "place-1", "business_name": "Synthetic Salon"}
     bundle = {"business": business, "listing": None, "audit": None, "pages": [], "platform_links": [], "checks": {},
@@ -31,7 +31,10 @@ def run_page(*, ready=True):
     stack.enter_context(patch('src.public_evidence_repository.load_public_evidence_bundle', return_value=bundle))
     stack.enter_context(patch('src.public_evidence_archive_repository.list_captures', return_value=[cap]))
     stack.enter_context(patch('src.public_evidence_archive_repository.load_capture', return_value=cap))
-    stack.enter_context(patch('src.public_evidence_archive_repository.list_decisions', return_value=[]))
+    evidence_id = next(o["evidence_id"] for o in cap["payload"]["matrix"]["observations"] if o["kind"] == "proposition_candidate")
+    decisions = [{"capture_id": "capture-1", "evidence_id": evidence_id, "revision": 1, "decision": "EXPLICIT_SUPPORT", "origin": "customer_report",
+                  "reviewer": "Operator", "identity_confirmed": True, "note": "Checked the preserved sentence"}] if decided else []
+    stack.enter_context(patch('src.public_evidence_archive_repository.list_decisions', return_value=decisions))
     stack.enter_context(patch('src.public_evidence_archive_repository.list_collection_attempts', return_value=[]))
     stack.enter_context(patch('src.public_evidence_archive_repository.save_collection_attempt', return_value='attempt-1'))
     save_cap = stack.enter_context(patch('src.public_evidence_archive_repository.save_capture', return_value='capture-1'))
@@ -76,7 +79,7 @@ def test_explicit_review_form_preserves_source_origin_and_identity_confirmation(
     with stack:
         next(s for s in at.selectbox if s.label == 'Decision').select('EXPLICIT_SUPPORT')
         next(s for s in at.selectbox if s.label == 'Evidence origin').select('customer_report')
-        at.checkbox[0].check()
+        next(c for c in at.checkbox if c.label == 'I confirmed this evidence refers to this business').check()
         next(t for t in at.text_input if t.label == 'Reviewer').set_value('Operator')
         next(t for t in at.text_area if t.label == 'Explanation, including source context and origin').set_value('I checked the preserved review sentence and business identity')
         next(b for b in at.button if b.label == 'Save evidence decision').click()
@@ -102,3 +105,28 @@ def test_manual_collection_outcome_preserves_zero_sample_and_unknown(outcome,siz
         assert writer.call_count == 1 and not save_cap.called and not save_review.called
         assert writer.call_args.kwargs['sample_size'] == expected
         assert writer.call_args.kwargs['status'] == outcome
+
+
+def test_review_queue_shows_progress_and_hides_excerpts_that_already_have_a_decision():
+    at, stack, save_cap, save_review = run_page(decided=True)
+    with stack:
+        assert not at.exception and not at.error
+        assert any('Every excerpt in this capture has a decision' in s.value for s in at.success)
+        assert not any(s.label == 'Excerpt to review' for s in at.selectbox), "nothing is left in the queue"
+        next(c for c in at.checkbox if c.label == 'Show only excerpts without a decision').uncheck()
+        at.run()
+        assert not at.exception and any(s.label == 'Excerpt to review' for s in at.selectbox)
+        assert any('Current decision: EXPLICIT_SUPPORT (customer_report), by Operator' in c.value for c in at.caption)
+        assert not save_cap.called and not save_review.called
+
+
+def test_reviewer_name_is_remembered_after_a_saved_decision():
+    at, stack, save_cap, save_review = run_page()
+    with stack:
+        next(c for c in at.checkbox if c.label == 'I confirmed this evidence refers to this business').check()
+        next(t for t in at.text_input if t.label == 'Reviewer').set_value('Rob')
+        next(t for t in at.text_area if t.label == 'Explanation, including source context and origin').set_value('Checked the preserved review sentence')
+        next(b for b in at.button if b.label == 'Save evidence decision').click()
+        at.run()
+        assert save_review.call_count == 1 and not at.exception
+        assert next(t for t in at.text_input if t.label == 'Reviewer').value == 'Rob'

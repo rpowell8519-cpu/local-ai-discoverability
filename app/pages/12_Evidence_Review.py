@@ -109,23 +109,39 @@ st.subheader("Reviewed proposition evidence")
 st.caption("Breadth counts reviewed supporting source classes, not independent confirmations or a visibility score. Syndicated claims do not increase breadth. Unknowns and incomplete review remain visible.")
 st.dataframe(pd.DataFrame(summary), hide_index=True, width="stretch")
 observations = [o for o in capture["payload"]["matrix"]["observations"] if o["kind"] == "proposition_candidate"]
+latest = {d["evidence_id"]: d for d in decisions}
+undecided = [o for o in observations if o["evidence_id"] not in latest]
 if observations:
-    chosen = st.selectbox("Excerpt to review", observations,
+    st.subheader("Review excerpts")
+    st.progress((len(observations) - len(undecided)) / len(observations),
+                text=f"{len(observations) - len(undecided)} of {len(observations)} excerpts have a decision.")
+    only_undecided = st.checkbox("Show only excerpts without a decision", value=True, key=f"undecided_{capture['id']}")
+    # Customer sources first: they are what positioning counts; website copy is the owner's own claim.
+    queue = sorted(undecided if only_undecided else observations, key=lambda o: o["source_class"] == "website")
+    if not queue:
+        st.success("Every excerpt in this capture has a decision. Untick the box above to revise one.")
+        observations = []
+if observations:
+    chosen = st.selectbox("Excerpt to review", queue,
         format_func=lambda o: f"{o['field']} · {o['source_class']} · {o['raw_value'][:100]}", key=f"excerpt_{capture['id']}")
     st.write(chosen["raw_value"])
+    if chosen["evidence_id"] in latest:
+        previous = latest[chosen["evidence_id"]]
+        st.caption(f"Current decision: {previous['decision']} ({previous['origin']}), by {previous['reviewer']}. Saving adds a new revision.")
     st.write({k: chosen.get(k) for k in ("source_class", "source_url", "source_url_basis", "source_record_id", "captured_at", "source_published_at", "polarity_hint")})
     st.caption("Polarity is an extraction hint. Use the preserved source context and your judgment; overall review stars do not establish proposition sentiment.")
     with st.form(f"review_{capture['id']}_{chosen['evidence_id']}"):
         decision = st.selectbox("Decision", DECISIONS)
         origin = st.selectbox("Evidence origin", ORIGINS)
         confirmed = st.checkbox("I confirmed this evidence refers to this business")
-        reviewer = st.text_input("Reviewer")
+        reviewer = st.text_input("Reviewer", value=st.session_state.get("evidence_reviewer", ""))
         note = st.text_area("Explanation, including source context and origin")
         reviewed = st.form_submit_button("Save evidence decision")
     if reviewed:
         try:
             save_decision(str(capture["id"]), evidence_id=chosen["evidence_id"], decision=decision, origin=origin,
                 identity_confirmed=confirmed, reviewer=reviewer, note=note)
+            st.session_state["evidence_reviewer"] = reviewer
             st.rerun()
         except ValueError as exc:
             st.error(str(exc))
