@@ -177,6 +177,7 @@ REPORT_STATE_KEY = "accessible_ai_report_generator_result"
 SUMMARY_STATE_KEY = "accessible_ai_client_summary_result"
 GSO_REPORT_STATE_KEY = "accessible_ai_gso_report_result"
 FOUND_BRIGHTON_REPORT_STATE_KEY = "accessible_found_brighton_report_result"
+FINAL_BETA_STATE_KEY = "accessible_final_beta_report_result"
 
 @dataclass(frozen=True)
 class ReportType:
@@ -202,6 +203,16 @@ REPORT_TYPES = (
         "When it is generated it also reads the website's robots.txt (a read-only request) to see whether AI search "
         "crawlers are blocked; any block found becomes a sourced action.",
         "Generate client summary from saved evidence",
+    ),
+    ReportType(
+        "final_beta", "Final Beta",
+        "The report for beta client meetings, worded for the client: a visibility overview and summary; one table of "
+        "every question showing where the business was named and recommended by each AI tool, beside the earlier test; "
+        "the competitors the owner named and those the AI recommends; the sources the AI tools cited and whether the "
+        "business is on them; what its customers say in reviews; actions approved in review and things to investigate. "
+        "Same saved evidence and reviewed counts as the other reports. When it is generated it reads the cited pages "
+        "(read-only requests) to check whether the business appears on them.",
+        "Generate Final Beta report from saved evidence",
     ),
     ReportType(
         "gso", "AI Visibility Report (GSO)",
@@ -2622,7 +2633,63 @@ else:
                 "The report does not rerun AI calls; its other audit worksheets are marked as not measured."
             )
 
+    def generate_final_beta():
+        if definition is not None:
+            st.error("The Final Beta report is available for reports reviewed in this page, not for the earlier fixed examples.")
+            return
+        try:
+            with st.spinner("Assembling the saved evidence, checking the cited pages and laying out the report…"):
+                from src.final_beta_pdf import render_final_beta_pdf
+                from src.final_beta_repository import assemble_final_beta, page_fetcher
+
+                beta_site_url, beta_findings = site_findings_for(business, durable_audit)
+                beta_payload = assemble_generic_report_payload(durable_audit, site_findings=beta_findings)
+                beta_summary = build_client_summary_report(
+                    beta_payload,
+                    site_findings=beta_findings,
+                    website_checked=bool(beta_site_url),
+                    draft=False,
+                    business_group=str(business.get("primary_group") or ""),
+                    owner_questions=list((saved_brief or {}).get("desired_searches") or []),
+                    reviewer_action_titles=list(
+                        dict((durable_audit or {}).get("reviewer_decisions") or {}).get("action_titles") or []
+                    ),
+                )
+                beta_pdf = render_final_beta_pdf(
+                    assemble_final_beta(beta_summary, beta_payload, durable_audit, business, fetch=page_fetcher())
+                )
+        except ValueError as exc:
+            st.error(f"The Final Beta report could not be created. {exc}")
+        except Exception as exc:
+            st.error(
+                "The Final Beta report could not be generated from the saved evidence. "
+                "AI Visibility was not rerun and no data was changed."
+            )
+            st.exception(exc)
+        else:
+            st.session_state[FINAL_BETA_STATE_KEY] = {"key": summary_key, "pdf": beta_pdf}
+
+    def show_final_beta():
+        saved_beta = st.session_state.get(FINAL_BETA_STATE_KEY)
+        if saved_beta and saved_beta["key"] == summary_key:
+            st.success("The Final Beta report is ready.")
+            st.download_button(
+                "Download Final Beta report",
+                data=saved_beta["pdf"],
+                file_name=(
+                    re.sub(r"[^a-z0-9]+", "-", report_client_name.lower()).strip("-") or "business"
+                ) + "-ai-visibility-findings.pdf",
+                mime="application/pdf",
+                type="primary",
+                use_container_width=True,
+            )
+            st.caption(
+                "Generated in memory from the same saved, reviewed evidence as the other reports. Read it through before "
+                "sharing: the summary lines and the things to investigate are written from the figures, not by a reviewer."
+            )
+
     generate_report, show_report = {
+        "final_beta": (generate_final_beta, show_final_beta),
         "summary": (generate_summary, show_summary),
         "full": (generate_full, show_full),
         "gso": (generate_gso, show_gso),
