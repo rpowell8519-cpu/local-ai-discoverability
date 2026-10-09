@@ -51,6 +51,23 @@ conversation tool for small-business owners, not a technical audit.
   and close peers) and 15 miles for everything else. These are provisional defaults.
 - `app/pages/10_AI_Report_Generator.py` is the operator UI for all of the above.
 
+### Final Beta report (added 9 October 2026)
+
+A third reviewer-gated report type, "Final Beta", for beta client meetings: `src/final_beta_report.py`
+(data), `src/final_beta_repository.py` (read-only loading) and `src/final_beta_pdf.py` (layout), offered
+in the report generator beside RP and LS. It is built on the client summary of the reviewed revision, so
+recommendation counts, question labels, competitor lists and approved actions are the reviewed ones. It
+adds: answers that name the business anywhere, counted from the saved answers with the reviewer's
+confirmed names (not the scan-time flags, which miss name variants); the same questions in the most
+recent earlier completed core run; cited sources from `report_metadata.citations`, split into the
+client's site, other businesses' sites and independent sources; whether the client appears on the
+independent pages cited, read at generation time through the website scan's `safe_get` (unreadable
+means "To check", never "no"); and the client's own reviews by theme. Eight sections; pages continue
+automatically, so there is no fixed question limit in the layout. Runs saved before about 6 October 2026
+have no citations and render "Not available for this test". The summary lines and "To investigate" items
+are written from the figures by rule, not by a reviewer; "Actions the evidence supports" lists only
+reviewer-approved recommendations. It is worded for the client: keep operator notes out of it.
+
 ### Two report types from one evidence layer
 
 Step 6 of the report generator offers the **full evidence report (RP)** and the **client

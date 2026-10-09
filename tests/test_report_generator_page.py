@@ -977,6 +977,7 @@ def test_the_report_types_offered_come_from_one_list_and_each_has_its_own_button
         assert list(radio.options) == [
             "Full evidence report (RP)",
             "Client summary (LS)",
+            "Final Beta",
             "AI Visibility Report (GSO)",
             "Found in Brighton AI Report",
         ] and radio.value == "full"
@@ -984,9 +985,12 @@ def test_the_report_types_offered_come_from_one_list_and_each_has_its_own_button
         radio.set_value("summary").run()
         assert "Generate client summary from saved evidence" in [b.label for b in at.button]
         assert "Generate report from saved evidence" not in [b.label for b in at.button]
+        radio.set_value("final_beta").run()
+        assert "Generate Final Beta report from saved evidence" in [b.label for b in at.button]
+        assert "Generate client summary from saved evidence" not in [b.label for b in at.button]
         radio.set_value("gso").run()
         assert "Generate AI Visibility Report from saved scan" in [b.label for b in at.button]
-        assert "Generate client summary from saved evidence" not in [b.label for b in at.button]
+        assert "Generate Final Beta report from saved evidence" not in [b.label for b in at.button]
         radio.set_value("found_brighton").run()
         assert "Generate Found in Brighton report from saved scan" in [b.label for b in at.button]
         assert "Generate AI Visibility Report from saved scan" not in [b.label for b in at.button]
