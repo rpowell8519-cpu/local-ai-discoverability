@@ -214,6 +214,10 @@ REPORT_TYPES = (
         "Generate Found in Brighton report from saved scan",
     ),
 )
+# A report reads the whole website rather than a sample: a 20-page limit once missed a client's
+# membership page and reported it as absent. The ceiling only stops a very large site (hundreds of
+# event or blog pages) from running for an unreasonable time.
+REPORT_WEBSITE_PAGE_LIMIT = 200
 AI_VISIBILITY_HANDOFF_KEY = "ai_visibility_report_handoff_target"
 AI_VISIBILITY_FORCE_PROMPTS_KEY = "ai_visibility_force_owner_prompts"
 BRIEFS_STATE_KEY = "accessible_ai_report_owner_briefs"
@@ -500,9 +504,9 @@ def review_comparison_website(
         audit_result, audit_pages = audit_website(
             website_url=website_url,
             business_group=business_group,
-            max_pages=20,
+            max_pages=REPORT_WEBSITE_PAGE_LIMIT,
             timeout_seconds=12,
-            adaptive_stop=True,
+            adaptive_stop=False,
         )
         for audit_page in audit_pages:
             save_audit_page(audit_run_id=audit_run_id, page=audit_page)
@@ -1260,13 +1264,13 @@ with st.container(border=True):
                 requested_url=website_url,
             )
             try:
-                with st.spinner("Reviewing the website and saving the evidence…"):
+                with st.spinner("Reviewing the whole website and saving the evidence. A large site can take several minutes…"):
                     audit_result, audit_pages = audit_website(
                         website_url=website_url,
                         business_group=str(business.get("primary_group") or "generic"),
-                        max_pages=20,
+                        max_pages=REPORT_WEBSITE_PAGE_LIMIT,
                         timeout_seconds=12,
-                        adaptive_stop=True,
+                        adaptive_stop=False,
                     )
                     for audit_page in audit_pages:
                         save_audit_page(audit_run_id=audit_run_id, page=audit_page)
@@ -1839,7 +1843,7 @@ if ai_ready and definition is None:
             help="Visits public pages on this business's saved website and stores them as evidence.",
         ):
             try:
-                with st.spinner(f"Reviewing {item['name']}'s website and saving the evidence…"):
+                with st.spinner(f"Reviewing the whole of {item['name']}'s website and saving the evidence. A large site can take several minutes…"):
                     review_comparison_website(
                         place_id=item["place_id"],
                         business_name=item["name"],

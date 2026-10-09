@@ -886,6 +886,11 @@ def url_priority(
     ):
         score -= 10
 
+    # A form's confirmation page says nothing about the business, but its address usually
+    # contains "contact", which would otherwise put it near the front of the queue.
+    if "thank" in combined:
+        score = min(score, 0)
+
     return score
 
 
