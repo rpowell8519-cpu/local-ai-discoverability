@@ -325,7 +325,25 @@ def _date(value: Any) -> date | None:
         return None
 
 
-def things_to_investigate(questions: list[dict[str, Any]], sources: Mapping[str, Any] | None) -> list[str]:
+def _merge_actions(approved: Iterable[Mapping[str, Any]]) -> list[dict[str, str]]:
+    """One entry per action title, in the reviewer's order. Two findings that lead to the same action share it."""
+    merged: dict[str, dict[str, str]] = {}
+    for item in approved:
+        title = " ".join(str(item.get("title") or "").split())
+        if not title:
+            continue
+        why = str(item.get("why") or "").strip()
+        if title in merged:
+            if why and why not in merged[title]["why"]:
+                merged[title]["why"] = (merged[title]["why"] + " " + why).strip()
+            continue
+        merged[title] = {"title": title, "why": why, "action": str(item.get("action") or item.get("task") or "").strip(),
+                         "basis": str(item.get("basis") or "").strip().rstrip(".")}
+    return list(merged.values())
+
+
+def things_to_investigate(questions: list[dict[str, Any]], sources: Mapping[str, Any] | None,
+                          actioned: Iterable[str] = ()) -> list[str]:
     """Plain observations worth a closer look. They restate the measurements; they are not advice."""
     asked = [q for q in questions if q["complete"]]
     out = []
@@ -341,7 +359,10 @@ def things_to_investigate(questions: list[dict[str, Any]], sources: Mapping[str,
              and any(v["recommended"] == 0 for v in q["providers"].values())]
     if split:
         out.append("The AI tools disagree (one always names you, another never) for: " + _join(split[:4]) + ".")
-    missing = [s["domain"] for s in (sources or {}).get("independent", []) if s.get("status") == "Not found"]
+    # Directories and guides only, and not those already turned into an action above.
+    done = set(actioned)
+    missing = [s["domain"] for s in (sources or {}).get("independent", []) if s.get("status") == "Not found"
+               and int(s.get("businesses_listed") or 0) >= 2 and f"listing:{s['domain']}" not in done]
     if missing:
         out.append("Cited by the AI tools, but you were not found on the pages cited: " + _join(missing[:5]) + ".")
     return out
@@ -392,10 +413,10 @@ def build_final_beta_report(
         "questions": questions, "providers": providers, "competitors": build_competitors(summary), "sources": sources,
         "reviews": summarise_reviews(review_records, review_themes, today=today, google_total=google_total,
                                      google_rating=google_rating, quote_ids=quote_ids),
-        "actions": [{"title": str(a.get("title") or ""), "why": str(a.get("why") or ""), "action": str(a.get("action") or a.get("task") or ""),
-                     "basis": str(a.get("basis") or "")} for a in approved_actions if str(a.get("title") or "").strip()],
+        "actions": _merge_actions(approved_actions),
         "observations": [{"title": str(a.get("title") or ""), "text": str(a.get("observation") or "")}
                          for a in approved_findings if str(a.get("title") or "").strip() and str(a.get("observation") or "").strip()],
-        "investigate": things_to_investigate(questions, sources if sources["available"] else None),
+        "investigate": things_to_investigate(questions, sources if sources["available"] else None,
+                                             actioned={str(a.get("signal") or "") for a in approved_actions}),
         "models": {p["name"]: p.get("model") for p in summary["providers"]},
     }
