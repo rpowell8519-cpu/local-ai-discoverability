@@ -44,14 +44,17 @@ def load_business_domains(*, engine=None) -> dict[str, str]:
 
 
 def load_previous_run(place_id: str, run_id: str, question_texts: list[str], *, engine=None) -> tuple[list[dict[str, Any]], Any]:
-    """The most recent earlier completed benchmark for this business that asked any of the same questions."""
+    """The most recent completed benchmark from an earlier day that asked any of the same questions.
+
+    A second run on the same day is a repeat, not an earlier test, and would not show change over time.
+    """
     with (engine or get_engine()).connect() as connection:
         current = connection.execute(text("select started_at from public.ai_visibility_runs where id = cast(:id as uuid)"), {"id": run_id}).scalar()
         if current is None:
             return [], None
         earlier = connection.execute(text(f"""
             select ai_visibility_runs.id, ai_visibility_runs.started_at from public.ai_visibility_runs
-            where target_google_place_id = :place and status = 'completed' and started_at < :current
+            where target_google_place_id = :place and status = 'completed' and started_at::date < cast(:current as date)
               and exists (select 1 from public.ai_visibility_queries q where q.run_id = ai_visibility_runs.id and q.prompt_text = any(:texts))
               {core_run_filter(connection)}
             order by started_at desc limit 1

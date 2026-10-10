@@ -152,3 +152,28 @@ def test_pdf_renders_with_and_without_sources_reviews_and_actions(synthetic):
     assert "Finish the bridal page" in text and "guide.example" in text and "12 reviews read" in text
     assert "(CONTINUED)" in text, "a long brief continues on a further page instead of overflowing"
     assert f"/ {len(reader.pages):02d}" in text
+
+
+def test_actions_with_the_same_title_are_merged_and_listings_already_actioned_are_not_repeated(synthetic):
+    from src.final_beta_report import things_to_investigate
+    approved = [{"title": "Publish prices", "why": "Pricing was not detected.", "action": "Show prices as text.", "basis": "Saved pages.", "signal": "pricing"},
+                {"title": "Publish  prices", "why": "Service coverage was not detected.", "action": "Other wording", "basis": "Saved pages", "signal": "services"},
+                {"title": "Check whether you can be listed on guide.example", "why": "Cited in 6.", "action": "Look.", "basis": "Cited pages", "signal": "listing:guide.example"}]
+    data = build(synthetic, approved_actions=approved)
+    assert [a["title"] for a in data["actions"]] == ["Publish prices", "Check whether you can be listed on guide.example"]
+    assert data["actions"][0]["why"] == "Pricing was not detected. Service coverage was not detected." and data["actions"][0]["basis"] == "Saved pages"
+    sources = {"independent": [{"domain": "guide.example", "status": "Not found", "businesses_listed": 4},
+                               {"domain": "other.example", "status": "Not found", "businesses_listed": 3},
+                               {"domain": "onerival.example", "status": "Not found", "businesses_listed": 1}]}
+    lines = things_to_investigate([], sources, actioned={"listing:guide.example"})
+    assert lines == ["Cited by the AI tools, but you were not found on the pages cited: other.example."]
+
+
+def test_a_report_with_no_recommendations_has_no_strongest_question_tile(synthetic):
+    from pypdf import PdfReader
+    payload, summary = synthetic
+    zero = {**summary, "questions": [{**q, "appearances": 0, "provider_appearances": {k: 0 for k in q["provider_appearances"]}} for q in summary["questions"]],
+            "providers": [{**p, "appearances": 0} for p in summary["providers"]]}
+    data = build_final_beta_report(zero, responses=list(payload["baseline_validation"]["responses"]), results=[], confirmed_names=[], today=date(2026, 10, 10))
+    text = " ".join(page.extract_text() or "" for page in PdfReader(io.BytesIO(render_final_beta_pdf(data))).pages)
+    assert "Your strongest question" not in text and "A STARTING POINT" in text and "Questions tested" in text

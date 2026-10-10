@@ -227,10 +227,12 @@ def _render(d: Mapping[str, Any], total: int | None):
     prev = d['previous_total']
     tiles = [(_of(d['recommended'], d['total']), 'All questions',
               _date(d['test_date']) + (f". It was {_of(prev['recommended'], prev['complete'])} earlier" if prev and prev['all_questions'] else ''))]
-    if best:
+    if best and best['recommended']:
         tiles.append((_of(best['recommended'], best['complete']), best['label'], 'Your strongest question'))
+    else:
+        tiles.append((str(len(asked)), 'Questions tested', f"{len(d['providers'])} AI tools, {d['repetitions']} repeats each"))
     tiles.append((_of(0, sum(q['complete'] for q in absent)), f"{len(absent)} question{'s' if len(absent) != 1 else ''} with no recommendation",
-                  'Where you were not named at all') if absent else (str(len(asked)), 'Questions tested', 'Every one returned a recommendation'))
+                  'Where you were not named at all') if absent else (str(len(d['competitors']['ai'])), 'Businesses compared', 'Every question returned a recommendation'))
     doc.stats(tiles[:3])
     if asked and d['recommended'] == 0:
         doc.callout('A starting point', f"{_e(short)} was not recommended in this test. That is a baseline, not a verdict: the AI tools draw on websites, listings and reviews that take time to build up. This report shows where they are looking, so you know where to become established first.", 'green')
@@ -319,7 +321,7 @@ def _render(d: Mapping[str, Any], total: int | None):
                   + (f" ({_date(r['first'])} to {_date(r['last'])})" if r['first'] else '') + '.'
                   + (f" Google shows an overall rating of {r['google_rating']:g}." if r['google_rating'] else ''))
         if r['themes']:
-            doc.bars(r['themes'], r['read'])
+            doc.bars([(label[:1].upper() + label[1:], n) for label, n in r['themes']], r['read'])
         extra = []
         if r['also']:
             extra.append('<b>Also mentioned:</b> ' + ', '.join(f"{_e(l).lower()} ({n})" for l, n in r['also']) + '.')
@@ -338,10 +340,15 @@ def _render(d: Mapping[str, Any], total: int | None):
               'Observations from the results, the cited sources, your website and your reviews. They are not proven causes.')
     if d['actions']:
         doc.heading('Actions the evidence supports')
+        basis = None
         for i, action in enumerate(d['actions'], 1):
+            if action['basis'] and action['basis'] != basis:
+                # Actions resting on the same evidence share one line saying what that evidence is.
+                basis = action['basis']
+                doc.note(f"Based on: {_e(basis)}.")
             doc.para(f"<b>{i}. {_e(action['title'])}</b><br/>" + '<br/>'.join(x for x in (
-                f"<b>Why:</b> {_e(action['why'])}" if action['why'] else '', f"<b>What to do:</b> {_e(action['action'])}" if action['action'] else '',
-                f"<b>Based on:</b> {_e(action['basis'])}" if action['basis'] else '') if x), size=10.4, gap=11)
+                f"<b>Why:</b> {_e(action['why'])}" if action['why'] else '',
+                f"<b>What to do:</b> {_e(action['action'])}" if action['action'] else '') if x), size=10.4, gap=11)
     else:
         doc.para('No actions are recommended yet. We suggest only what the evidence supports.')
     if d.get('observations'):
