@@ -10,6 +10,7 @@ from __future__ import annotations
 import datetime as dt
 from contextlib import ExitStack
 from pathlib import Path
+import pandas as pd
 from unittest import mock
 
 import pytest
@@ -148,6 +149,10 @@ def run_page(audit, *, extra=(), secrets=None):
     stack = ExitStack()
     saved = mock.Mock(return_value={"revision": 4})
     patches = [
+        # Step 5's suggestions from cited sources read saved answers, the directory and reviews: keep them off the real database.
+        mock.patch("src.ai_visibility_repository.get_run_results", return_value=pd.DataFrame()),
+        mock.patch("src.final_beta_repository.load_business_domains", return_value={}),
+        mock.patch("src.final_beta_repository.page_fetcher", return_value=lambda url: ""),
         mock.patch("src.database.get_engine", return_value=_Engine()),
         mock.patch("src.business_platform_links.get_engine", return_value=_Engine()),
         mock.patch("src.report_audit_repository.get_latest_report_audit", return_value=audit),

@@ -94,5 +94,8 @@ def assemble_final_beta(summary: Mapping[str, Any], payload: Mapping[str, Any], 
         review_records=records, review_themes=themes, google_total=business.get("google_reviews"),
         google_rating=business.get("google_rating"), quote_ids=[str(i) for i in decisions.get("review_quote_ids") or []],
         approved_actions=[a for a in decisions.get("approved_recommendations") or [] if str(a.get("kind") or "action") == "action"],
+        # Collection notes ("no review text was collected") are for the operator, not the client.
+        approved_findings=[a for a in decisions.get("approved_recommendations") or [] if str(a.get("kind")) == "finding"
+                           and not str(a.get("signal") or "").startswith("collection:")],
         fetch=fetch,
     )

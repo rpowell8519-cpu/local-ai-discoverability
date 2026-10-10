@@ -386,6 +386,38 @@ def load_evidence_frames(place_ids: tuple[str, ...]):
     return audits, pages_by_run, get_reviews(ids)
 
 
+@st.cache_data(ttl=3600, show_spinner="Reading the sources the AI tools cited…")
+def load_visibility_candidates(
+    *, run_id: str, target_id: str, target_name: str, short_name: str, confirmed_names: tuple[str, ...], own_domains: tuple[str, ...],
+    target_reviews: str, leaders: tuple[tuple[str, str, str], ...], primary_group: str, review_themes: tuple[tuple[str, tuple[str, ...]], ...],
+) -> list[dict[str, Any]]:
+    """Suggestions from the cited sources, review volume and the leaders' review themes, for the reviewer to decide.
+
+    Cached for an hour: it reads the cited pages (read-only requests), and the list a reviewer is
+    deciding on should not change while they work through it.
+    """
+    from datetime import date as _today
+
+    from src.ai_recommendation_intelligence import extract_numbered_recommendations
+    from src.final_beta_report import COMMON_THEMES, check_coverage, name_patterns, summarise_sources
+    from src.final_beta_repository import load_business_domains, page_fetcher
+    from src.visibility_candidates import build_visibility_candidates
+
+    results = get_run_results(run_id).to_dict("records")
+    recommended = {str(item.get("raw_business_name") or "") for row in results
+                   for item in extract_numbered_recommendations(str(row.get("raw_response") or ""))}
+    sources = summarise_sources(results, own_domains=own_domains, business_domains=load_business_domains(), recommended_names=recommended)
+    if sources["available"]:
+        sources["independent"] = check_coverage(sources["independent"], name_patterns([*confirmed_names, target_name], short_name), page_fetcher(), recommended)
+    leader_rows = [{"google_place_id": pid, "business_name": name, "google_reviews": count} for pid, name, count in leaders]
+    reviews = get_reviews([target_id, *[pid for pid, _, _ in leaders]])
+    themes = [(label, list(terms)) for label, terms in COMMON_THEMES] + [(label, list(terms)) for label, terms in review_themes]
+    return build_visibility_candidates(
+        sources=sources, target_id=target_id, target_name=target_name, target_reviews=target_reviews, leaders=leader_rows,
+        reviews=reviews.to_dict("records") if reviews is not None and not reviews.empty else [], themes=themes, read_on=_today.today(),
+    )
+
+
 @st.cache_data(ttl=120)
 def load_run_prompt_seed(run_id: str) -> list[dict[str, Any]]:
     """Load one verbatim copy of each question from a saved benchmark."""
@@ -1710,6 +1742,27 @@ if ai_ready and definition is None:
     if has_legacy_presence_action(existing_decisions.get("approved_recommendations")):
         review_update_reasons.append("review the old platform-presence action, which inferred absence from uncollected review text")
     evidence_candidates = list((evidence_analysis or {}).get("candidates") or [])
+    if names_ready and saved_benchmark_run_id and leaders_now:
+        # Suggestions that do not depend on the website comparison, so a business the AI never names still gets a place to start.
+        try:
+            from src.report_identity import display_name
+
+            listing_by_id = {str(row["google_place_id"]): row for row in business_records}
+            wording_now = dict(existing_decisions.get("type_wording") or {})
+            evidence_candidates += load_visibility_candidates(
+                run_id=str(saved_benchmark_run_id), target_id=str(selected_place_id), target_name=str(business["business_name"]),
+                short_name=display_name(str(business["business_name"])),
+                confirmed_names=tuple(sorted(str(name) for name in existing_decisions.get("confirmed_target_names") or [])),
+                own_domains=tuple(str(url) for url in (business.get("source_website_url"), (durable_audit or {}).get("manual_website_url")) if url),
+                target_reviews=clean_text(business.get("google_reviews")),
+                leaders=tuple((str(item["google_place_id"]), str(item["business_name"]),
+                               clean_text(listing_by_id.get(str(item["google_place_id"]), {}).get("google_reviews"))) for item in leaders_now),
+                primary_group=str(business.get("primary_group") or "generic"),
+                review_themes=tuple((str(theme["label"]), tuple(str(term) for term in theme.get("terms") or []))
+                                    for theme in wording_now.get("review_themes") or [] if str(theme.get("category") or "") != "Problems"),
+            )
+        except Exception as exc:
+            st.caption(f"Suggestions from the cited sources and reviews could not be prepared ({type(exc).__name__}).")
     saved_recommendation_choices = dict(existing_decisions.get("recommendation_decisions") or {})
     open_recommendations = [c for c in evidence_candidates if c["id"] not in saved_recommendation_choices]
     if open_recommendations:

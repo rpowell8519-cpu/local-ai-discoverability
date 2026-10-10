@@ -68,6 +68,21 @@ have no citations and render "Not available for this test". The summary lines an
 are written from the figures by rule, not by a reviewer; "Actions the evidence supports" lists only
 reviewer-approved recommendations. It is worded for the client: keep operator notes out of it.
 
+### Suggestions from cited sources and reviews (added 10 October 2026)
+
+`src/visibility_candidates.py` adds four reviewer-gated candidates to step 5, beside the website and
+review-text comparison, so a business the AI never names still gets a place to start: the client's
+own site never cited while other businesses' sites were (`sources:own-site`); an independent page
+the answers cited that names at least two recommended businesses but not the client
+(`sources:listing:<domain>`, at most four); far fewer published Google reviews than the leaders
+(`reviews:volume`); and what the leaders' customers mention most (`reviews:leader-themes`, a
+finding). Each states its evidence and that it shows no cause. Absence is reported only for a page
+that was read; an unreadable page gives no candidate. These are not the retired
+`reviews:platform-` presence actions, which inferred absence from uncollected review text. They read
+the cited pages at step 5 (cached for an hour), so an existing completed review gains undecided
+candidates and must be re-reviewed before its report is generated. In the full report an approved
+action from these layers cites "Cited sources and published reviews", not the website comparison.
+
 ### Two report types from one evidence layer
 
 Step 6 of the report generator offers the **full evidence report (RP)** and the **client

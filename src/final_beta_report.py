@@ -235,13 +235,19 @@ def html_text(html: str) -> str:
 
 
 def check_coverage(independent: list[dict[str, Any]], patterns: Sequence[re.Pattern[str]],
-                   fetch: Callable[[str], str] | None) -> list[dict[str, Any]]:
-    """Whether the business appears on the pages the AI tools cited. Unreadable pages are "To check"."""
+                   fetch: Callable[[str], str] | None, business_names: Iterable[str] = ()) -> list[dict[str, Any]]:
+    """Whether the business appears on the pages the AI tools cited. Unreadable pages are "To check".
 
-    def status(source: Mapping[str, Any]) -> str:
+    `businesses_listed` counts the recommended businesses named on the pages read. A page naming
+    several is a directory or guide; a page naming one is usually that business's own site.
+    """
+    others = sorted({" ".join(re.sub(r"\(.*?\)", "", str(n)).split()).casefold() for n in business_names} - {""}, key=len, reverse=True)
+    others = [name for name in others if len(name) >= 5]
+
+    def read(source: Mapping[str, Any]) -> tuple[str, int]:
         if not fetch or not source["urls"]:
-            return "To check"
-        readable = False
+            return "To check", 0
+        found, readable, listed = False, False, set()
         for url in source["urls"]:
             try:
                 text = html_text(fetch(url))
@@ -249,15 +255,16 @@ def check_coverage(independent: list[dict[str, Any]], patterns: Sequence[re.Patt
                 continue
             if len(text) < MIN_READABLE_CHARS:
                 continue
-            if _matches(text, patterns):
-                return "Yes"
             readable = True
-        return "Not found" if readable else "To check"
+            found = found or _matches(text, patterns)
+            lowered = text.casefold()
+            listed |= {name for name in others if name in lowered}
+        return ("Yes" if found else "Not found" if readable else "To check"), len(listed)
 
     # The pages are read side by side so a slow site cannot hold up the report.
     with ThreadPoolExecutor(max_workers=6) as pool:
-        statuses = list(pool.map(status, independent))
-    return [{**source, "status": state} for source, state in zip(independent, statuses)]
+        outcomes = list(pool.map(read, independent))
+    return [{**source, "status": status, "businesses_listed": listed} for source, (status, listed) in zip(independent, outcomes)]
 
 
 def summarise_reviews(records: Iterable[Mapping[str, Any]], themes: Sequence[tuple[str, Sequence[str]]], *,
@@ -352,6 +359,7 @@ def build_final_beta_report(
     previous_date: Any = None, review_records: Iterable[Mapping[str, Any]] = (),
     review_themes: Sequence[tuple[str, Sequence[str]]] = (), google_total: Any = None, google_rating: Any = None,
     quote_ids: Iterable[str] = (), approved_actions: Iterable[Mapping[str, Any]] = (),
+    approved_findings: Iterable[Mapping[str, Any]] = (),
     fetch: Callable[[str], str] | None = None, today: date | None = None,
 ) -> dict[str, Any]:
     today = today or date.today()
@@ -364,7 +372,7 @@ def build_final_beta_report(
     sources = summarise_sources(results, own_domains=own_domains, business_domains=business_domains or {},
                                 recommended_names=recommended_names)
     if sources["available"]:
-        sources["independent"] = check_coverage(sources["independent"], patterns, fetch)
+        sources["independent"] = check_coverage(sources["independent"], patterns, fetch, recommended_names)
     providers = []
     for item in summary["providers"]:
         name = _provider(item["name"])
@@ -386,6 +394,8 @@ def build_final_beta_report(
                                      google_rating=google_rating, quote_ids=quote_ids),
         "actions": [{"title": str(a.get("title") or ""), "why": str(a.get("why") or ""), "action": str(a.get("action") or a.get("task") or ""),
                      "basis": str(a.get("basis") or "")} for a in approved_actions if str(a.get("title") or "").strip()],
+        "observations": [{"title": str(a.get("title") or ""), "text": str(a.get("observation") or "")}
+                         for a in approved_findings if str(a.get("title") or "").strip() and str(a.get("observation") or "").strip()],
         "investigate": things_to_investigate(questions, sources if sources["available"] else None),
         "models": {p["name"]: p.get("model") for p in summary["providers"]},
     }
