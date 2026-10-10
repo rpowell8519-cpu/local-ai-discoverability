@@ -232,6 +232,8 @@ def _render(d: Mapping[str, Any], total: int | None):
     tiles.append((_of(0, sum(q['complete'] for q in absent)), f"{len(absent)} question{'s' if len(absent) != 1 else ''} with no recommendation",
                   'Where you were not named at all') if absent else (str(len(asked)), 'Questions tested', 'Every one returned a recommendation'))
     doc.stats(tiles[:3])
+    if asked and d['recommended'] == 0:
+        doc.callout('A starting point', f"{_e(short)} was not recommended in this test. That is a baseline, not a verdict: the AI tools draw on websites, listings and reviews that take time to build up. This report shows where they are looking, so you know where to become established first.", 'green')
     doc.heading('Summary')
     doc.para('<br/>'.join(_summary_lines(d)) or 'No completed answers are available.', size=10.6)
     has_cites = d['sources']['available']
@@ -342,6 +344,10 @@ def _render(d: Mapping[str, Any], total: int | None):
                 f"<b>Based on:</b> {_e(action['basis'])}" if action['basis'] else '') if x), size=10.4, gap=11)
     else:
         doc.para('No actions are recommended yet. We suggest only what the evidence supports.')
+    if d.get('observations'):
+        doc.heading('What we observed')
+        for item in d['observations']:
+            doc.para(f"<b>{_e(item['title'])}</b><br/>{_e(item['text'])}", size=10.4, gap=10)
     if d['investigate']:
         doc.heading('To investigate')
         doc.para('<br/>'.join(_e(line) for line in d['investigate']), size=10.6)

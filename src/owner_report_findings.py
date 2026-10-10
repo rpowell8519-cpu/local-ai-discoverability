@@ -257,7 +257,7 @@ def derive_owner_content(
     taken = {str(item.get("ref")) for item in [*config.get("sources", []), *sources]}
     if approved:
         basis = dict(config.get("recommendation_basis") or {})
-        website_actions = [a for a in approved_actions if a.get("layer") != "reviews"]
+        website_actions = [a for a in approved_actions if a.get("layer") in (None, "website", "propositions")]
         if website_actions:
             pages = dict.fromkeys(
                 f"{e['business']} (read {e.get('read_on') or 'date not saved'}, {e.get('url') or 'page not recorded'})"
@@ -291,12 +291,20 @@ def derive_owner_content(
                             "observation": str(item.get("basis") or "") + " " + profiles})
             item["_ref"] = ref
         for item in approved_actions:
+            if "_ref" not in item:
+                # An action from the cited sources or review volume rests on its own stated evidence.
+                ref = next(f"A{n}" for n in range(1, 99) if f"A{n}" not in taken)
+                taken.add(ref)
+                sources.append({"ref": ref, "kind": "analysis", "title": "Cited sources and published reviews",
+                                "record_id": item["id"], "date": None, "observation": str(item.get("basis") or "")})
+                item["_ref"] = ref
+        for item in approved_actions:
             actions.append({
                 "title": f"{len(actions) + 1}. {item['title']}", "need": item["why"], "observation": item["observation"],
                 "deliverable": item["action"], "supplier": item.get("owner") or _OWNER_PHRASE,
-                "implementer": "Website provider, with the business owner's facts",
-                "effort": _NOT_ESTIMATED + "It depends on how many pages the change touches.",
-                "dependencies": "The owner supplies accurate details; access to the website.",
+                "implementer": item.get("implementer") or "Website provider, with the business owner's facts",
+                "effort": item.get("effort") or _NOT_ESTIMATED + "It depends on how many pages the change touches.",
+                "dependencies": item.get("dependencies") or "The owner supplies accurate details; access to the website.",
                 "check": item["done_when"], "refs": [item["_ref"], "INVENTORY"],
             })
         for item in approved_findings:

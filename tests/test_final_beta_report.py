@@ -68,6 +68,10 @@ def test_coverage_is_yes_not_found_or_to_check_never_a_guess():
     sources = [{"domain": d + ".example", "answers": 3, "urls": [f"https://{d}.example/list"]} for d in "abcd"] + [{"domain": "e.example", "answers": 1, "urls": []}]
     assert [s["status"] for s in check_coverage(sources, patterns, fetch)] == ["Yes", "Not found", "To check", "To check", "To check"]
     assert {s["status"] for s in check_coverage(sources, patterns, None)} == {"To check"}
+    listing = "<p>" + "Rival One and Rival Two (Hove) are here, with Other Place. " * 60 + "</p>"
+    counted = check_coverage([{"domain": "guide.example", "answers": 4, "urls": ["https://guide.example/"]}], patterns, lambda url: listing,
+                             ["Rival One", "Rival Two (Hove)", "Not There", "Spa"])
+    assert (counted[0]["status"], counted[0]["businesses_listed"]) == ("Not found", 2)
 
 
 def test_reviews_summary_counts_themes_ratings_recency_and_picks_a_quote():
