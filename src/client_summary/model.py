@@ -7,6 +7,7 @@ from collections import Counter
 
 MAX_BUSINESSES = 18   # the client, up to eight the owner named, and up to nine the AI recommended most
 MAX_NAMED = 8
+MAX_QUESTIONS = 20  # what one test may hold; the summary PDF itself lays out fewer (see pdf.LAYOUT_QUESTIONS)
 MAX_VISIBLE = 9
 
 
@@ -89,7 +90,7 @@ def validate_report(payload):
     if reps == 0:
         fail('repetitions must be positive.')
     providers = indexed(collection(d.get('providers'), 'providers', 1, 3), 'providers')
-    questions = indexed(collection(d.get('questions'), 'questions', 1, 8), 'questions')
+    questions = indexed(collection(d.get('questions'), 'questions', 1, MAX_QUESTIONS), 'questions')
     expected_provider = len(questions) * reps
     expected_question = len(providers) * reps
     for p in providers.values():
@@ -240,7 +241,7 @@ def from_records(metadata, records):
     text(d.get('target_id'), 'target_id', 80)
     indexed(collection(d.get('businesses'), 'businesses', 1, MAX_BUSINESSES), 'businesses')
     ps = indexed(collection(d.get('providers'), 'providers', 1, 3), 'providers')
-    qs = indexed(collection(d.get('questions'), 'questions', 1, 8), 'questions')
+    qs = indexed(collection(d.get('questions'), 'questions', 1, MAX_QUESTIONS), 'questions')
     reps = count(d.get('repetitions'), 'repetitions', 20)
     if not reps:
         fail('repetitions must be positive.')

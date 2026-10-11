@@ -51,6 +51,14 @@ conversation tool for small-business owners, not a technical audit.
   and close peers) and 15 miles for everything else. These are provisional defaults.
 - `app/pages/10_AI_Report_Generator.py` is the operator UI for all of the above.
 
+### Question limit per test (changed 11 October 2026)
+
+One AI Visibility run from the report generator may hold up to 20 questions (`MAX_RUN_QUESTIONS` in
+`app/pages/10_AI_Report_Generator.py`; data limit `client_summary.model.MAX_QUESTIONS`). The list is never
+filled up to the limit: only the ticked rows run. Final Beta lays out any number of questions. The client
+summary (LS) and full evidence report (RP) are still laid out for at most eight and refuse a larger test with
+a message naming Final Beta (`client_summary.pdf.LAYOUT_QUESTIONS`, `build_client_summary_report(max_questions=)`).
+
 ### Final Beta report (added 9 October 2026)
 
 A third reviewer-gated report type, "Final Beta", for beta client meetings: `src/final_beta_report.py`

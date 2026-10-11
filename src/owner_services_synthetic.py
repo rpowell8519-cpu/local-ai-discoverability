@@ -3,17 +3,18 @@ from src.poc_audit_payload import build_baseline_validation, build_poc_audit_pay
 from src.owner_services_report import FORMAT
 
 
-def synthetic_owner_services_payload():
+def synthetic_owner_services_payload(extra_questions: int = 0):
     providers = {"OpenAI": "synthetic-model-a", "Claude": "synthetic-model-b", "Gemini": "synthetic-model-c"}
     prompts = ["Which salons offer hair colouring in Exampletown?", "Where can I get balayage in Exampletown?",
                "Which salons offer curly haircuts in Exampletown?", "Who offers bridal hairstyling in Exampletown?"]
+    prompts += [f"Who offers synthetic service {n} in Exampletown?" for n in range(1, extra_questions + 1)]
     queries, responses, slots = [], [], []
     for order, prompt in enumerate(prompts, 1):
         for repeat in (1, 2):
             query_id = f"synthetic-q{order}-r{repeat}"
             queries.append({"id": query_id, "base_prompt_order": order, "repeat_index": repeat, "prompt_text": prompt})
             for index, (provider, model) in enumerate(providers.items()):
-                target_present = (repeat - 1) * 3 + index < {1: 6, 2: 4, 3: 2, 4: 0}[order]
+                target_present = (repeat - 1) * 3 + index < {1: 6, 2: 4, 3: 2}.get(order, 0)
                 named = [("synthetic-other", "Example Colour Studio")]
                 if target_present:
                     named.insert(0, ("synthetic-target", "Example Salon"))
@@ -57,8 +58,8 @@ def synthetic_owner_services_payload():
     return build_poc_audit_payload(
         audit={"baseline_run_id": "synthetic-owner-services-v4", "target_google_place_id": "synthetic-target", "target_business_name": "Example Salon", "audit_date": "2026-01-15"},
         revision={"snapshot_revision": 1, "revision_reason": "Synthetic demonstration; no database snapshot", "supersedes_snapshot_id": None},
-        methodology={"providers": list(providers), "models": providers, "prompt_count": 4, "repetitions": 2, "queries": queries, "benchmark_mode": "model_memory"},
-        baseline_validation=build_baseline_validation(responses, expected_responses=24, status="reviewed", verification_method_version="synthetic-v4"),
+        methodology={"providers": list(providers), "models": providers, "prompt_count": len(prompts), "repetitions": 2, "queries": queries, "benchmark_mode": "model_memory"},
+        baseline_validation=build_baseline_validation(responses, expected_responses=len(responses), status="reviewed", verification_method_version="synthetic-v4"),
         source_traceability={"ai_run_id": "synthetic-owner-services-v4"},
         recommendation_market={"original_slot_count": len(slots), "business_slot_count": len(slots), "non_business_slot_count": 0, "slot_evidence": slots, "canonical_businesses": []},
         website_evidence={"audits": [{"id": "synthetic-site", "google_place_id": "synthetic-target", "business_name": "Example Salon", "pages": pages}]},
