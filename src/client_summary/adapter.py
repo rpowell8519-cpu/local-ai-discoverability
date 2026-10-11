@@ -139,8 +139,13 @@ def build_client_summary_report(
     site_findings: Iterable[Mapping[str, Any]] = (),
     website_checked: bool = False,
     draft: bool = True,
+    max_questions: int = 8,
 ) -> dict[str, Any]:
-    """Return validated client-summary data for a saved, complete benchmark."""
+    """Return validated client-summary data for a saved, complete benchmark.
+
+    `max_questions` is eight for the summary PDF, whose pages are laid out for that many. A report that lays out
+    any number of questions (Final Beta) passes the larger limit a test may hold.
+    """
 
     report = build_owner_report(payload)
     if report["excluded"]:
@@ -150,8 +155,11 @@ def build_client_summary_report(
         )
     if not report["answers"]:
         raise ClientSummaryError("There are no completed answers to summarise.")
-    if len(report["questions"]) > 8:
-        raise ClientSummaryError("The client summary shows at most eight questions.")
+    if len(report["questions"]) > max_questions:
+        raise ClientSummaryError(
+            f"This report shows at most {max_questions} questions and the test has {len(report['questions'])}. "
+            "Use the Final Beta report for a larger test."
+        )
     owner_config = dict(payload.get("report", {}).get("owner_report") or {})
     audit = report["audit"]
     target_id = str(audit["target_google_place_id"])

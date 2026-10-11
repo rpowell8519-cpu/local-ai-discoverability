@@ -57,6 +57,9 @@ class ReportLayoutError(ReportValidationError):
     pass
 
 
+LAYOUT_QUESTIONS = 8  # the question pages are laid out for this many; a larger test needs another report type
+
+
 TOTAL_PAGES = 9
 
 
@@ -302,6 +305,9 @@ def render_pdf(payload):
     clipped. Only if every step fails does the export stop with the layout error.
     """
     validated = validate_report(payload)
+    if len(validated['questions']) > LAYOUT_QUESTIONS:
+        raise ReportLayoutError(f"The client summary shows at most {LAYOUT_QUESTIONS} questions and this test has "
+                                f"{len(validated['questions'])}. Use the Final Beta report for a larger test.")
     error = None
     for level in range(LAST_LEVEL + 1):
         try:

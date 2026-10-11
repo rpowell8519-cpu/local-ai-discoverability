@@ -225,6 +225,9 @@ REPORT_TYPES = (
         "Generate Found in Brighton report from saved scan",
     ),
 )
+# One paid test may hold this many questions. Only the questions the operator ticks are run; nothing fills the list up to it.
+MAX_RUN_QUESTIONS = 20
+SUMMARY_LAYOUT_QUESTIONS = 8
 # A report reads the whole website rather than a sample: a 20-page limit once missed a client's
 # membership page and reported it as absent. The ceiling only stops a very large site (hundreds of
 # event or blog pages) from running for an unreasonable time.
@@ -1150,9 +1153,14 @@ if next_step["key"] == "benchmark":
     missing_providers = [name for name in DEFAULT_MODELS if name not in available_providers]
     if missing_providers:
         st.error("Connect all three required AI platforms before running: " + ", ".join(missing_providers) + ".")
-    if len(selected_questions) > 8:
+    if len(selected_questions) > MAX_RUN_QUESTIONS:
         st.error(
-            "Select no more than eight questions for one report. Additional questions can be saved for a separate run."
+            f"Select no more than {MAX_RUN_QUESTIONS} questions for one report. Additional questions can be saved for a separate run."
+        )
+    elif len(selected_questions) > SUMMARY_LAYOUT_QUESTIONS:
+        st.info(
+            f"A test with more than {SUMMARY_LAYOUT_QUESTIONS} questions can be reported as Final Beta. The full evidence report (RP) "
+            f"and the client summary (LS) are laid out for at most {SUMMARY_LAYOUT_QUESTIONS}."
         )
     st.warning(
         "This starts paid API calls. Check the questions and planned call count before continuing. "
@@ -1169,7 +1177,7 @@ if next_step["key"] == "benchmark":
         disabled=(
             not confirm_ai_spend
             or len(selected_questions) == 0
-            or len(selected_questions) > 8
+            or len(selected_questions) > MAX_RUN_QUESTIONS
             or len(available_providers) != 3
             or not run_location
         ),
@@ -2707,6 +2715,7 @@ else:
                     reviewer_action_titles=list(
                         dict((durable_audit or {}).get("reviewer_decisions") or {}).get("action_titles") or []
                     ),
+                    max_questions=MAX_RUN_QUESTIONS,
                 )
                 beta_pdf = render_final_beta_pdf(
                     assemble_final_beta(beta_summary, beta_payload, durable_audit, business, fetch=page_fetcher())
