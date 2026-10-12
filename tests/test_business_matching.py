@@ -220,3 +220,16 @@ def test_the_client_claims_its_other_trading_name_before_a_lookalike_competitor(
     )
     assert [(s.label, [n["name"] for n in s.names]) for s in plan] == [("UDR Properties", ["UDR Cleaning"]), ("Pure Cleaning", [])]
     assert plan[0].names[0]["reason"] == "Matches the business's website address"
+
+
+def test_a_competitor_the_owner_named_is_offered_its_longer_trading_name():
+    # Regression: "Seb-Services Cleaning Ltd" (7 answers) was never offered against the owner's
+    # "seb-services brighton" / the listing "Seb-services Ltd", so the report said 0 of 72.
+    listed = {"udr": "UDR Properties", "seb": "Seb-services Ltd", "pure": "Pure Cleaning"}
+    names = [{"business_name": "Seb-Services Cleaning Ltd", "recommendations": 7}, {"business_name": "Pure Gym", "recommendations": 2}]
+    plan = plan_subjects(
+        target_id="udr", target_name="UDR Properties", unresolved=names, owner_names=["seb-services brighton"],
+        owner_places={"seb-services brighton": "seb"}, cohort_ids=["seb", "pure"], names_by_id=listed,
+    )
+    assert flagged(plan, "seb") == ["Seb-Services Cleaning Ltd"]
+    assert flagged(plan, "pure") == []  # other comparison businesses keep the narrower tests

@@ -432,8 +432,11 @@ client's own website address once its spaces are removed. They exist because the
 Properties" (website udrcleaning.co.uk) was recommended as "UDR Cleaning" in 6 of 72 answers on
 12 October 2026 and reported as "0 of 72": "UDR" is under the four-letter minimum of the general
 tests, so the reviewer was never asked, and the name was offered only against "Pure Cleaning".
-Both tests only add a question for the reviewer. Keep them to the client: applied to every
-comparison business they would flood step 5 in a market where many names share a first word.
+Both tests only add a question for the reviewer. The first-word test also applies to the
+competitors the owner named (the same report showed "Seb-services Ltd" at 0 of 72 while
+"Seb-Services Cleaning Ltd" sat unmatched in 7 answers); the website test is the client's only.
+Keep them off the other comparison businesses: there they would flood step 5 in a market where
+many names share a first word.
 
 ### Finding the business, or being told it is not there
 
