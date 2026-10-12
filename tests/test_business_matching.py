@@ -208,3 +208,15 @@ def test_confirming_it_for_only_one_is_not_a_conflict():
                              owner_names=[], owner_places={}, cohort_ids=["plusx"], names_by_id=NAMES, records=WERKS_RECORDS)
     decisions = {"name_links": {"pierwerks": {"confirmed": ["WERKS"]}, "werkscentral": {"rejected": ["WERKS"]}}}
     assert conflicting_confirmations(subjects, decisions) == []
+
+
+def test_the_client_claims_its_other_trading_name_before_a_lookalike_competitor():
+    # Regression: "UDR Cleaning" was offered only against "Pure Cleaning", never against the client.
+    listed = {"udr": "UDR Properties", "pure": "Pure Cleaning"}
+    plan = plan_subjects(
+        target_id="udr", target_name="UDR Properties", unresolved=[{"business_name": "UDR Cleaning", "recommendations": 6}],
+        owner_names=[], owner_places={}, cohort_ids=["pure"], names_by_id=listed,
+        target_websites=["https://www.udrcleaning.co.uk/", None],
+    )
+    assert [(s.label, [n["name"] for n in s.names]) for s in plan] == [("UDR Properties", ["UDR Cleaning"]), ("Pure Cleaning", [])]
+    assert plan[0].names[0]["reason"] == "Matches the business's website address"

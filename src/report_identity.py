@@ -28,6 +28,14 @@ _GENERIC_WORDS = frozenset({
     "services", "group", "company", "co",
 })
 _MIN_CORE_LENGTH = 4
+_MIN_LEADING_WORD = 3
+_MIN_WEBSITE_LABEL = 6
+# A page on one of these is not the business's own address, so its first label names the platform.
+_SHARED_HOSTS = frozenset({
+    "facebook.com", "instagram.com", "linktr.ee", "google.com", "business.site", "wixsite.com",
+    "squarespace.com", "wordpress.com", "yell.com", "checkatrade.com", "bark.com", "linkedin.com",
+    "x.com", "twitter.com", "tiktok.com", "youtube.com",
+})
 _SIMILARITY_THRESHOLD = 0.85
 
 
@@ -106,20 +114,64 @@ def _similarity_reason(candidate: str, references: Iterable[str]) -> str | None:
     return None
 
 
+def _leading_word(name: str) -> str:
+    """The first word of a normalised name, ignoring a leading "the"; empty when it says nothing."""
+
+    words = [word for word in name.split() if word != "the"]
+    if not words or len(words[0]) < _MIN_LEADING_WORD or words[0] in _GENERIC_WORDS:
+        return ""
+    return words[0]
+
+
+def _website_label(url: str) -> str:
+    """"udrcleaning" for "https://www.udrcleaning.co.uk/"; empty for a page on a shared platform."""
+
+    host = re.sub(r"^[a-z]+://", "", str(url or "").strip().lower()).split("/")[0].split("?")[0].split(":")[0]
+    host = host.removeprefix("www.")
+    if not host or any(host == shared or host.endswith("." + shared) for shared in _SHARED_HOSTS):
+        return ""
+    label = re.sub(r"[^a-z0-9]", "", host.split(".")[0])
+    return label if len(label) >= _MIN_WEBSITE_LABEL else ""
+
+
+def _client_reason(candidate: str, full: str, website_labels: Iterable[str]) -> str | None:
+    """Extra look-alike tests used only for the business the report is about.
+
+    "UDR Cleaning" beside the listing "UDR Properties" (website udrcleaning.co.uk) shares one short
+    word, so the general tests pass it by and the client is reported as absent. These only add a
+    question for the reviewer; wrongly reporting a client as absent costs far more than one extra.
+    """
+
+    squashed = candidate.replace(" ", "")
+    for label in website_labels:
+        if squashed == label or (len(squashed) >= _MIN_WEBSITE_LABEL and (squashed in label or label in squashed)):
+            return "Matches the business's website address"
+    lead = _leading_word(full)
+    if lead and lead == _leading_word(candidate):
+        return "Starts with the same word as the business's name"
+    return None
+
+
 def find_possible_target_names(
-    target_name: str, unresolved: Iterable[Mapping[str, Any]]
+    target_name: str, unresolved: Iterable[Mapping[str, Any]], *,
+    client: bool = False, websites: Iterable[str] = (),
 ) -> list[dict[str, Any]]:
-    """List unresolved AI names that may refer to the target business."""
+    """List unresolved AI names that may refer to the target business.
+
+    `client` switches on the wider tests for the business the report is about; `websites` are its
+    own website addresses.
+    """
 
     full = normalise_name(target_name)
     references = [*brand_core_variants(target_name), full]
+    labels = [label for label in dict.fromkeys(_website_label(url) for url in websites) if label] if client else []
     found = []
     for item in unresolved:
         raw = str(item.get("business_name") or "").strip()
         candidate = normalise_name(raw)
         if not candidate or candidate == full:
             continue
-        reason = _similarity_reason(candidate, references)
+        reason = _similarity_reason(candidate, references) or (_client_reason(candidate, full, labels) if client else None)
         if reason:
             found.append(
                 {
@@ -136,11 +188,13 @@ def undecided_target_names(
     unresolved: Iterable[Mapping[str, Any]],
     confirmed: Iterable[str],
     rejected: Iterable[str],
+    *,
+    websites: Iterable[str] = (),
 ) -> list[dict[str, Any]]:
     decided = {str(name) for name in [*confirmed, *rejected]}
     return [
         item
-        for item in find_possible_target_names(target_name, unresolved)
+        for item in find_possible_target_names(target_name, unresolved, client=True, websites=websites)
         if item["name"] not in decided
     ]
 

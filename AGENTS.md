@@ -425,6 +425,16 @@ the report generator, and the decision is stored in `reviewer_decisions`
 Confirmed names are credited through `slot_adjudications` and disclosed in the report's
 methodology. Generation refuses to run while a look-alike name is undecided.
 
+The client itself gets two wider tests that no other business gets (`client=True` in
+`find_possible_target_names`, set by `plan_subjects` for the target only): a name starting with
+the same non-generic first word as the listing, however short, and a name that matches the
+client's own website address once its spaces are removed. They exist because the listing "UDR
+Properties" (website udrcleaning.co.uk) was recommended as "UDR Cleaning" in 6 of 72 answers on
+12 October 2026 and reported as "0 of 72": "UDR" is under the four-letter minimum of the general
+tests, so the reviewer was never asked, and the name was offered only against "Pure Cleaning".
+Both tests only add a question for the reviewer. Keep them to the client: applied to every
+comparison business they would flood step 5 in a market where many names share a first word.
+
 ### Finding the business, or being told it is not there
 
 The report generator opens on a search box (`src/business_lookup.py`). It matches the name,

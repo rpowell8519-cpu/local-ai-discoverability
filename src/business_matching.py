@@ -97,6 +97,7 @@ def plan_subjects(
     cohort_ids: Iterable[str],
     names_by_id: Mapping[str, str],
     records: Iterable[Mapping[str, Any]] = (),
+    target_websites: Iterable[str] = (),
 ) -> list[Subject]:
     """Every business whose AI names need deciding, each unresolved name claimed by at most one.
 
@@ -108,10 +109,13 @@ def plan_subjects(
     claimed: set[str] = set()
     subjects: list[Subject] = []
 
-    def flag(label: str, reference_names: list[str], *, owner_words: bool = False) -> list[dict[str, Any]]:
+    target_websites = [str(url) for url in target_websites if url]
+
+    def flag(label: str, reference_names: list[str], *, owner_words: bool = False, client: bool = False) -> list[dict[str, Any]]:
         found: dict[str, dict[str, Any]] = {}
         for reference in reference_names:
-            for item in find_possible_target_names(reference, unresolved):
+            # The client gets the wider look-alike tests: missing its name reports it as absent.
+            for item in find_possible_target_names(reference, unresolved, client=client, websites=target_websites):
                 if item["name"] not in claimed:
                     found.setdefault(item["name"], item)
             if owner_words:  # an AI name identical to what the owner typed is exactly the one to check
@@ -123,7 +127,7 @@ def plan_subjects(
         claimed.update(found)
         return sorted(found.values(), key=lambda x: (-x["recommendations"], x["name"]))
 
-    subjects.append(Subject(TARGET_KEY, target_name, target_id, flag(target_name, [target_name])))
+    subjects.append(Subject(TARGET_KEY, target_name, target_id, flag(target_name, [target_name], client=True)))
     owner_pids: set[str] = set()
     for owner_name in owner_names:
         pid = str(owner_places.get(owner_name) or "") or None
