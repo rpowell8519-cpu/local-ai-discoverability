@@ -51,6 +51,19 @@ conversation tool for small-business owners, not a technical audit.
   and close peers) and 15 miles for everything else. These are provisional defaults.
 - `app/pages/10_AI_Report_Generator.py` is the operator UI for all of the above.
 
+### Final Beta: explainer page, earlier-test switch, review comparison (added 12 October 2026)
+
+- Page 2 is "What AI visibility means", written from the run's own questions, priorities and counts (`final_beta_pdf._understanding`).
+  Later pages are numbered 03 to 08 and Reference / 09.
+- The earlier-test comparison is off unless the operator ticks "Compare with the earlier test" beside the Final Beta
+  button (`assemble_final_beta(compare_with_earlier=)`). A first meeting shows only where the business stands now.
+- The reviews page sets the client's review themes beside those of up to five verified businesses the AI recommended
+  most, and lists each one's Google total (`final_beta_report.compare_reviews`, `final_beta_repository.load_comparison_reviews`).
+  Shares need 10 client reviews and 20 between the others; totals show whenever they are known.
+- Two findings are offered in step 5 for the reviewer to approve, and appear under "What we observed" once approved:
+  `website:no-gap` (the website comparison ran against two or more leaders and produced no website action) and
+  `reviews:volume-compares` (the client's Google total is at or above the leaders' median). Neither claims a cause.
+
 ### Question limit per test (changed 11 October 2026)
 
 One AI Visibility run from the report generator may hold up to 20 questions (`MAX_RUN_QUESTIONS` in

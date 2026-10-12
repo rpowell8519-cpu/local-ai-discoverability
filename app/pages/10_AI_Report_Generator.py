@@ -207,9 +207,10 @@ REPORT_TYPES = (
     ReportType(
         "final_beta", "Final Beta",
         "The report for beta client meetings, worded for the client: a visibility overview and summary; one table of "
-        "every question showing where the business was named and recommended by each AI tool, beside the earlier test; "
+        "every question showing where the business was named and recommended by each AI tool (beside the earlier test, if you ask for it); "
         "the competitors the owner named and those the AI recommends; the sources the AI tools cited and whether the "
-        "business is on them; what its customers say in reviews; actions approved in review and things to investigate. "
+        "business is on them; what its customers say in reviews, beside the most recommended businesses' reviews; actions and "
+        "observations approved in review and things to investigate. It opens with a page explaining the test. "
         "Same saved evidence and reviewed counts as the other reports. When it is generated it reads the cited pages "
         "(read-only requests) to check whether the business appears on them.",
         "Generate Final Beta report from saved evidence",
@@ -2510,6 +2511,15 @@ else:
                 key=f"summary_draft_{selected_place_id}",
                 help="Adds a small DRAFT label to each page header. Untick it once the report has been checked and signed off.",
             )
+        beta_compare_earlier = False
+        if report_kind == "final_beta":
+            beta_compare_earlier = st.checkbox(
+                "Compare with the earlier test",
+                value=False,
+                key=f"final_beta_earlier_{selected_place_id}",
+                help="Adds an 'Earlier' column and the change since the previous test of the same questions. Leave it unticked "
+                     "for a first meeting, where the report should show only where the business stands now.",
+            )
         generate = st.button(chosen_type.button, type="primary", use_container_width=True)
 
     summary_key = definition.key if definition else f"generic_{durable_audit['id']}"
@@ -2718,7 +2728,8 @@ else:
                     max_questions=MAX_RUN_QUESTIONS,
                 )
                 beta_pdf = render_final_beta_pdf(
-                    assemble_final_beta(beta_summary, beta_payload, durable_audit, business, fetch=page_fetcher())
+                    assemble_final_beta(beta_summary, beta_payload, durable_audit, business, fetch=page_fetcher(),
+                                        compare_with_earlier=beta_compare_earlier)
                 )
         except ValueError as exc:
             st.error(f"The Final Beta report could not be created. {exc}")
@@ -2729,11 +2740,11 @@ else:
             )
             st.exception(exc)
         else:
-            st.session_state[FINAL_BETA_STATE_KEY] = {"key": summary_key, "pdf": beta_pdf}
+            st.session_state[FINAL_BETA_STATE_KEY] = {"key": summary_key, "pdf": beta_pdf, "earlier": beta_compare_earlier}
 
     def show_final_beta():
         saved_beta = st.session_state.get(FINAL_BETA_STATE_KEY)
-        if saved_beta and saved_beta["key"] == summary_key:
+        if saved_beta and saved_beta["key"] == summary_key and saved_beta.get("earlier", False) == beta_compare_earlier:
             st.success("The Final Beta report is ready.")
             st.download_button(
                 "Download Final Beta report",

@@ -10,6 +10,7 @@ from src.ai_visibility_repository import core_run_filter, get_run_results
 from src.database import get_engine
 from src.final_beta_report import COMMON_THEMES, build_final_beta_report, domain_of
 from src.review_profiles import get_review_profile
+from src.review_repository import get_reviews
 from src.website_audit import safe_get
 
 
@@ -69,15 +70,45 @@ def load_previous_run(place_id: str, run_id: str, question_texts: list[str], *, 
     return [dict(row) for row in rows], earlier[1]
 
 
+MAX_COMPARED_BUSINESSES = 5
+
+
+def load_comparison_reviews(summary: Mapping[str, Any], *, engine=None) -> list[dict[str, Any]]:
+    """Saved review text and Google totals for the verified businesses the AI tools recommended most.
+
+    Only businesses already in the reviewed comparison are read, most recommended first.
+    """
+    by_id = {str(b["id"]): b for b in summary["businesses"]}
+    target = str(summary["target_id"])
+    ids = [i for i in dict.fromkeys(str(i) for i in summary["visible_ids"]) if i != target and i in by_id and int(by_id[i]["appearances"]) > 0]
+    ids = sorted(ids, key=lambda i: (-int(by_id[i]["appearances"]), str(by_id[i]["name"]).casefold()))[:MAX_COMPARED_BUSINESSES]
+    if not ids:
+        return []
+    frame = get_reviews(ids)
+    records = frame.to_dict("records") if frame is not None and not frame.empty else []
+    with (engine or get_engine()).connect() as connection:
+        totals = {str(row[0]): (row[1], row[2]) for row in connection.execute(text("""
+            select distinct on (google_place_id) google_place_id, nullif(raw_data->>'reviews', ''), nullif(raw_data->>'rating', '')
+            from public.raw_outscraper_locations where google_place_id = any(:ids)
+            order by google_place_id, created_at desc, id desc
+        """), {"ids": ids})}
+    return [{"name": str(by_id[i]["name"]), "records": [r for r in records if str(r.get("google_place_id")) == i],
+             "google_total": totals.get(i, (None, None))[0], "google_rating": totals.get(i, (None, None))[1]} for i in ids]
+
+
 def assemble_final_beta(summary: Mapping[str, Any], payload: Mapping[str, Any], audit_revision: Mapping[str, Any],
-                        business: Mapping[str, Any], *, fetch: Callable[[str], str] | None = None, engine=None) -> dict[str, Any]:
+                        business: Mapping[str, Any], *, fetch: Callable[[str], str] | None = None, engine=None,
+                        compare_with_earlier: bool = False) -> dict[str, Any]:
+    """`compare_with_earlier` adds the earlier test beside the current one. It is off unless asked for: a first
+    meeting is about where the business stands now, not about why answers move between tests."""
     decisions = dict(audit_revision.get("reviewer_decisions") or {})
     run_id = str(audit_revision["benchmark_run_id"])
     place_id = str(audit_revision["target_google_place_id"])
     group = str(business.get("primary_group") or "generic")
     results = get_run_results(run_id).to_dict("records")
     question_texts = [" ".join(str(q["text"]).split()) for q in summary["questions"]]
-    previous_rows, previous_date = load_previous_run(place_id, run_id, [str(q["text"]) for q in summary["questions"]] + question_texts, engine=engine)
+    previous_rows, previous_date = (load_previous_run(place_id, run_id, [str(q["text"]) for q in summary["questions"]] + question_texts, engine=engine)
+                                    if compare_with_earlier else ([], None))
     wording = dict(decisions.get("type_wording") or {})
     themes = [(label, list(terms)) for label, terms in COMMON_THEMES]
     seen = {label.casefold() for label, _ in themes}
@@ -100,5 +131,5 @@ def assemble_final_beta(summary: Mapping[str, Any], payload: Mapping[str, Any], 
         # Collection notes ("no review text was collected") are for the operator, not the client.
         approved_findings=[a for a in decisions.get("approved_recommendations") or [] if str(a.get("kind")) == "finding"
                            and not str(a.get("signal") or "").startswith("collection:")],
-        fetch=fetch,
+        comparison_reviews=load_comparison_reviews(summary, engine=engine), fetch=fetch,
     )
