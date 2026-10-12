@@ -2727,10 +2727,13 @@ else:
                     ),
                     max_questions=MAX_RUN_QUESTIONS,
                 )
-                beta_pdf = render_final_beta_pdf(
-                    assemble_final_beta(beta_summary, beta_payload, durable_audit, business, fetch=page_fetcher(),
-                                        compare_with_earlier=beta_compare_earlier)
-                )
+                from src.final_beta_docx import render_final_beta_docx
+
+                beta_data = assemble_final_beta(beta_summary, beta_payload, durable_audit, business, fetch=page_fetcher(),
+                                                compare_with_earlier=beta_compare_earlier)
+                beta_pdf = render_final_beta_pdf(beta_data)
+                # The same data and wording as the PDF, as a document the team can edit before sharing.
+                beta_docx = render_final_beta_docx(beta_data)
         except ValueError as exc:
             st.error(f"The Final Beta report could not be created. {exc}")
         except Exception as exc:
@@ -2740,7 +2743,7 @@ else:
             )
             st.exception(exc)
         else:
-            st.session_state[FINAL_BETA_STATE_KEY] = {"key": summary_key, "pdf": beta_pdf, "earlier": beta_compare_earlier}
+            st.session_state[FINAL_BETA_STATE_KEY] = {"key": summary_key, "pdf": beta_pdf, "docx": beta_docx, "earlier": beta_compare_earlier}
 
     def show_final_beta():
         saved_beta = st.session_state.get(FINAL_BETA_STATE_KEY)
@@ -2756,6 +2759,18 @@ else:
                 type="primary",
                 use_container_width=True,
             )
+            if saved_beta.get("docx"):
+                st.download_button(
+                    "Download as an editable Word document",
+                    data=saved_beta["docx"],
+                    file_name=(
+                        re.sub(r"[^a-z0-9]+", "-", report_client_name.lower()).strip("-") or "business"
+                    ) + "-ai-visibility-findings.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    use_container_width=True,
+                    help="The same content as the PDF, in Word, so wording can be adjusted before it is shared. "
+                         "Edits made in Word are not saved back here.",
+                )
             st.caption(
                 "Generated in memory from the same saved, reviewed evidence as the other reports. Read it through before "
                 "sharing: the summary lines and the things to investigate are written from the figures, not by a reviewer."

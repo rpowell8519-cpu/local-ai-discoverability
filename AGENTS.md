@@ -64,6 +64,13 @@ conversation tool for small-business owners, not a technical audit.
   `website:no-gap` (the website comparison ran against two or more leaders and produced no website action) and
   `reviews:volume-compares` (the client's Google total is at or above the leaders' median). Neither claims a cause.
 
+### Final Beta: Word download (added 12 October 2026)
+
+Generating Final Beta also produces an editable .docx, offered as a second download. `final_beta_pdf._render(d, total, make)`
+writes the report through layout calls; `final_beta_docx._WordDoc` answers the same calls with Word paragraphs and tables,
+so the two can never differ in content. Word paginates for itself (each section starts a new page). The layout has not been
+checked in Word itself from this machine, which has no copy of it: structure and text are tested, appearance is not.
+
 ### Question limit per test (changed 11 October 2026)
 
 One AI Visibility run from the report generator may hold up to 20 questions (`MAX_RUN_QUESTIONS` in
