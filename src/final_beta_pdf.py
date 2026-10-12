@@ -240,9 +240,10 @@ def _understanding(doc: _Doc, d: Mapping[str, Any], asked: list[Mapping[str, Any
     doc.note(f'<b>Reading the figures:</b> "2 of {per_question or 9}" means the business was included in two test answers to that question. It does not mean two customers visited or booked. A business counts once per answer, however often its name appears.')
 
 
-def _render(d: Mapping[str, Any], total: int | None):
+def _render(d: Mapping[str, Any], total: int | None, make=None):
+    """Write the report through `make`'s layout calls: the PDF document by default, the Word one for .docx."""
     short = d['short_name']
-    doc = _Doc(f"{d['business']}: AI visibility findings", f"AI VISIBILITY FINDINGS / {_date(d['test_date']).split(' ', 1)[-1].upper()}",
+    doc = (make or _Doc)(f"{d['business']}: AI visibility findings", f"AI VISIBILITY FINDINGS / {_date(d['test_date']).split(' ', 1)[-1].upper()}",
                f"{d['business']} | Test of {_date(d['test_date'])}" + (f"; earlier test {_date(d['previous_date'])}" if d['previous_date'] else ''), total)
     asked = [q for q in d['questions'] if q['complete']]
     best = asked[0] if asked else None
