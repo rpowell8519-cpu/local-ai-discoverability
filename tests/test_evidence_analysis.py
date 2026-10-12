@@ -144,3 +144,15 @@ def test_no_owner_priorities_means_no_proposition_recommendations():
 def test_leaders_are_reported_with_when_their_site_was_read_and_how_many_reviews_exist():
     leaders = {l["google_place_id"]: l for l in run()["leaders"]}
     assert leaders["l1"]["website_read"] == "2026-09-08" and leaders["l1"]["reviews"] == 3 and leaders["l1"]["recommendations"] == 30
+
+
+def test_a_comparison_that_finds_no_website_action_says_so_as_a_finding(monkeypatch):
+    assert "website:no-gap" not in by_id(run()), "not said while the comparison has website actions to offer"
+    monkeypatch.setattr("src.evidence_analysis._website_candidates", lambda **kwargs: [])
+    monkeypatch.setattr("src.evidence_analysis._proposition_candidates", lambda **kwargs: [])
+    finding = by_id(run())["website:no-gap"]
+    assert finding["kind"] == "finding" and finding["action"] == "" and finding["layer"] == "website"
+    assert "found nothing their websites cover" in finding["observation"] and "pages scanned" in finding["observation"]
+    assert f"{len(F.PROPOSITIONS)} priorities" in finding["observation"] and finding["basis"]
+    one_leader = select_leaders(F.leaders(), F.T)[:1]
+    assert "website:no-gap" not in by_id(run(leaders=one_leader)), "one other website is too few to say it"

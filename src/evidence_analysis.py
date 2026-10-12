@@ -268,6 +268,22 @@ def _platform_presence_candidates(
     return candidates
 
 
+MIN_LEADERS_FOR_NO_GAP = 2
+
+
+def _no_website_gap_finding(*, target_name: str, leader_names: list[str], propositions: list[str], layer_note: str) -> dict[str, Any]:
+    """Said only when the comparison ran and produced no website action: a result worth telling the owner, not a silence."""
+    scope = f"the {len(propositions)} priorities in the brief and the standard checks for this type of business" if propositions \
+        else "the standard checks for this type of business"
+    observation = (f"We compared {target_name}'s saved website pages with those of {_named(leader_names)}, the businesses recommended most, on {scope}. "
+                   f"We found nothing their websites cover that {target_name}'s does not. This covers the pages scanned on each site; "
+                   "on this evidence, the website does not explain why those businesses are recommended more often.")
+    return {"id": "website:no-gap", "kind": "finding", "layer": "website", "signal": "website-no-gap",
+            "title": "Your website covers what the most recommended businesses' websites do",
+            "observation": observation, "why": observation, "action": "", "done_when": "", "owner": "", "confidence": "Low", "score": 0.0,
+            "prevalence": "", "evidence": [], "hygiene": False, "basis": layer_note}
+
+
 def _review_profile(primary_group: str, type_wording: Mapping[str, Any] | None) -> dict[str, Any]:
     """The review themes for the type, plus any a reviewer approved for a type with none of its own."""
 
@@ -363,6 +379,9 @@ def analyse_evidence(
                         candidates += _proposition_candidates(actions=actions, pb=pb, cov=cov, names=names, reads=reads, target_id=target_id,
                                                               target_name=target_name, profile=profile, layer_note=layer_note)
                     strengths += [{"title": str(r["title"]), "evidence": str(r["evidence"]), "layer": "website"} for r in syn["strengths"].to_dict("records")]
+                    if len(usable_leader_ids) >= MIN_LEADERS_FOR_NO_GAP and not any(c["kind"] == "action" and c.get("layer") in ("website", "propositions") for c in candidates):
+                        candidates.append(_no_website_gap_finding(target_name=target_name, leader_names=[names[p] for p in usable_leader_ids],
+                                                                  propositions=propositions, layer_note=layer_note))
                 except Exception as exc:  # a failed layer never stops the report
                     _unavailable(layers, "website", f"The website comparison could not be completed ({type(exc).__name__}).")
                     layers.setdefault("propositions", {"status": "unavailable", "note": "The website comparison could not be completed."})

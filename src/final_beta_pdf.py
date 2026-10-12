@@ -213,6 +213,33 @@ def _summary_lines(d: Mapping[str, Any]) -> list[str]:
     return lines
 
 
+def _understanding(doc: _Doc, d: Mapping[str, Any], asked: list[Mapping[str, Any]]) -> None:
+    """A plain explanation of the test, in the business's own questions and counts, before any results table."""
+    names = [p['name'] for p in d['providers']]
+    tools = ', '.join(_e(n) for n in names[:-1]) + (' and ' if len(names) > 1 else '') + _e(names[-1]) if names else 'the AI tools'
+    per_question = len(names) * int(d['repetitions'] or 0)
+    doc.start('02 / Understanding the test', 'What AI visibility means',
+              'A simple check of whether your business appears when someone asks for a local recommendation.')
+    if asked:
+        doc.heading('Start with a real customer question')
+        doc.callout('One of the questions we tested', f"\"{_e(asked[0]['text'])}\"", 'green')
+    doc.para(f"An AI assistant may respond with several businesses. In this report, visibility means whether <b>{_e(d['short_name'])}</b> was included in the answer. "
+             'Being listed is different from being the first suggestion, receiving a website visit or winning a booking.')
+    doc.heading('How we checked')
+    priorities = [str(p) for p in d.get('priorities') or [] if str(p).strip()]
+    doc.para(f"<b>{len(asked)} customer question{'s were' if len(asked) != 1 else ' was'} chosen around your priorities"
+             + (f":</b> {_e(', '.join(priorities[:12]))}." if priorities else '.</b>'))
+    doc.para(f"Each question was asked {d['repetitions']} time{'s' if d['repetitions'] != 1 else ''} through each of {len(names)} AI tool{'s' if len(names) != 1 else ''}: {tools}. "
+             f"This produced {per_question} answers per question and {d['total']} answers overall."
+             + (' Live web search was on.' if d['web_search'] else ''))
+    doc.heading('Why ask the same question more than once?')
+    doc.para('AI answers can vary. Repeating each question lets us see whether your business appeared consistently within this small test, rather than relying on a single answer.')
+    doc.heading('What the test can and cannot tell us')
+    doc.para('It shows how often you appeared for these questions on the test date. The questions reflect your priorities; they do not measure how often customers ask each question in the real world.')
+    doc.para('The tests used automated connections to the AI tools, known as APIs. Answers may differ from those in their public apps. Location settings, personalisation, model changes and the wording of a question can affect comparability.')
+    doc.note(f'<b>Reading the figures:</b> "2 of {per_question or 9}" means the business was included in two test answers to that question. It does not mean two customers visited or booked. A business counts once per answer, however often its name appears.')
+
+
 def _render(d: Mapping[str, Any], total: int | None):
     short = d['short_name']
     doc = _Doc(f"{d['business']}: AI visibility findings", f"AI VISIBILITY FINDINGS / {_date(d['test_date']).split(' ', 1)[-1].upper()}",
@@ -245,10 +272,12 @@ def _render(d: Mapping[str, Any], total: int | None):
     doc.note(f"{len(asked)} questions, {len(d['providers'])} AI tools, {d['repetitions']} repeats each"
              + (', live web search on.' if d['web_search'] else ', web search off.'))
 
+    _understanding(doc, d, asked)
+
     tools = [p['name'] for p in sorted(d['providers'], key=lambda p: p['name'] != 'OpenAI')]
     tools = [n for n in ('OpenAI', 'Claude', 'Gemini') if n in {p['name'] for p in d['providers']}] or tools
     has_prev = any(q['previous'] for q in asked)
-    doc.start('02 / Where you appear', 'Named and recommended, question by question.',
+    doc.start('03 / Where you appear', 'Named and recommended, question by question.',
               f"Named: {short} is mentioned anywhere in the answer. Recommended: it is in the list of suggestions.")
     headers = ['Priority', 'Question asked', 'Named', 'Recommended'] + tools + (['Earlier'] if has_prev else [])
     spare = 1 - (.155 + .085 + .15 + .083 * len(tools) + (.081 if has_prev else 0))
@@ -270,7 +299,7 @@ def _render(d: Mapping[str, Any], total: int | None):
         doc.note(f"\"Earlier\" is the same question in the test of {_date(d['previous_date'])}, counted by matching your business name in the answers.")
 
     comp = d['competitors']
-    doc.start('03 / Who else appears', "Your list, and the AI's list.", f"Recommendations across the {comp['total']} answers, for the businesses we verified.")
+    doc.start('04 / Who else appears', "Your list, and the AI's list.", f"Recommendations across the {comp['total']} answers, for the businesses we verified.")
     doc.heading('You told us your competitors are')
     if comp['named']:
         doc.table(['Competitor you named', 'Recommended in', f"Compared with {_e(short)} ({_of(comp['target_recommended'], comp['total'])})"],
@@ -294,7 +323,7 @@ def _render(d: Mapping[str, Any], total: int | None):
     s = d['sources']
     if s['available']:
         top_business = max([s['own_answers']] + [n for _, n in s['business_sites']] or [0])
-        doc.start('04 / Where the AI gets its information',
+        doc.start('05 / Where the AI gets its information',
                   'Your own website is the most-cited business website.' if s['own_answers'] >= top_business and s['own_answers'] else 'The sources behind the answers.',
                   f"{s['answers_with_citations']} of the {s['answers']} answers cited their sources: {s['citations']} citations across {s['websites']} websites. They fall into two kinds.")
         doc.heading("Businesses' own websites: answers citing each")
@@ -310,13 +339,13 @@ def _render(d: Mapping[str, Any], total: int | None):
         doc.note('Checked by reading the pages the AI tools cited, where they could be read. A source shows what an AI tool referred to, not why it chose a business.'
                  + (f" {s['unnamed_citations']} citations had an incomplete website name and are left out." if s['unnamed_citations'] else ''))
     else:
-        doc.start('04 / Where the AI gets its information', 'The sources behind the answers.',
+        doc.start('05 / Where the AI gets its information', 'The sources behind the answers.',
                   'When an AI tool searches the web, it reads particular sites before it answers.')
         doc.callout('Not available for this test', 'This test was run before the sources each AI tool cites were being saved. A fresh run of the same questions will record them.', 'amber')
 
     r = d['reviews']
     if r:
-        doc.start('05 / What your customers say', f"{r['read']} reviews read. {r['five_star']} are five-star.",
+        doc.start('06 / What your customers say', f"{r['read']} reviews read. {r['five_star']} are five-star.",
                   f"We read {r['read']}" + (f" of your {r['google_total']}" if r['google_total'] and r['google_total'] >= r['read'] else '') + ' Google reviews'
                   + (f" ({_date(r['first'])} to {_date(r['last'])})" if r['first'] else '') + '.'
                   + (f" Google shows an overall rating of {r['google_rating']:g}." if r['google_rating'] else ''))
@@ -332,11 +361,24 @@ def _render(d: Mapping[str, Any], total: int | None):
         doc.para('<br/>'.join(extra), size=10.6)
         if r['quote']:
             doc.callout("In a customer's words", f"\"{_e(r['quote']['text'][:420])}\" (Google review, {_date(r['quote']['date']).split(' ', 1)[-1] if r['quote']['date'] else 'undated'})", 'green')
-        doc.note('Counts are reviews that mention each topic, found by keyword; a review can mention several.')
+        compared = r.get('comparison')
+        if compared:
+            doc.heading('Compared with the businesses recommended most')
+            if compared['rows']:
+                doc.table(['Share of reviews mentioning', f"{_e(short)} ({r['read']} reviews)", f"{_e(', '.join(compared['names']))} ({compared['reviews']})"],
+                          [[_e(label[:1].upper() + label[1:]), f"<b>{mine}%</b>" if mine - theirs >= 10 else f"{mine}%",
+                            f"<b>{theirs}%</b>" if theirs - mine >= 10 else f"{theirs}%"] for label, mine, theirs in compared['rows']],
+                          [.44, .22, .34], 8.8, 4)
+            if compared['totals']:
+                rate = lambda value: f" ({value:.1f})" if value else ''
+                doc.para('<b>Google reviews in total:</b> ' + _e(short) + f" {r['google_total']}{rate(r['google_rating'])}. "
+                         + ', '.join(f"{_e(name)} {count}{rate(rating)}" for name, count, rating in compared['totals']) + '.', size=10.2)
+        doc.note('Counts are reviews that mention each topic, found by keyword; a review can mention several.'
+                 + (' Competitor figures use the same search on their saved Google reviews; totals are as shown on each Google listing when it was saved.' if compared else ''))
     else:
-        doc.start('05 / What your customers say', 'No reviews have been read yet.', 'Customer reviews were not collected for this report.')
+        doc.start('06 / What your customers say', 'No reviews have been read yet.', 'Customer reviews were not collected for this report.')
 
-    doc.start('06 / What the evidence shows', 'Actions the evidence supports, and what to investigate.',
+    doc.start('07 / What the evidence shows', 'Actions the evidence supports, and what to investigate.',
               'Observations from the results, the cited sources, your website and your reviews. They are not proven causes.')
     if d['actions']:
         doc.heading('Actions the evidence supports')
@@ -359,7 +401,7 @@ def _render(d: Mapping[str, Any], total: int | None):
         doc.heading('To investigate')
         doc.para('<br/>'.join(_e(line) for line in d['investigate']), size=10.6)
 
-    doc.start('07 / What we take away together', 'Shared conclusions and your feedback.',
+    doc.start('08 / What we take away together', 'Shared conclusions and your feedback.',
               'For the end of the meeting. We would like to leave with one agreed next step, not a list.')
     doc.table(['To agree', 'Notes'], [[f'<b>{t}</b>', ''] for t in (
         f'What we understood correctly about {_e(short)}', 'What needs correcting in the brief or the questions',
@@ -368,7 +410,7 @@ def _render(d: Mapping[str, Any], total: int | None):
     doc.para('Which finding changes anything for you?<br/>Which questions have we misunderstood or missed?<br/>What would you need before acting on any of this?<br/>Which parts would you share with a colleague or supplier?', size=11.2)
     doc.note(f'Nothing in this document commits {_e(short)} to any work or cost.')
 
-    doc.start('Reference / 08', 'Tests, counting and limits.', 'How the figures in this report were produced.')
+    doc.start('Reference / 09', 'Tests, counting and limits.', 'How the figures in this report were produced.')
     doc.table(['Test', 'Date', 'Size'], [['Current test', _date(d['test_date']), f"{len(asked)} questions, {d['total']} answers"]]
               + ([['Earlier comparison', _date(d['previous_date']), 'The same questions, where they were asked']] if d['previous_date'] else []), [.34, .30, .36], 9.8)
     doc.heading('How the figures were counted')
@@ -377,7 +419,7 @@ def _render(d: Mapping[str, Any], total: int | None):
              + (f", location set to {_e(d['location'])}" if d['location'] else '') + '. A business counts once per answer.', size=10.2)
     doc.para('A source counts once per answer that cites it. Google\'s tool reports only the website name, not the page.', size=10.2)
     doc.heading('Limits')
-    doc.para('Small samples from single days, through the AI tools\' developer services, which can differ from the consumer apps (ChatGPT, Gemini). Answers to broad questions change from week to week. The results show what was returned, not why, and do not count customers.', size=10.2)
+    doc.para('Small samples from single days, through the AI tools\' developer services, which can differ from the consumer apps (ChatGPT, Gemini). Answers can vary from one day to the next. The results show what was returned, not why, and do not count customers.', size=10.2)
     return doc.save()
 
 

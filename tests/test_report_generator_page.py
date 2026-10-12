@@ -152,6 +152,7 @@ def run_page(audit, *, extra=(), secrets=None):
         # Step 5's suggestions from cited sources read saved answers, the directory and reviews: keep them off the real database.
         mock.patch("src.ai_visibility_repository.get_run_results", return_value=pd.DataFrame()),
         mock.patch("src.final_beta_repository.load_business_domains", return_value={}),
+        mock.patch("src.final_beta_repository.load_comparison_reviews", return_value=[]),
         mock.patch("src.final_beta_repository.page_fetcher", return_value=lambda url: ""),
         mock.patch("src.database.get_engine", return_value=_Engine()),
         mock.patch("src.business_platform_links.get_engine", return_value=_Engine()),

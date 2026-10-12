@@ -123,6 +123,26 @@ def review_volume_candidate(*, target_name: str, target_reviews: Any, leaders: S
     )]
 
 
+def review_volume_finding(*, target_name: str, target_reviews: Any, leaders: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """As many published Google reviews as the most visible businesses, or more: review volume is not what sets them apart."""
+    mine = _published(target_reviews)
+    theirs = [(str(item["business_name"]), _published(item.get("google_reviews"))) for item in leaders]
+    theirs = [(name, count) for name, count in theirs if count is not None]
+    if mine is None or len(theirs) < MIN_LEADERS_FOR_VOLUME or mine < median(count for _, count in theirs):
+        return []
+    fewer = sum(count < mine for _, count in theirs)
+    listed = ", ".join(f"{name} {count}" for name, count in sorted(theirs, key=lambda item: -item[1]))
+    standing = "more than any of them" if fewer == len(theirs) else f"more than {fewer} of the {len(theirs)}"
+    why = f"Google shows {mine} reviews for {target_name}, {standing} most visible businesses ({listed})."
+    return [_candidate(
+        id="reviews:volume-compares", kind="finding", layer="reviews", signal="review-volume-compares",
+        title="Your Google review count compares well",
+        observation=f"{why} Review counts are as shown on each Google listing when it was saved. On this evidence, the number of "
+                    "Google reviews does not explain why those businesses are recommended more often.",
+        why=why, basis="Published Google review totals on the saved listings",
+    )]
+
+
 def leader_theme_finding(*, target_id: str, target_name: str, leader_ids: Sequence[str], reviews: Iterable[Mapping[str, Any]],
                          themes: Sequence[tuple[str, Sequence[str]]]) -> list[dict[str, Any]]:
     """What customers of the most visible businesses mention most, beside the client's own reviews."""
@@ -167,6 +187,7 @@ def build_visibility_candidates(*, sources: Mapping[str, Any], target_id: str, t
         *own_site_candidate(sources, target_name=target_name),
         *listing_candidates(sources, target_name=target_name, read_on=read_on),
         *review_volume_candidate(target_name=target_name, target_reviews=target_reviews, leaders=leaders),
+        *review_volume_finding(target_name=target_name, target_reviews=target_reviews, leaders=leaders),
         *leader_theme_finding(target_id=target_id, target_name=target_name, leader_ids=[str(i["google_place_id"]) for i in leaders],
                               reviews=reviews, themes=themes),
     ]

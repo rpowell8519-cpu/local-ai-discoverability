@@ -24,6 +24,9 @@ VERSION = "final-beta-v1"
 MAX_BUSINESS_SITES = 6
 MAX_INDEPENDENT_SOURCES = 9
 MAX_THEMES = 6
+MAX_COMPARED_THEMES = 5
+MIN_CLIENT_REVIEWS = 10
+MIN_COMPARISON_REVIEWS = 20  # fewer than this between the other businesses says too little to set beside the client
 MIN_READABLE_CHARS = 1500
 PROVIDER_ORDER = ("OpenAI", "Claude", "Gemini")
 # Hosts that many businesses share; a citation of one says nothing about a particular business.
@@ -301,6 +304,38 @@ def summarise_reviews(records: Iterable[Mapping[str, Any]], themes: Sequence[tup
     }
 
 
+def compare_reviews(target_records: Iterable[Mapping[str, Any]], others: Sequence[Mapping[str, Any]],
+                    themes: Sequence[tuple[str, Sequence[str]]], *, target_total: Any = None) -> dict[str, Any] | None:
+    """The client's review themes beside those of the most recommended businesses, and each one's Google total.
+
+    `others` is one entry per business: name, review records, google_total, google_rating. Shares are only
+    compared when the other businesses have enough review text between them to mean something; the totals are
+    shown whenever the client's and at least one other business's are known.
+    """
+    def texts(records):
+        return [str(r["review_text"]).casefold() for r in {str(r.get("review_id")): r for r in records
+                                                           if str(r.get("review_text") or "").strip()}.values()]
+
+    mine = texts(target_records)
+    with_text = [(str(o["name"]), texts(o.get("records") or [])) for o in others]
+    with_text = [(name, rows) for name, rows in with_text if rows]
+    theirs = [t for _, rows in with_text for t in rows]
+    rows = []
+    if len(mine) >= MIN_CLIENT_REVIEWS and len(theirs) >= MIN_COMPARISON_REVIEWS:
+        for label, terms in themes:
+            patterns = [re.compile(r"(?<![a-z0-9])" + re.escape(str(t).casefold())) for t in terms if str(t).strip()]
+            share = lambda items: round(100 * sum(any(p.search(t) for p in patterns) for t in items) / len(items))
+            if patterns and (share(mine) or share(theirs)):
+                rows.append((label, share(mine), share(theirs)))
+        # The widest gaps either way: what sets the client apart first, then what the others are praised for.
+        rows = sorted(sorted(rows, key=lambda r: (-abs(r[1] - r[2]), r[0].casefold()))[:MAX_COMPARED_THEMES], key=lambda r: (r[2] - r[1], r[0].casefold()))
+    totals = [(str(o["name"]), _int(o.get("google_total")), _number(o.get("google_rating"))) for o in others]
+    totals = sorted([t for t in totals if t[1] is not None], key=lambda t: (-t[1], t[0].casefold())) if _int(target_total) is not None else []
+    if not rows and not totals:
+        return None
+    return {"names": [name for name, _ in with_text] if rows else [], "reviews": len(theirs) if rows else 0, "rows": rows, "totals": totals}
+
+
 def _number(value: Any) -> float | None:
     try:
         number = float(value)
@@ -381,9 +416,11 @@ def build_final_beta_report(
     review_themes: Sequence[tuple[str, Sequence[str]]] = (), google_total: Any = None, google_rating: Any = None,
     quote_ids: Iterable[str] = (), approved_actions: Iterable[Mapping[str, Any]] = (),
     approved_findings: Iterable[Mapping[str, Any]] = (),
+    comparison_reviews: Sequence[Mapping[str, Any]] = (),
     fetch: Callable[[str], str] | None = None, today: date | None = None,
 ) -> dict[str, Any]:
     today = today or date.today()
+    review_records, owner_priorities = list(review_records), list(owner_priorities)
     patterns = name_patterns([*confirmed_names, summary["business_name"]], summary.get("short_name") or "")
     previous = count_by_question(previous_rows, patterns) if previous_rows else None
     questions = build_questions(summary, responses, patterns, previous=previous, owner_priorities=owner_priorities)
@@ -403,6 +440,10 @@ def build_final_beta_report(
     total = sum(q["complete"] for q in asked)
     recommended = sum(q["recommended"] for q in asked)
     comparable = [q for q in asked if q["previous"] and q["previous"]["complete"] == q["complete"]]
+    reviews = summarise_reviews(review_records, review_themes, today=today, google_total=google_total,
+                                google_rating=google_rating, quote_ids=quote_ids)
+    if reviews:
+        reviews["comparison"] = compare_reviews(review_records, comparison_reviews, review_themes, target_total=google_total)
     return {
         "version": VERSION, "business": summary["business_name"], "short_name": summary.get("short_name") or summary["business_name"],
         "location": summary.get("location"), "test_date": _date(summary.get("audit_date")), "previous_date": _date(previous_date) if comparable else None,
@@ -411,8 +452,7 @@ def build_final_beta_report(
         "previous_total": ({"recommended": sum(q["previous"]["recommended"] for q in comparable), "complete": sum(q["complete"] for q in comparable),
                             "now": sum(q["recommended"] for q in comparable), "all_questions": len(comparable) == len(asked)} if comparable else None),
         "questions": questions, "providers": providers, "competitors": build_competitors(summary), "sources": sources,
-        "reviews": summarise_reviews(review_records, review_themes, today=today, google_total=google_total,
-                                     google_rating=google_rating, quote_ids=quote_ids),
+        "reviews": reviews, "priorities": [str(p) for p in owner_priorities if str(p).strip()],
         "actions": _merge_actions(approved_actions),
         "observations": [{"title": str(a.get("title") or ""), "text": str(a.get("observation") or "")}
                          for a in approved_findings if str(a.get("title") or "").strip() and str(a.get("observation") or "").strip()],

@@ -177,3 +177,52 @@ def test_a_report_with_no_recommendations_has_no_strongest_question_tile(synthet
     data = build_final_beta_report(zero, responses=list(payload["baseline_validation"]["responses"]), results=[], confirmed_names=[], today=date(2026, 10, 10))
     text = " ".join(page.extract_text() or "" for page in PdfReader(io.BytesIO(render_final_beta_pdf(data))).pages)
     assert "Your strongest question" not in text and "A STARTING POINT" in text and "Questions tested" in text
+
+
+def test_the_report_opens_with_a_page_explaining_the_test_in_the_business_own_figures(synthetic):
+    from pypdf import PdfReader
+    data = build(synthetic, owner_priorities=["Colour", "Bridal hair"])
+    pages = [" ".join((page.extract_text() or "").split()) for page in PdfReader(io.BytesIO(render_final_beta_pdf(data))).pages]
+    assert "What AI visibility means" in pages[1] and "Colour, Bridal hair" in pages[1]
+    assert f"{data['total']} answers overall" in pages[1] and data["questions"][0]["text"] in pages[1]
+    assert "03 / WHERE YOU APPEAR" in pages[2] and "REFERENCE / 09" in pages[-1]
+
+
+def test_reviews_are_set_beside_the_most_recommended_businesses_only_with_enough_text(synthetic):
+    from pypdf import PdfReader
+    from src.final_beta_report import compare_reviews
+    themes = [("Friendly staff", ["friendly"]), ("Location", ["station"]), ("Never said", ["zzz"])]
+    review = lambda n, text, place="x": {"review_id": f"{place}{n}", "review_text": text, "review_rating": 5, "review_datetime_utc": "2026-05-01"}
+    mine = [review(n, "Friendly team, right by the station.") for n in range(10)]
+    rival = [review(n, "Friendly welcome every time.", "a") for n in range(15)] + [review(n, "Close to the station.", "a") for n in range(15, 20)]
+    out = compare_reviews(mine, [{"name": "Rival", "records": rival, "google_total": "41", "google_rating": "4.8"},
+                                 {"name": "No Text Ltd", "records": [], "google_total": None}], themes, target_total=12)
+    assert out["names"] == ["Rival"] and out["reviews"] == 20 and out["totals"] == [("Rival", 41, 4.8)]
+    assert out["rows"] == [("Location", 100, 25), ("Friendly staff", 100, 75)], "widest gap first; a theme nobody mentions is left out"
+    few = compare_reviews(mine, [{"name": "Rival", "records": rival[:5], "google_total": 41}], themes, target_total=12)
+    assert few["rows"] == [] and few["totals"], "too little text to compare shares, but the published totals still stand"
+    assert compare_reviews(mine, [{"name": "Rival", "records": rival[:5]}], themes, target_total=12) is None
+    long = lambda rows: [{**r, "review_text": r["review_text"] + " I would recommend this salon to everyone I know in town, truly."} for r in rows]
+    data = build(synthetic, review_records=long(mine), review_themes=themes, google_total=12, google_rating=5,
+                 comparison_reviews=[{"name": "Rival", "records": rival, "google_total": 41, "google_rating": 4.8}])
+    text = " ".join(" ".join((page.extract_text() or "").split()) for page in PdfReader(io.BytesIO(render_final_beta_pdf(data))).pages)
+    assert "Compared with the businesses recommended most" in text and "Rival 41 (4.8)" in text
+    assert "Compared with the businesses" not in " ".join(
+        (p.extract_text() or "") for p in PdfReader(io.BytesIO(render_final_beta_pdf(build(synthetic, review_records=long(mine), review_themes=themes)))).pages)
+
+
+def test_the_earlier_test_is_left_out_unless_asked_for(synthetic, monkeypatch):
+    import pandas as pd
+    from src import final_beta_repository as repo
+    payload, summary = synthetic
+    asked = []
+    monkeypatch.setattr(repo, "get_run_results", lambda run_id: pd.DataFrame())
+    monkeypatch.setattr(repo, "load_business_domains", lambda engine=None: {})
+    monkeypatch.setattr(repo, "load_comparison_reviews", lambda summary, engine=None: [])
+    monkeypatch.setattr(repo, "load_previous_run", lambda *a, **k: asked.append(1) or (
+        [answer(summary["questions"][0]["text"], "1. **Example Salon**")] * 6, "2025-12-01"))
+    revision = {"benchmark_run_id": "run", "target_google_place_id": summary["target_id"], "reviewer_decisions": {}, "owner_context": {}}
+    plain = repo.assemble_final_beta(summary, payload, revision, {"primary_group": "generic"})
+    assert not asked and plain["previous_date"] is None and all(q["previous"] is None for q in plain["questions"])
+    compared = repo.assemble_final_beta(summary, payload, revision, {"primary_group": "generic"}, compare_with_earlier=True)
+    assert asked and compared["previous_date"] is not None
