@@ -104,6 +104,17 @@ from src.client_summary.adapter import (  # noqa: E402
     build_client_summary_report,
     render_client_summary_pdf,
 )
+import src.business_matching as _business_matching  # noqa: E402
+
+# A running Streamlit worker may retain these modules from before a deployment, while this page is
+# already the new one. Refresh them in dependency order before importing from them.
+if "target_websites" not in inspect.signature(_business_matching.plan_subjects).parameters:
+    import src.poc_audit_generic as _poc_audit_generic
+    import src.report_identity as _report_identity
+    importlib.reload(_report_identity)
+    importlib.reload(_business_matching)
+    importlib.reload(_poc_audit_generic)
+
 from src.poc_audit_generic import (  # noqa: E402
     assemble_generic_report_payload,
     build_reviewable_generic_audit,
