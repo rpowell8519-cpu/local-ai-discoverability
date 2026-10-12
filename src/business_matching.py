@@ -114,8 +114,10 @@ def plan_subjects(
     def flag(label: str, reference_names: list[str], *, owner_words: bool = False, client: bool = False) -> list[dict[str, Any]]:
         found: dict[str, dict[str, Any]] = {}
         for reference in reference_names:
-            # The client gets the wider look-alike tests: missing its name reports it as absent.
-            for item in find_possible_target_names(reference, unresolved, client=client, websites=target_websites):
+            # The client and the competitors the owner named get the wider look-alike tests: missing
+            # one of their names reports a business the owner cares about as absent.
+            for item in find_possible_target_names(reference, unresolved, client=client or owner_words,
+                                                   websites=target_websites if client else ()):
                 if item["name"] not in claimed:
                     found.setdefault(item["name"], item)
             if owner_words:  # an AI name identical to what the owner typed is exactly the one to check
