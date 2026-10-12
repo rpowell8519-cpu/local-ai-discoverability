@@ -1659,6 +1659,7 @@ if ai_ready and definition is None:
         cohort_ids=plan_cohort_ids,
         names_by_id=names_by_id,
         records=business_records,
+        target_websites=[business.get("source_website_url"), (durable_audit or {}).get("manual_website_url")],
     )
     # A review saved before names and priorities were matched cannot yet make a correct report.
     for item in undecided_items(identity_plan, existing_decisions, owner_names_now):

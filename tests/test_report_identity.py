@@ -175,3 +175,29 @@ def test_a_name_sharing_most_of_its_words_is_flagged_even_though_neither_contain
 
 def test_sharing_only_a_generic_word_or_one_word_is_not_enough():
     assert find_possible_target_names("Runway East Brighton | Office Space", unresolved(("Brighton i360", 7), ("Brighton Palace Pier", 5), ("East Coast Brewery", 2))) == []
+
+
+def test_the_clients_other_trading_name_is_offered_when_only_a_short_first_word_is_shared():
+    # Regression: the listing "UDR Properties" was recommended as "UDR Cleaning" in 6 of 72 answers and
+    # reported as absent, because "UDR" is too short for the general tests and nothing else is shared.
+    names = unresolved(("UDR Cleaning", 6), ("Pure Cleaning", 4), ("Brighton Cleaning Services", 13))
+    assert find_possible_target_names("UDR Properties", names) == []
+    found = find_possible_target_names("UDR Properties", names, client=True)
+    assert [(item["name"], item["reason"]) for item in found] == [
+        ("UDR Cleaning", "Starts with the same word as the business's name")]
+    assert [item["name"] for item in undecided_target_names("UDR Properties", names, [], [])] == ["UDR Cleaning"]
+    assert undecided_target_names("UDR Properties", names, ["UDR Cleaning"], []) == []
+
+
+def test_a_name_matching_the_clients_website_address_is_offered():
+    names = unresolved(("Goldstone Clean Team", 3), ("Hove Housekeeping", 2), ("Facebook", 2))
+    found = find_possible_target_names("G C T Ltd", names, client=True, websites=["https://www.goldstonecleanteam.co.uk/about"])
+    assert [(item["name"], item["reason"]) for item in found] == [("Goldstone Clean Team", "Matches the business's website address")]
+    # A page on a shared platform is not the business's own address.
+    assert find_possible_target_names("G C T Ltd", names, client=True, websites=["https://www.facebook.com/gct"]) == []
+
+
+def test_a_generic_first_word_is_not_enough_for_the_client():
+    names = unresolved(("Brighton Carpet Cleaning", 5), ("The Cleaning Company", 2))
+    assert find_possible_target_names("Brighton Housekeeping", names, client=True) == []
+    assert find_possible_target_names("The Laundry Room", names, client=True) == []

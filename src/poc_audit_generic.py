@@ -140,7 +140,8 @@ def assemble_generic_report_payload(
                    nullif(rol.raw_data->>'phone', '') as phone,
                    nullif(rol.raw_data->>'postal_code', '') as postal_code,
                    nullif(rol.raw_data->>'rating', '') as rating,
-                   nullif(rol.raw_data->>'reviews', '') as reviews
+                   nullif(rol.raw_data->>'reviews', '') as reviews,
+                   nullif(rol.raw_data->>'website', '') as website
             from business_features bf
             left join lateral (
                 select raw_data from raw_outscraper_locations
@@ -202,6 +203,10 @@ def assemble_generic_report_payload(
         target_id=target_id, target_name=target_name, unresolved=candidate_summary["unresolved"],
         owner_names=owner_names, owner_places=owner_places, cohort_ids=cohort_ids, names_by_id=names,
         records=all_businesses,
+        target_websites=[
+            next((item.get("website") for item in business_rows if str(item["google_place_id"]) == target_id), None),
+            audit_revision.get("manual_website_url"),
+        ],
     )
     undecided = undecided_items(subjects, decisions_input, owner_names)
     if undecided:
