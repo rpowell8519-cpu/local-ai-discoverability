@@ -71,6 +71,16 @@ writes the report through layout calls; `final_beta_docx._WordDoc` answers the s
 so the two can never differ in content. Word paginates for itself (each section starts a new page). The layout has not been
 checked in Word itself from this machine, which has no copy of it: structure and text are tested, appearance is not.
 
+### Client accounts (beta; applied 16 October 2026)
+
+`app/pages/17_Client_Accounts.py` publishes a frozen, client-safe copy of a test (`src/client_account.py`: counts per
+prompt and tool, competitors after grouping, cited websites; never answer text) to the website's signed-in `/account`
+area, which reads only those copies through RLS. A recommended name that looks like the client must be confirmed or
+rejected before publishing; decisions are saved with the test and carried forward. Rob explicitly approved
+`sql/20261016120000_client_accounts.sql` on 16 October; it is **APPLIED** as live version `20261016195724`, name
+`client_accounts`. Do not reapply it. WRAP is the first client account. Undecided at that date: the 9 Oct nursery
+names "WRAP Brighton", "WRAP Play & Nursery", "WRAP Play, Brighton" and the 24 Sept "WRAP Play Space".
+
 ### Question limit per test (changed 11 October 2026)
 
 One AI Visibility run from the report generator may hold up to 20 questions (`MAX_RUN_QUESTIONS` in

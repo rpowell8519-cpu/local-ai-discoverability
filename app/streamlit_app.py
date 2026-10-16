@@ -264,6 +264,7 @@ with testing_column:
 with data_column:
     st.markdown("**Business data**")
     st.page_link("pages/16_Free_Check_Metrics.py", label="Free check sign-ups and metrics", icon="📊")
+    st.page_link("pages/17_Client_Accounts.py", label="Client accounts (beta)", icon="🔐")
     st.page_link(
         "pages/12_Business_Data_Explorer.py", label="Browse business data", icon="🔎"
     )
