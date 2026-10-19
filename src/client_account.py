@@ -187,3 +187,25 @@ def project_test(rows: Iterable[Mapping[str, Any]], decisions: Mapping[str, Any]
     if not prompts:
         raise ValueError("This test has no completed answers to publish.")
     return {"version": VERSION, "tested_on": tested_on, "models": dict(models or {}), "prompts": prompts}
+
+
+PLAN_STATUSES = {"proposed": "Proposed", "agreed": "Agreed", "in_progress": "In progress", "done": "Done", "not_doing": "Not doing"}
+PLAN_FIELDS = ("number", "title", "timing", "owner", "status", "why", "what", "complete_when", "progress")
+
+
+def clean_plan_actions(actions: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """An action plan's actions as the client sees them: numbered in order, each with a title and a known status."""
+    cleaned = []
+    for item in actions:
+        action = {field: " ".join(str(item.get(field) or "").split()) for field in PLAN_FIELDS}
+        if not action["title"]:
+            continue
+        action["status"] = action["status"] if action["status"] in PLAN_STATUSES else "proposed"
+        cleaned.append(action)
+    if not cleaned:
+        raise ValueError("A plan needs at least one action with a title.")
+    if len(cleaned) > 40:
+        raise ValueError("A plan holds at most 40 actions.")
+    for index, action in enumerate(cleaned, 1):
+        action["number"] = action["number"] or f"{index:02d}"
+    return cleaned
