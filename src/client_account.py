@@ -23,7 +23,7 @@ VERSION = "client-account-test-v1"
 MAX_COMPETITORS = 8
 MAX_SOURCES = 8
 EMPTY_DECISIONS: dict[str, Any] = {
-    "client_names": [], "rejected_names": [], "short_name": "", "competitor_groups": {}, "own_domains": [], "prompt_sets": {},
+    "client_names": [], "rejected_names": [], "short_name": "", "competitor_groups": {}, "own_domains": [], "prompt_sets": {}, "prompt_notes": {},
 }
 
 
@@ -145,6 +145,8 @@ def project_test(rows: Iterable[Mapping[str, Any]], decisions: Mapping[str, Any]
     group_of = _group_lookup(decisions.get("competitor_groups") or {})
     own = {domain_of(d) for d in decisions.get("own_domains") or [] if domain_of(d)}
     prompt_sets = {clean(text): clean(name) for text, name in dict(decisions.get("prompt_sets") or {}).items()}
+    # A caution the operator wants read with a prompt's figures, e.g. answers about plant nurseries.
+    prompt_notes = {clean(text): " ".join(str(note).split()) for text, note in dict(decisions.get("prompt_notes") or {}).items() if str(note or "").strip()}
     by_prompt: dict[str, list[dict[str, Any]]] = defaultdict(list)
     order: dict[str, tuple[int, int]] = {}
     for row in rows:
@@ -180,6 +182,7 @@ def project_test(rows: Iterable[Mapping[str, Any]], decisions: Mapping[str, Any]
             "competitors": [{"name": n, "answers": c} for n, c in sorted(competitors.items(), key=lambda i: (-i[1], i[0].casefold()))[:MAX_COMPETITORS]],
             "sources": [{"domain": d, "answers": c} for d, c in sorted(sources.items(), key=lambda i: (-i[1], i[0]))[:MAX_SOURCES]],
             "own_site_answers": own_cited, "answers_with_sources": citing,
+            **({"note": prompt_notes[text]} if text in prompt_notes else {}),
         })
     if not prompts:
         raise ValueError("This test has no completed answers to publish.")

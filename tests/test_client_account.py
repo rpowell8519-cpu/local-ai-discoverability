@@ -48,3 +48,11 @@ def test_carry_forward_keeps_earlier_decisions_and_adds_reviewed_names():
     assert carried["rejected_names"] == ["Wrap Café"] and carried["own_domains"] == ["wrap.space"]
     assert carried["prompt_sets"] == {"Coworking in Brighton": "Core"}
     assert competitor_names([answer("Coworking in Brighton", "openai", ["Runway East Brighton"])], carried)[0]["name"] == "Runway East"
+
+
+def test_a_prompt_note_travels_with_the_published_prompt_and_is_carried_forward():
+    decisions = {**DECISIONS, "prompt_notes": {"Coworking in Brighton": "  Read with  care. "}}
+    prompt = project_test([answer("Coworking in Brighton", "openai", ["WRAP"])], decisions, tested_on="2026-10-09")["prompts"][0]
+    assert prompt["note"] == "Read with care."
+    assert carry_forward(decisions)["prompt_notes"] == {"Coworking in Brighton": "  Read with  care. "}
+    assert "note" not in project_test([answer("Coworking in Brighton", "openai", ["WRAP"])], DECISIONS, tested_on="x")["prompts"][0]
