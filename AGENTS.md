@@ -81,6 +81,16 @@ rejected before publishing; decisions are saved with the test and carried forwar
 `client_accounts`. Do not reapply it. WRAP is the first client account. Undecided at that date: the 9 Oct nursery
 names "WRAP Brighton", "WRAP Play & Nursery", "WRAP Play, Brighton" and the 24 Sept "WRAP Play Space".
 
+### Client account action plans (applied 19 October 2026)
+
+`client_account_plans` holds published action plans for the website's `/account/plan` page: a frozen copy per
+service and title, republished (not edited) when a status changes, from the "Action plans" tab of
+`17_Client_Accounts.py` (`client_account.clean_plan_actions`, `client_account_repository.publish_plan`). Per-prompt
+"read with care" notes travel in a published test's payload (`decisions["prompt_notes"]`). Rob explicitly approved
+`sql/20261019120000_client_account_plans.sql` on 19 October; it is **APPLIED** as live version `20261019091324`,
+name `client_account_plans`, and also made `guard_client_account_publication` table-agnostic. Do not reapply it.
+Client plan wording is kept out of this public repository.
+
 ### Question limit per test (changed 11 October 2026)
 
 One AI Visibility run from the report generator may hold up to 20 questions (`MAX_RUN_QUESTIONS` in
