@@ -70,7 +70,8 @@ if not services:
     st.info("This client has no services yet.")
     st.stop()
 
-publish_tab, tests_tab, reports_tab, people_tab = st.tabs(["Publish a test", "Published tests", "Reports", "Who has access"])
+publish_tab, tests_tab, reports_tab, plans_tab, people_tab = st.tabs(
+    ["Publish a test", "Published tests", "Reports", "Action plans", "Who has access"])
 
 # --- Publish a test -----------------------------------------------------------------------------------------
 def publish_section() -> None:
@@ -184,7 +185,7 @@ with publish_tab:
     publish_section()
 
 if not ready:
-    for tab in (tests_tab, reports_tab, people_tab):
+    for tab in (tests_tab, reports_tab, plans_tab, people_tab):
         with tab:
             st.info("Available once the client account tables exist.")
     st.stop()
@@ -226,6 +227,56 @@ with reports_tab:
         if not report["withdrawn_at"] and right.button("Withdraw", key=f'withdraw-report:{report["id"]}'):
             repo.withdraw("client_account_reports", report["id"])
             st.rerun()
+
+# --- Action plans -------------------------------------------------------------------------------------------
+def plans_section() -> None:
+    if not repo.plans_ready():
+        st.info("Action plans need `sql/20261019120000_client_account_plans.sql` applied (awaiting approval).")
+        return
+    st.caption("The client sees each plan's actions and their status. Saving publishes a new version; earlier versions are kept.")
+    current = repo.list_plans(client["id"])
+    choice = st.selectbox("Plan", [None, *current], format_func=lambda p: "New plan" if p is None else f'{p["service"]} · {p["title"]}',
+                          key="plan_pick")
+    plan = choice or {"service": services[0]["name"], "title": "", "summary": "", "actions": [], "report_id": None}
+    pid = (choice or {}).get("id", "new")
+    service_name = st.selectbox("Service", [s["name"] for s in services], key=f"plan_service:{pid}",
+                                index=[s["name"] for s in services].index(plan["service"]) if plan["service"] in [s["name"] for s in services] else 0)
+    title = st.text_input("Title the client sees", plan["title"], key=f"plan_title:{pid}")
+    summary = st.text_area("Summary (optional)", plan["summary"] or "", key=f"plan_summary:{pid}", max_chars=1200)
+    reports = [r for r in repo.list_reports(client["id"]) if not r["withdrawn_at"]]
+    report = st.selectbox("Full plan PDF (optional, from Reports)", [None, *reports], key=f"plan_report:{pid}",
+                          format_func=lambda r: "None" if r is None else f'{r["service"]} · {r["title"]}',
+                          index=next((i + 1 for i, r in enumerate(reports) if r["id"] == plan["report_id"]), 0))
+    labels = account.PLAN_STATUSES
+    rows = pd.DataFrame([{**{f: a.get(f, "") for f in account.PLAN_FIELDS}, "status": labels.get(a.get("status"), "Proposed")}
+                         for a in plan["actions"]] or [{f: "" for f in account.PLAN_FIELDS} | {"status": "Proposed"}])
+    edited = st.data_editor(rows, num_rows="dynamic", hide_index=True, width="stretch", key=f"plan_actions:{pid}", column_config={
+        "number": st.column_config.TextColumn("No.", width="small"),
+        "title": st.column_config.TextColumn("Action", required=True),
+        "timing": st.column_config.TextColumn("When"),
+        "owner": st.column_config.TextColumn("Owner"),
+        "status": st.column_config.SelectboxColumn("Status", options=list(labels.values()), required=True),
+        "why": st.column_config.TextColumn("Why this matters"),
+        "what": st.column_config.TextColumn("What to do"),
+        "complete_when": st.column_config.TextColumn("Complete when"),
+        "progress": st.column_config.TextColumn("Progress note")})
+    by_label = {v: k for k, v in labels.items()}
+    try:
+        actions = account.clean_plan_actions({**r, "status": by_label.get(r["status"], "proposed")} for r in edited.fillna("").to_dict("records"))
+    except ValueError as exc:
+        st.info(str(exc))
+        return
+    if st.button("Publish this plan", type="primary", disabled=not (title.strip() and operator), key=f"plan_publish:{pid}"):
+        repo.publish_plan(client["id"], service_name, title, summary, actions, (report or {}).get("id"), operator,
+                          replaces_title=(choice or {}).get("title"))
+        st.success("Published. The client sees this version now.")
+    if choice and st.button("Withdraw this plan", key=f"plan_withdraw:{pid}"):
+        repo.withdraw("client_account_plans", choice["id"])
+        st.rerun()
+
+
+with plans_tab:
+    plans_section()
 
 # --- Who has access -----------------------------------------------------------------------------------------
 with people_tab:

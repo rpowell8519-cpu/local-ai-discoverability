@@ -156,7 +156,36 @@ def publish_report(client_id: str, service: str, title: str, report_date: str, f
 
 
 def withdraw(table: str, row_id: str, *, engine=None) -> None:
-    if table not in ("client_account_tests", "client_account_reports"):
+    if table not in ("client_account_tests", "client_account_reports", "client_account_plans"):
         raise ValueError(table)
     with (engine or get_engine()).begin() as connection:
         connection.execute(text(f"update {table} set withdrawn_at = now() where id = :i and withdrawn_at is null"), {"i": row_id})
+
+
+def plans_ready(*, engine=None) -> bool:
+    with (engine or get_engine()).connect() as connection:
+        return connection.execute(text("select to_regclass('public.client_account_plans') is not null")).scalar_one()
+
+
+def list_plans(client_id: str, *, engine=None) -> list[dict[str, Any]]:
+    """Current action plans, one per service and title."""
+    with (engine or get_engine()).connect() as connection:
+        return [dict(row) for row in connection.execute(text("""
+            select id::text, service, title, summary, actions, report_id::text, published_by, published_at
+            from client_account_plans where client_id = :c and withdrawn_at is null order by service, title"""),
+            {"c": client_id}).mappings()]
+
+
+def publish_plan(client_id: str, service: str, title: str, summary: str, actions: list[dict[str, Any]],
+                 report_id: str | None, published_by: str, *, replaces_title: str | None = None, engine=None) -> str:
+    """Publish a plan. The current version with the same title (or `replaces_title`) is withdrawn in the same transaction."""
+    with (engine or get_engine()).begin() as connection:
+        connection.execute(text("""
+            update client_account_plans set withdrawn_at = now()
+            where client_id = :c and service = :s and title = any(:titles) and withdrawn_at is null
+        """), {"c": client_id, "s": service, "titles": list({clean(title), clean(replaces_title or title)})})
+        return connection.execute(text("""
+            insert into client_account_plans (client_id, service, title, summary, actions, report_id, published_by)
+            values (:c, :s, :t, :summary, cast(:actions as jsonb), :r, :b) returning id::text
+        """), {"c": client_id, "s": service, "t": clean(title), "summary": clean(summary) or None,
+               "actions": json.dumps(actions), "r": report_id, "b": clean(published_by)}).scalar_one()

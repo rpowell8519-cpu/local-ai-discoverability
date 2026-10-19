@@ -56,3 +56,11 @@ def test_a_prompt_note_travels_with_the_published_prompt_and_is_carried_forward(
     assert prompt["note"] == "Read with care."
     assert carry_forward(decisions)["prompt_notes"] == {"Coworking in Brighton": "  Read with  care. "}
     assert "note" not in project_test([answer("Coworking in Brighton", "openai", ["WRAP"])], DECISIONS, tested_on="x")["prompts"][0]
+
+
+def test_plan_actions_are_numbered_titled_and_given_a_known_status():
+    from src.client_account import clean_plan_actions
+    actions = clean_plan_actions([{"title": "  Name the  service ", "status": "done"}, {"title": ""}, {"title": "Listings", "status": "maybe"}])
+    assert [(a["number"], a["title"], a["status"]) for a in actions] == [("01", "Name the service", "done"), ("02", "Listings", "proposed")]
+    with pytest.raises(ValueError):
+        clean_plan_actions([{"title": " "}])
