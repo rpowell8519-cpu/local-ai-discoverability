@@ -130,11 +130,18 @@ def publish_section() -> None:
     known_sets = sorted(set(start["prompt_sets"].values()), key=str.casefold)
     added = lines(st.text_area("New sets, one per line (they then appear in the Set list)", key=f"newsets:{key}", height=80))
     sets = st.data_editor(
-        pd.DataFrame({"Prompt": prompt_texts, "Set": [start["prompt_sets"].get(t) for t in prompt_texts]}),
+        pd.DataFrame({"Prompt": prompt_texts, "Set": [start["prompt_sets"].get(t) for t in prompt_texts],
+                      "Note for the client": [start["prompt_notes"].get(t, "") for t in prompt_texts]}),
         column_config={"Set": st.column_config.SelectboxColumn(
-            "Set", options=list(dict.fromkeys([*known_sets, *added])), required=True)},
+            "Set", options=list(dict.fromkeys([*known_sets, *added])), required=True),
+            "Note for the client": st.column_config.TextColumn(
+                "Note for the client", max_chars=300,
+                help="Optional. Shown with this prompt's figures, e.g. why a count should be read with care.")},
         disabled=["Prompt"], hide_index=True, width='stretch', key=f"sets:{key}")
     decisions["prompt_sets"] = {**start["prompt_sets"], **{r["Prompt"]: account.clean(r["Set"]) for _, r in sets.iterrows() if isinstance(r["Set"], str) and account.clean(r["Set"])}}
+    decisions["prompt_notes"] = {**{t: n for t, n in start["prompt_notes"].items() if t not in prompt_texts},
+                                 **{r["Prompt"]: account.clean(r["Note for the client"]) for _, r in sets.iterrows()
+                                    if isinstance(r["Note for the client"], str) and account.clean(r["Note for the client"])}}
     unset = [t for t in prompt_texts if t not in decisions["prompt_sets"]]
 
     st.subheader("Competitor spellings")
