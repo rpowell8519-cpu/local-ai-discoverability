@@ -84,6 +84,12 @@ def publish_section() -> None:
         format_func=lambda r: f'{r["created_at"]:%d %b %Y %H:%M} · {r["prompts"]} prompts · {r["answers"]} answers · {r["run_id"][:8]}')
     if not chosen:
         return
+    days = {r["created_at"].date() for r in chosen}
+    left_out = [r for r in runs if r["created_at"].date() in days and r not in chosen]
+    if left_out:
+        st.warning("Another completed run from the same day is not selected, so its prompts would be missing: "
+                   + "; ".join(f'{r["created_at"]:%H:%M} · {r["prompts"]} prompts · {r["run_id"][:8]}' for r in left_out)
+                   + ". Add it unless it was a repeat you do not want.")
     tested_on = st.date_input("Test date the client sees", value=min(r["created_at"] for r in chosen).date())
     previous = repo.latest_decisions(client["id"], service["name"]) if ready else None
     start = account.carry_forward(previous, client_names=[] if previous else repo.load_reviewed_names(service["place_id"]),
@@ -121,10 +127,14 @@ def publish_section() -> None:
     st.subheader("Prompt sets")
     st.caption("The client's graph shows a set's total only on tests that asked every prompt in it. Rewording a prompt starts a new line.")
     prompt_texts = list(dict.fromkeys(account.clean(r["prompt_text"]) for r in sorted(rows, key=lambda r: (r["run_order"], r["base_prompt_order"]))))
+    known_sets = sorted(set(start["prompt_sets"].values()), key=str.casefold)
+    added = lines(st.text_area("New sets, one per line (they then appear in the Set list)", key=f"newsets:{key}", height=80))
     sets = st.data_editor(
-        pd.DataFrame({"Prompt": prompt_texts, "Set": [start["prompt_sets"].get(t, "") for t in prompt_texts]}),
+        pd.DataFrame({"Prompt": prompt_texts, "Set": [start["prompt_sets"].get(t) for t in prompt_texts]}),
+        column_config={"Set": st.column_config.SelectboxColumn(
+            "Set", options=list(dict.fromkeys([*known_sets, *added])), required=True)},
         disabled=["Prompt"], hide_index=True, width='stretch', key=f"sets:{key}")
-    decisions["prompt_sets"] = {**start["prompt_sets"], **{r["Prompt"]: account.clean(r["Set"]) for _, r in sets.iterrows() if account.clean(r["Set"])}}
+    decisions["prompt_sets"] = {**start["prompt_sets"], **{r["Prompt"]: account.clean(r["Set"]) for _, r in sets.iterrows() if isinstance(r["Set"], str) and account.clean(r["Set"])}}
     unset = [t for t in prompt_texts if t not in decisions["prompt_sets"]]
 
     st.subheader("Competitor spellings")
@@ -212,7 +222,7 @@ with reports_tab:
 
 # --- Who has access -----------------------------------------------------------------------------------------
 with people_tab:
-    st.caption("A person signs in on foundinbrighton.ai/account with an emailed link. They see this client only while listed here.")
+    st.caption("A person signs in on foundinbrighton.ai/account with a password set up for them in Supabase, or an emailed link. They see this client only while listed here.")
     for member in repo.list_members(client["id"]):
         left, right = st.columns([5, 1])
         left.write(f'{member["display_name"] or ""} · {member["email"]} · added {member["added_at"]:%d %b %Y} by {member["added_by"]}')
