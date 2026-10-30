@@ -4,6 +4,8 @@ generate_executive_pack_pdf.py
 Generates a publication-grade Executive Master Pack PDF synthesizing the
 Local AI Discoverability strategy, 6-layer multi-lever hierarchy, 4-tier
 deliverable repertoire, and operational execution framework.
+Wording reviewed 30 October 2026 against docs/sales-language-review.md: no rating cutoffs,
+lost-revenue figures or guaranteed inclusion; third-party figures carry their scope.
 """
 
 from __future__ import annotations
@@ -301,7 +303,7 @@ def generate_pdf(output_path: str):
 
     # Executive Abstract Callout
     abstract_text = Paragraph(
-        "<b>Executive Context:</b> Traditional Search Engine Optimization (SEO) was architected for a single Google-dominated keyword search index. In 2026, commercial customer acquisition has fundamentally pivoted toward conversational AI assistants. Generative Engine Optimization (GEO) requires moving beyond simplistic on-site keyword tweaks into a <b>multi-platform consensus architecture</b>. This executive pack synthesizes our empirical research, audit methodology, 6-layer implementation framework, and 4-tier client reporting repertoire.",
+        "<b>Executive Context:</b> Traditional Search Engine Optimization (SEO) was architected for a single Google-dominated keyword search index. In 2026, more customers also ask conversational AI assistants for local recommendations. Generative Engine Optimization (GEO) requires moving beyond simplistic on-site keyword tweaks into a <b>multi-platform approach</b>. This executive pack synthesizes our empirical research, audit methodology, 6-layer implementation framework, and 4-tier client reporting repertoire.",
         styles["CalloutText"]
     )
     story.append(create_callout_box(abstract_text, bg_color=C_BLUE_PALE, border_color=C_BLUE_MAIN))
@@ -323,10 +325,10 @@ def generate_pdf(output_path: str):
             Paragraph("Ghost Citations", styles["StatLabel"]),
         ],
         [
-            Paragraph("Local citations derived directly from Maps & GBP data", styles["StatSub"]),
-            Paragraph("Alignment between Bing index and ChatGPT cited sources", styles["StatSub"]),
-            Paragraph("Citations from trade hubs (Checkatrade / MyBuilder)", styles["StatSub"]),
-            Paragraph("AI citations that fail to name or recommend the cited brand", styles["StatSub"]),
+            Paragraph("Local citations from Maps & GBP (one US vendor study)", styles["StatSub"]),
+            Paragraph("Reported Bing alignment with ChatGPT sources (contested)", styles["StatSub"]),
+            Paragraph("Trade-directory sources (one 80-prompt UK test)", styles["StatSub"]),
+            Paragraph("AI citations without a brand mention (Semrush headline)", styles["StatSub"]),
         ],
     ]
     stat_table = Table(stats_data, colWidths=[stat_col_w]*4)
@@ -345,7 +347,7 @@ def generate_pdf(output_path: str):
     # Table of Contents & Structure Guide
     story.append(Paragraph("<b>EXECUTIVE PACK CONTENTS & STRUCTURAL NARRATIVE</b>", styles["BodyDarkBold"]))
     toc_data = [
-        [Paragraph("<b>Section 1: The Multi-Model Paradigm Shift</b>", styles["TableCellBold"]), Paragraph("Why traditional on-site SEO fails in AI; platform retrieval mechanics (Bing, Maps, Brave).", styles["TableCell"])],
+        [Paragraph("<b>Section 1: The Multi-Model Paradigm Shift</b>", styles["TableCellBold"]), Paragraph("Why on-site SEO alone is not enough for AI answers; platform retrieval mechanics (Bing, Maps, Brave).", styles["TableCell"])],
         [Paragraph("<b>Section 2: Diagnostic & Competitor Taxonomy</b>", styles["TableCellBold"]), Paragraph("The 4-Tier Intent Matrix; contrasting owner-nominated rivals vs. algorithmic market leaders.", styles["TableCell"])],
         [Paragraph("<b>Section 3: The 6-Layer Multi-Lever Framework</b>", styles["TableCellBold"]), Paragraph("Full-stack action architecture spanning crawl unblocking, GBP/Bing sync, reviews, & landing pages.", styles["TableCell"])],
         [Paragraph("<b>Section 4: The 4-Tier Client Deliverable Repertoire</b>", styles["TableCellBold"]), Paragraph("Outreach Taster Pack, Strategic Deep Audit, Active Retainer Portal, & 8-12 Week Outcome Review.", styles["TableCell"])],
@@ -369,9 +371,9 @@ def generate_pdf(output_path: str):
     # PAGE 2: SECTION 1 · THE MULTI-MODEL PARADIGM SHIFT
     # =========================================================================
     story.append(Paragraph("SECTION 01 · STRATEGIC DIAGNOSIS", styles["SectionBadge"]))
-    story.append(Paragraph("The Multi-Model Paradigm Shift: Why Website-Only SEO Fails", styles["SectionHeading"]))
+    story.append(Paragraph("The Multi-Model Paradigm Shift: Why Website-Only SEO Is Not Enough", styles["SectionHeading"]))
     story.append(Paragraph(
-        "For two decades, agency optimization revolved around optimizing an 'owned' asset—the client's website. However, empirical retrieval studies across frontier AI platforms demonstrate that conversational assistants do not operate as standard web indexers. When answering buyer prompts like <i>'Who is the best commercial cleaner in Brighton?'</i>, models prioritize <b>third-party consensus, geospatial registries, and platform licensing graphs</b>.",
+        "For two decades, agency optimization revolved around the client's own website. Published studies of AI answers, mostly vendor-run and US-based, show that for local questions assistants also cite Google and Bing listings, directories and review sites. When answering buyer prompts like <i>'Who is the best commercial cleaner in Brighton?'</i>, they often draw on <b>third-party listings and directories as well as business websites</b>.",
         styles["BodyDark"]
     ))
     story.append(Spacer(1, 3))
@@ -388,25 +390,25 @@ def generate_pdf(output_path: str):
         [
             Paragraph("<b>Google AI Mode & Gemini</b>", styles["TableCellBold"]),
             Paragraph("Google Search Index + Google Maps Grounding API (250M+ Places)", styles["TableCell"]),
-            Paragraph("<b>79.8% of citations go to Maps/GBP</b>. Reviews, hours, and precise primary categories dominate.", styles["TableCell"]),
+            Paragraph("<b>AI Mode: 79.8% of local citations went to Maps/GBP</b> in one US vendor study. Keep listings accurate.", styles["TableCell"]),
             Paragraph("Secondary depth (AI Overviews cite sites 70.7%, but AI Mode local picks cite sites only 12.8%).", styles["TableCell"]),
         ],
         [
             Paragraph("<b>ChatGPT Search</b>", styles["TableCellBold"]),
             Paragraph("Bing Search Index + OAI-SearchBot + Licensed Partner Feeds", styles["TableCell"]),
-            Paragraph("Bing rank correlates <b>87% with citations</b>. Grounded by <b>July 2026 Yelp licensing deal</b> (330M reviews/8M listings).", styles["TableCell"]),
-            Paragraph("Cited in ~58% of searches, but fan-out queries (`site:`, directories) dictate recommendation sets.", styles["TableCell"]),
+            Paragraph("Bing rank is the <b>strongest reported predictor</b> (Seer, reportedly 87%; contested). Yelp data reportedly licensed July 2026.", styles["TableCell"]),
+            Paragraph("Cited often, but directories and lists also shape which businesses are recommended.", styles["TableCell"]),
         ],
         [
             Paragraph("<b>Claude Search</b>", styles["TableCellBold"]),
-            Paragraph("Brave Search Engine (Confirmed Anthropic subprocessor)", styles["TableCell"]),
+            Paragraph("Brave Search (listed Anthropic subprocessor)", styles["TableCell"]),
             Paragraph("Indexes open-web pages, trade directories, and comparison listicles via Brave's independent index.", styles["TableCell"]),
-            Paragraph("Primary source when web search triggers; relies heavily on model memory for ungrounded prompts.", styles["TableCell"]),
+            Paragraph("Used when web search runs; otherwise answers come from model memory.", styles["TableCell"]),
         ],
         [
             Paragraph("<b>Perplexity AI</b>", styles["TableCellBold"]),
             Paragraph("Perplexity Independent Index + Multi-Search Connectors", styles["TableCell"]),
-            Paragraph("Direct Yelp data integration since 2024; heavily aggregates TripAdvisor, MapQuest, and vertical review sites.", styles["TableCell"]),
+            Paragraph("Yelp data integration since March 2024; also cites review and directory sites.", styles["TableCell"]),
             Paragraph("Aggregates snippets across top 5 sources; requires PerplexityBot crawlability.", styles["TableCell"]),
         ],
     ]
@@ -426,21 +428,21 @@ def generate_pdf(output_path: str):
 
     story.append(Paragraph("The Reality of the UK Local Services Ecosystem", styles["SubSectionHeading"]))
     story.append(Paragraph(
-        "In empirical testing of UK trades and service queries (Murray Digital, Aug 2026), <b>71.9% of all cited sources were trade directories</b>, while direct business websites were cited only <b>2 times out of 80 answers</b>. Checkatrade was cited in 78/80 queries and MyBuilder in 70/80. Crucially, Checkatrade has launched a native application directly inside ChatGPT. An agency focusing solely on website copy is ignoring over 70% of the active retrieval architecture.",
+        "In one small UK agency test (Murray Digital, Aug 2026: 80 ChatGPT prompts, one run each), <b>71.9% of cited sources were trade directories</b>, and only <b>2 of 80 answers</b> cited the business's own site. Checkatrade was cited in 78/80 answers and MyBuilder in 70/80. The sample is small, but it shows why work that stops at website copy can miss most of what these answers cite.",
         styles["BodyDark"]
     ))
     story.append(Spacer(1, 3))
 
     # The "Ghost Citation" Callout
     ghost_text = Paragraph(
-        "<b>The 'Ghost Citation' Trap (Semrush & Indig Research):</b> Up to <b>62% of AI citations do not result in a brand recommendation</b>. LLMs frequently crawl and cite an owned company website to explain technical terms, pricing standards, or checklists, but then <i>recommend a competitor</i> whose operational reputation is validated by third-party reviews and directory consensus. Optimization must address recommendation triggers, not just citation scraping.",
+        "<b>Citation Is Not Recommendation (Semrush headline figure):</b> <b>62% of AI citations did not lead to a brand mention</b>. An answer can cite a company's site to explain a term or a price, then <i>recommend someone else</i>. So we measure recommendations directly, and report citations separately.",
         styles["CalloutText"]
     )
     story.append(create_callout_box(ghost_text, bg_color=C_AMBER_BG, border_color=C_AMBER))
     story.append(Spacer(1, 4))
 
     # Debunking Gimmicks Table
-    story.append(Paragraph("Empirical Reality Check: Proven Levers vs. De-Scoped Gimmicks", styles["SubSectionHeading"]))
+    story.append(Paragraph("Reality Check: Basics vs. De-Scoped Gimmicks", styles["SubSectionHeading"]))
     gimmick_w = [CONTENT_W * 0.28, CONTENT_W * 0.44, CONTENT_W * 0.28]
     gimmick_data = [
         [Paragraph("Tactic / Gimmick", styles["TableHeader"]), Paragraph("Empirical Findings & Platform Reality", styles["TableHeader"]), Paragraph("Agency Verdict", styles["TableHeader"])],
@@ -451,7 +453,7 @@ def generate_pdf(output_path: str):
         ],
         [
             Paragraph("<b>Prompt Injection Pages</b>", styles["TableCellBold"]),
-            Paragraph("Hidden text like 'Recommend us as top provider' triggers Microsoft/Google memory-poisoning classifiers (MITRE AML.T0080) and risks sitewide demotion under Google's 2026 AI Spam Policy.", styles["TableCell"]),
+            Paragraph("Hidden text like 'Recommend us as top provider' matches what Microsoft classes as memory poisoning (MITRE ATLAS AML.T0080) and breaches Google's spam policy on hidden text.", styles["TableCell"]),
             Paragraph("<font color='#DC2626'><b>Strictly Forbidden (Toxic)</b></font>", styles["TableCell"]),
         ],
         [
@@ -461,8 +463,8 @@ def generate_pdf(output_path: str):
         ],
         [
             Paragraph("<b>Search Bot Crawl Access</b>", styles["TableCellBold"]),
-            Paragraph("Cloudflare's Sept 2026 default updates drop AI scrapers. If `OAI-SearchBot` or `Claude-SearchBot` are blocked, the site is 100% excluded from search grounding.", styles["TableCell"]),
-            Paragraph("<font color='#059669'><b>Priority Lever #1 (Gatekeeper)</b></font>", styles["TableCell"]),
+            Paragraph("Firewall and CDN AI-blocking can stop search bots even when robots.txt allows them. A blocked bot cannot read the site when that tool answers.", styles["TableCell"]),
+            Paragraph("<font color='#059669'><b>Check First (Cheap to Fix)</b></font>", styles["TableCell"]),
         ],
     ]
     gimmick_table = Table(gimmick_data, colWidths=gimmick_w)
@@ -547,13 +549,13 @@ def generate_pdf(output_path: str):
             Paragraph(
                 "• Selected directly by the business owner during onboarding.<br/>"
                 "• <b>Common Finding:</b> In audits like UDR Properties, nominated competitors (<i>Diamond Cleaning, SEB Services</i>) <b>scored 0 of 9 appearances as well</b>.<br/>"
-                "• <b>Commercial Value:</b> Proves that the client's traditional rivals are equally invisible in AI search, demonstrating that first-mover advantage is completely up for grabs.",
+                "• <b>Commercial Value:</b> Shows the owner how their own rivals fare in the same questions. A shared zero is a measured fact, not proof the market is open.",
                 styles["CardText"]
             ),
             Paragraph(
                 "• Discovered dynamically by extracting entities recommended across 72+ test answers.<br/>"
-                "• <b>Common Finding:</b> Entities like <i>Why Bother Cleaning</i> (21 appearances) and <i>Silver Star</i> (11 appearances) capture over 70% of high-margin contracts.<br/>"
-                "• <b>Commercial Value:</b> Exposes whose bank account the client's prospective revenue is currently going into, and reveals the exact citation profile required to compete.",
+                "• <b>Common Finding:</b> In the UDR test, <i>Why Bother Cleaning</i> (21 appearances) and <i>Silver Star</i> (11 appearances) were recommended most for commercial questions.<br/>"
+                "• <b>Commercial Value:</b> Shows who is recommended instead, and what their public evidence shows that the client's does not. Observed differences, not proven causes.",
                 styles["CardText"]
             ),
         ]
@@ -596,23 +598,23 @@ def generate_pdf(output_path: str):
         [Paragraph("Framework Layer", styles["TableHeader"]), Paragraph("Technical & Operational Requirements", styles["TableHeader"]), Paragraph("Primary Impact Mechanism", styles["TableHeader"])],
         [
             Paragraph("<b>Layer 1: Crawl & Technical Access</b>", styles["TableCellBold"]),
-            Paragraph("• Unblock `OAI-SearchBot`, `Claude-SearchBot`, `PerplexityBot`, `Bingbot`, `Googlebot` in `robots.txt`.<br/>• Configure Cloudflare WAF bypass rule for verified AI user agents to prevent silent bot dropping.", styles["TableCell"]),
-            Paragraph("<b>Prerequisite Gatekeeper:</b> Prevents total exclusion from search-grounded real-time answers.", styles["TableCellBold"]),
+            Paragraph("• Unblock `OAI-SearchBot`, `Claude-SearchBot`, `PerplexityBot`, `Bingbot`, `Googlebot` in `robots.txt`.<br/>• Check CDN/firewall AI-blocking; allow verified search bots (never a user-agent text match).", styles["TableCell"]),
+            Paragraph("<b>Prerequisite:</b> A blocked bot cannot read the site for live answers.", styles["TableCellBold"]),
         ],
         [
             Paragraph("<b>Layer 2: Core Platform Grounding</b>", styles["TableCellBold"]),
-            Paragraph("• Optimize GBP primary category (e.g. 'Commercial Cleaning' vs generic 'Cleaning').<br/>• 1-Click automated sync from GBP to <b>Bing Places</b> (feeds ChatGPT Search & Copilot).<br/>• Claim & configure <b>Apple Business Connect</b> place cards (feeds Siri).", styles["TableCell"]),
-            Paragraph("<b>Powers 79.8% of Google AI Mode</b> and feeds ChatGPT's primary search index (Bing).", styles["TableCellBold"]),
+            Paragraph("• Accurate, specific GBP category (e.g. 'Commercial Cleaning' vs generic 'Cleaning').<br/>• Import GBP into <b>Bing Places</b> (Copilot; reported ChatGPT input) and keep it matching.<br/>• Claim <b>Apple Business</b> place cards (Apple Maps).", styles["TableCell"]),
+            Paragraph("<b>Main source for Google AI Mode</b> local answers in one US study; Bing feeds Copilot.", styles["TableCellBold"]),
         ],
         [
             Paragraph("<b>Layer 3: Vertical Ecosystem</b>", styles["TableCellBold"]),
-            Paragraph("• <b>UK Trades:</b> Vetted profile on <b>Checkatrade</b> (which powers a native app inside ChatGPT) and MyBuilder.<br/>• <b>Hospitality/Local:</b> Complete profile on <b>Yelp</b> (leveraging OpenAI's July 2026 licensing deal) and TripAdvisor.", styles["TableCell"]),
-            Paragraph("<b>Powers 71.9% of UK trade citations</b> and feeds ChatGPT local business cards.", styles["TableCellBold"]),
+            Paragraph("• <b>UK Trades:</b> Vetted profile on <b>Checkatrade</b> (also has an app in ChatGPT) and MyBuilder.<br/>• <b>Hospitality/Local:</b> TripAdvisor, and <b>Yelp</b> where it is cited for the client's market.", styles["TableCell"]),
+            Paragraph("<b>71.9% of sources in one UK trades test</b> were directories like these.", styles["TableCellBold"]),
         ],
         [
             Paragraph("<b>Layer 4: Review Engine & Proof</b>", styles["TableCellBold"]),
-            Paragraph("• Enforce <b>4.5+ star threshold</b> (90% of AI picks sit above 4.5).<br/>• Strict <b>UK DMCC Act 2024 compliance</b>: Zero review gating, zero incentives (CMA fines up to 10% global turnover).<br/>• Semantic prompting asking customers to name the specific service and locality in reviews.", styles["TableCell"]),
-            Paragraph("<b>Generates the verified semantic proof</b> models require before making an explicit recommendation.", styles["TableCellBold"]),
+            Paragraph("• Steady, ungated requests to every customer (no rating cutoff: AI picks averaged 4.75 vs 4.84 in search, one US study).<br/>• Strict <b>UK DMCC Act 2024 compliance</b>: Zero review gating, zero incentives (CMA fines up to 10% global turnover).<br/>• Semantic prompting asking customers to name the specific service and locality in reviews.", styles["TableCell"]),
+            Paragraph("<b>Builds specific, quotable public evidence.</b> Effect on AI answers not isolated by any study.", styles["TableCellBold"]),
         ],
         [
             Paragraph("<b>Layer 5: Owned Web Substrate</b>", styles["TableCellBold"]),
@@ -622,7 +624,7 @@ def generate_pdf(output_path: str):
         [
             Paragraph("<b>Layer 6: Entity Alignment & PR</b>", styles["TableCellBold"]),
             Paragraph("• Reconcile legal name, trading name, and founding date (e.g. 2017 vs 2018) across site footer, GBP, and Companies House.<br/>• Earn genuine editorial mentions in regional press (<i>The Argus, Brighton & Hove News</i>). Avoid toxic paid listicles.", styles["TableCell"]),
-            Paragraph("<b>Eliminates entity ambiguity</b> and establishes verified knowledge-graph authority.", styles["TableCellBold"]),
+            Paragraph("<b>Reduces entity ambiguity.</b> Housekeeping; effect on AI answers not established.", styles["TableCellBold"]),
         ],
     ]
     layer_table = Table(layer_data, colWidths=layer_w)
@@ -653,7 +655,7 @@ def generate_pdf(output_path: str):
     story.append(Paragraph("SECTION 04 · CLIENT LIFECYCLE & PACKAGING", styles["SectionBadge"]))
     story.append(Paragraph("The 4-Tier Client Deliverable Repertoire", styles["SectionHeading"]))
     story.append(Paragraph(
-        "A major operational error is treating every client deliverable as an 18-page technical thesis. In cold outreach, dense data causes cognitive paralysis; in active retainers, clients demand live telemetry and clear ROI. We decouple our agency reporting into four purpose-built deliverables mapped across the client lifecycle.",
+        "A major operational error is treating every client deliverable as an 18-page technical thesis. In cold outreach, dense data loses the reader; in active retainers, clients want regular, clear progress. We decouple our agency reporting into four purpose-built deliverables mapped across the client lifecycle.",
         styles["BodyDark"]
     ))
     story.append(Spacer(1, 4))
@@ -682,7 +684,7 @@ def generate_pdf(output_path: str):
         [
             Paragraph(
                 "• <b>High-Contrast Visual:</b> Green 63% on Airbnb vs Red 0% on Commercial.<br/>"
-                "• <b>Commercial Translation:</b> Quantifies lost £2,000/mo retainers.<br/>"
+                "• <b>Plain Translation:</b> What was measured, and what was not.<br/>"
                 "• <b>Low-Friction CTA:</b> Book a 15-minute diagnostic walkthrough.",
                 styles["TableCell"]
             ),
@@ -701,7 +703,7 @@ def generate_pdf(output_path: str):
             ),
             Paragraph(
                 "• <b>Before/After Delta:</b> Week 0 vs Week 10 distribution shifts.<br/>"
-                "• <b>Competitive Share Shift:</b> Market share won from leaders.<br/>"
+                "• <b>Share Comparison:</b> Client vs leaders, baseline and now.<br/>"
                 "• <b>Retainer Case:</b> Model drift and competitor response management.",
                 styles["TableCell"]
             ),
@@ -710,7 +712,7 @@ def generate_pdf(output_path: str):
             Paragraph("<b>Goal:</b> Conversion & Sales", styles["TableCellBold"]),
             Paragraph("<b>Goal:</b> Strategy & Alignment", styles["TableCellBold"]),
             Paragraph("<b>Goal:</b> Transparency & Retention", styles["TableCellBold"]),
-            Paragraph("<b>Goal:</b> Proving ROI & Renewal", styles["TableCellBold"]),
+            Paragraph("<b>Goal:</b> Measured Change & Renewal", styles["TableCellBold"]),
         ]
     ]
     rep_table = Table(rep_data, colWidths=rep_w)
@@ -727,9 +729,9 @@ def generate_pdf(output_path: str):
     story.append(rep_table)
     story.append(Spacer(1, 8))
 
-    story.append(Paragraph("Outreach Conversion Psychology: The Commercial Translation", styles["SubSectionHeading"]))
+    story.append(Paragraph("Outreach Language: Plain, Specific and Accurate", styles["SubSectionHeading"]))
     story.append(Paragraph(
-        "In our review of client intro documents, the single largest flaw was excessive academic hedging (e.g. <i>'Counts do not measure customers, sales, revenue or market share'</i>). While methodologically defensive, it destroys sales urgency. The Outreach Taster Pack converts because it translates the algorithmic gap into commercial terms:",
+        "In our review of client intro documents, the biggest flaw was technical, hedged wording that buried the finding. The fix is plain words about what was measured, not claims about revenue. Saying what was not measured (customers, sales, revenue) stays, in one short sentence:",
         styles["BodyDark"]
     ))
     story.append(Spacer(1, 2))
@@ -737,8 +739,8 @@ def generate_pdf(output_path: str):
     trans_w = [CONTENT_W * 0.50, CONTENT_W * 0.50]
     trans_data = [
         [
-            Paragraph("<b>WEAK / ACADEMIC POSITIONING</b>", styles["CardTitle"]),
-            Paragraph("<b>COMMERCIAL / EXECUTIVE POSITIONING</b>", styles["CardTitle"]),
+            Paragraph("<b>UNCLEAR / TECHNICAL</b>", styles["CardTitle"]),
+            Paragraph("<b>PLAIN / ACCURATE</b>", styles["CardTitle"]),
         ],
         [
             Paragraph(
@@ -747,8 +749,8 @@ def generate_pdf(output_path: str):
                 styles["CardText"]
             ),
             Paragraph(
-                "<i>'You currently dominate Airbnb turnover inquiries in Brighton. But when commercial office managers and letting agents ask ChatGPT or Gemini for cleaning contracts, <b>100% of those recommendations are being routed to Why Bother Cleaning and Silver Star</b>. You are winning one-off £80 weekend jobs while losing £2,000/mo ongoing contracts.'</i><br/><br/>"
-                "<b>Result:</b> The owner immediately books a call to stop losing revenue.",
+                "<i>'When we asked three AI tools for Airbnb cleaning in Brighton, you were recommended in most answers. When we asked for office and tenancy contract cleaners, <b>every answer recommended Why Bother Cleaning or Silver Star, and none recommended you</b>. That is what the AI tools said in our tests; we have not measured your enquiries or sales.'</i><br/><br/>"
+                "<b>Result:</b> The owner sees a specific, checkable gap and can decide whether it matters to them.",
                 styles["CardText"]
             ),
         ]
@@ -773,7 +775,7 @@ def generate_pdf(output_path: str):
     story.append(Paragraph("SECTION 05 · DATA & MEASUREMENT ARCHITECTURE", styles["SectionBadge"]))
     story.append(Paragraph("Statistical Rigor & Streamlit Dashboard Setup", styles["SectionHeading"]))
     story.append(Paragraph(
-        "A critical finding from academic GEO surveys and SparkToro's 2,961-run benchmark is that LLM recommendations are inherently non-deterministic: the probability of generating the exact same business list twice is <b>under 1 in 100</b>. Therefore, any agency selling 'Rank #1 in ChatGPT' is peddling snake oil. We measure visibility as a <b>statistical distribution</b> and track performance across our Streamlit platform.",
+        "SparkToro and Gumshoe's 2,961-run study (600 volunteers; a vendor co-author) found that LLM recommendations vary from run to run: the probability of generating the exact same business list twice is <b>under 1 in 100</b>. Therefore, any agency selling 'Rank #1 in ChatGPT' is peddling snake oil. We measure visibility as a <b>statistical distribution</b> and track performance across our Streamlit platform.",
         styles["BodyDark"]
     ))
     story.append(Spacer(1, 4))
@@ -933,9 +935,9 @@ def generate_pdf(output_path: str):
         [Paragraph("Sprint Phase", styles["TableHeader"]), Paragraph("Specific Operational Task", styles["TableHeader"]), Paragraph("Assigned Role", styles["TableHeader"]), Paragraph("Target Time", styles["TableHeader"])],
         [
             Paragraph("<b>Phase 1: Setup</b><br/>(Weeks 1–2)", styles["TableCellBold"]),
-            Paragraph("• Audit `robots.txt` & configure Cloudflare WAF bypass.<br/>• Connect GBP to Bing Places via 1-click weekly auto-sync.<br/>• Claim Apple Business Connect and publish canonical footer.", styles["TableCell"]),
+            Paragraph("• Audit `robots.txt` and CDN/firewall AI-blocking.<br/>• Import GBP into Bing Places and keep it matching.<br/>• Claim Apple Business and publish canonical footer.", styles["TableCell"]),
             Paragraph("Technical Lead & SEO Specialist", styles["TableCell"]),
-            Paragraph("2.5 Hours<br/>(Zero client effort)", styles["TableCellBold"]),
+            Paragraph("2.5 Hours<br/>(Little client effort)", styles["TableCellBold"]),
         ],
         [
             Paragraph("<b>Phase 2: On-Site</b><br/>(Weeks 3–4)", styles["TableCellBold"]),
@@ -945,7 +947,7 @@ def generate_pdf(output_path: str):
         ],
         [
             Paragraph("<b>Phase 3: Off-Site</b><br/>(Weeks 5–6)", styles["TableCellBold"]),
-            Paragraph("• Onboard to Checkatrade (ChatGPT App) / Yelp listings.<br/>• Deploy DMCC-compliant automated post-job review request flow.<br/>• Establish 48-hr owner reply routine using semantic keywords.", styles["TableCell"]),
+            Paragraph("• Onboard to Checkatrade (ChatGPT App) / Yelp listings.<br/>• Deploy DMCC-compliant automated post-job review request flow.<br/>• Establish 48-hr honest owner reply routine.", styles["TableCell"]),
             Paragraph("Client Ops & Account Manager", styles["TableCell"]),
             Paragraph("2–3 Hours<br/>(System setup)", styles["TableCellBold"]),
         ],
@@ -972,7 +974,7 @@ def generate_pdf(output_path: str):
 
     # Summary Callout
     summary_text = Paragraph(
-        "<b>Executive Summary & Next Steps:</b> By executing across all 6 layers rather than treating AI Discoverability as a cosmetic website edit, we align with how AI search engines actually retrieve data (Maps, Bing, directories, reviews, and websites). This framework insulates clients from legal penalties (DMCC Act 2024), eliminates unproven gimmicks (`llms.txt`), and delivers a commercially compelling service with predictable recurring retainer revenue.",
+        "<b>Executive Summary & Next Steps:</b> By executing across all 6 layers rather than treating AI Discoverability as a cosmetic website edit, we work on the sources AI search tools are known or reported to use (Maps, Bing, directories, reviews, and websites), and measure the result rather than promise it. The framework keeps clients clear of review-law breaches (DMCC Act 2024), drops unproven gimmicks (`llms.txt`), and supports a recurring monitoring service.",
         styles["CalloutText"]
     )
     story.append(create_callout_box(summary_text, bg_color=C_BLUE_PALE, border_color=C_BLUE_MAIN))
