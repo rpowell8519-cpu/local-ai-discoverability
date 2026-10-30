@@ -28,7 +28,13 @@ Treat this as a working product. Preserve existing functionality unless the user
 - Durable results: PostgreSQL
 - Cross-page temporary workflow state: `st.session_state`
 
-There is no separate backend service.
+The Streamlit app has no backend service of its own. Two things outside it share the database:
+
+- The free-check worker (`src/free_check_worker.py`, deployed by `render.yaml`) runs customer free checks
+  submitted on the website. See "Customer free check" below.
+- The website (`found-brighton`, foundinbrighton.ai) reads published client-account copies and the owner's
+  own free check through Supabase row level security. Its docs: `docs/free-visibility-check.md` and
+  `docs/client-accounts.md` in that repo.
 
 ## Owner-services report (v4)
 
@@ -91,6 +97,23 @@ service and title, republished (not edited) when a status changes, from the "Act
 name `client_account_plans`, and also made `guard_client_account_publication` table-agnostic. Do not reapply it.
 Client plan wording is kept out of this public repository.
 
+### Customer free check (live since October 2026)
+
+A website visitor's three questions run once each on OpenAI, Claude and Gemini. `src/free_check_worker.py`
+leases a job from `visibility_jobs` (`free_check_jobs.py`: 10-minute lease, 3 attempts, daily cap
+`FREE_CHECK_DAILY_CAP`), runs it through the AI Discovery Scan's run, call and name-resolution code, and
+saves a counts-only summary on `customer_checks` (`free_check_projection.py`). Runs are recorded with the
+`free_check` panel kind, which `core_run_filter` keeps out of reports, benchmarks and research lists. A
+results-ready email is optional (`free_check_email.py`). `app/pages/16_Free_Check_Metrics.py` counts
+sign-ups and outcomes read-only. Run modes, required settings and `--reproject` are in the worker's
+docstring; the website side is in found-brighton's `docs/free-visibility-check.md`.
+
+Migrations (do not reapply; their DRAFT headers are historical): `20261003120000_revoke_legacy_client_grants`
+(live `20261003203318`), `20261003120100_customer_free_checks` (`20261003203343`) and
+`20261006100000_free_check_business_match` (`20261006092236`). `20261007090000_free_check_three_questions` is
+in effect (the questions constraint allows 3 or 5) but is not in the migration history; checked read-only
+on 30 October 2026.
+
 ### Question limit per test (changed 11 October 2026)
 
 One AI Visibility run from the report generator may hold up to 20 questions (`MAX_RUN_QUESTIONS` in
@@ -137,7 +160,8 @@ Step 6 of the report generator offers the **full evidence report (RP)** and the 
 summary (LS)**. Both read the same assembled payload, so their counts cannot disagree. Do not
 give the summary its own counting or its own evidence.
 
-- `src/client_summary/model.py` and `pdf.py` are the summary's validator and six-page renderer,
+- `src/client_summary/model.py` and `pdf.py` are the summary's validator and renderer (nine pages, plus
+  review pages; see below),
   vendored from the colleague's `streamlit-client-report` package. The layout was then rebuilt
   to match the approved Garden Bar draft (palette, stat tiles, callouts, bar scaling), measured
   from that PDF's own geometry, and its wording is the draft's, parameterised. Every sentence
@@ -242,14 +266,14 @@ pending request, rather than repeating "not ready yet" forever. Real Outscraper 
 after a page reload, but the app's own in-progress-request id lives only in `st.session_state` and
 is lost on reload; a lost id cannot be recovered, and resubmitting pays again.
 
-### Client summary (LS): eight pages, two on competitors
+### Client summary (LS): nine pages, two on competitors
 
-The summary now appends three review pages when saved review sets exist (11 pages total).
+Nine pages (`TOTAL_PAGES`); the summary appends three review pages (10-12) when saved review sets exist.
 `client_summary/reviews.py` measures text-sample size, rating and keyword mentions from the
 frozen records. Cleaning reports use six service themes. Related question counts come from
 the same owner report; mentions are not sentiment or causal ranking evidence. The renderer
-shows sample dates, missing evidence and unequal-sample caveats. The original eight-page
-aggregate contract remains supported when no review analysis is supplied.
+shows sample dates, missing evidence and unequal-sample caveats. The base aggregate contract,
+without review pages, remains supported when no review analysis is supplied.
 
 Every displayed competitor gets a provider breakdown when built from response records.
 `from_records` counts each business once per answer, including per-provider cells, and the
@@ -309,6 +333,14 @@ This rule exists because AI Visibility previously read the owner's priority ques
 from session state. A new browser session silently fell back to generic generated prompts
 and still allowed a paid benchmark to start, producing a report that measured the wrong
 questions. See `load_durable_owner_brief` in `app/pages/8_AI_Visibility.py`.
+
+Specifically:
+- A paid run must not start when a saved brief exists but none of its questions are selected.
+  Offer to reload the owner's questions, or require an explicit opt-out.
+- `ACTIVE_REPORT_PROJECT_KEY` is a navigation convenience for handoffs between pages. It is
+  not a source of truth, and must not gate a correctness guard.
+- Derive report status from `report_journey()` in `src/report_generator_readiness.py` rather
+  than reimplementing readiness rules per page.
 
 ### Cache invalidation is scoped, not global
 
@@ -376,20 +408,12 @@ recommendations (`select_comparison_set`'s owner share) — this is what actuall
 named competitor to appear; the caption near it saying names "do not determine which businesses
 appear" was stale and has been removed.
 
-Specifically:
-- A paid run must not start when a saved brief exists but none of its questions are selected.
-  Offer to reload the owner's questions, or require an explicit opt-out.
-- `ACTIVE_REPORT_PROJECT_KEY` is a navigation convenience for handoffs between pages. It is
-  not a source of truth, and must not gate a correctness guard.
-- Derive report status from `report_journey()` in `src/report_generator_readiness.py` rather
-  than reimplementing readiness rules per page.
-
 ## Business taxonomy groups
 
 `business_features.primary_group` is set directly from `classify_groups` (`feature_extraction.py`)
 at import time — its keys (`bars_pubs`, `coffee_cafes`, `hair_services`, `beauty_wellness`,
 `restaurants`, `nightlife_entertainment`, `workspaces`, `cleaning_services`, `childcare_nurseries`,
-`other`) are the *real* values stored for a business, defined in `src/taxonomy.py`
+`building_trades`, `saunas`, `other`) are the *real* values stored for a business, defined in `src/taxonomy.py`
 (`GROUP_LABELS`/`GROUP_RULES`).
 
 **Wording and catchment follow the stored groups (fixed 7 October 2026).** `client_summary/actions.py._GROUPS`
@@ -472,7 +496,7 @@ so a business must be imported first.
   import.
 - The full rebuild **is** the right tool for one specific case: retroactively reclassifying
   businesses imported *before* a taxonomy rule existed for their type (see "Business taxonomy
-  groups" below — this is how `childcare_nurseries` was backfilled onto nurseries imported
+  groups" above — this is how `childcare_nurseries` was backfilled onto nurseries imported
   earlier). Used for exactly that in this project with no observed problem. It is still the step
   with a suspected-but-unconfirmed defect noted under "Known code-quality observations"
   (possible stale-snapshot ordering across repeated imports of the same business), so do not
@@ -501,7 +525,7 @@ callers that pass no location; the report generator never does.
   the AI answers (`select_comparison_set`). An owner-named business the AI never recommended is
   still offered and scores zero; do not filter it out. This is a separate list from the LS's own
   page 4 (`MAX_NAMED` = 8, named competitors) and page 5 (`MAX_VISIBLE` = 9, most visible) described
-  under "Client summary (LS): eight pages, two on competitors" above — same underlying data, sized
+  under "Client summary (LS): nine pages, two on competitors" above — same underlying data, sized
   independently, so "page 4" means different things in the RP and the LS.
 - **Names must be matched by a person** (`src/business_matching.py`). The owner's words ("PLATF9RM"),
   Google's listing name and the AI's short forms are three names for one business, so a competitor is
@@ -579,7 +603,7 @@ can't be matched back to a saved URL is dropped, not guessed at (`_match_query_u
 `outscraper_reviews.py`). `load_platform_links` is `@st.cache_data(ttl=60)` (a real bug shipped
 briefly without this decorator - `.clear()` on a plain function raised `AttributeError` the first
 time "Save links" was clicked, fixed 2026-09-28); after a save, only `load_platform_links.clear()`
-is called, not a blanket `st.cache_data.clear()`, per the scoped-invalidation convention below.
+is called, not a blanket `st.cache_data.clear()`, per the scoped-invalidation convention above.
 
 **This exact mistake shipped twice** - a second, redundant `get_review_counts.clear()` (that
 function was never `@st.cache_data`-decorated at all) crashed the post-import cleanup step with
@@ -1037,7 +1061,8 @@ Codex previously identified:
 - automated tests now exist under `tests/` and are run with pytest, so this earlier
   observation is resolved; run them with
   `env PYTHONPATH=<repo root> .venv/bin/pytest -q`;
-- database migrations/schema bootstrap are not stored in the repo;
+- later migrations are stored in `sql/` (from `001_create_poc_audit_snapshots.sql`), but the original
+  schema bootstrap is not;
 - Data Admin's full feature rebuild reads all historical raw rows ordered by `source_row_number` and repeatedly upserts `business_features`; with multiple imports, this may not leave the latest `created_at DESC, id DESC` snapshot as the current feature record and should be investigated as a separate potential defect.
 
 Treat these as backlog items, not automatic refactoring instructions.
