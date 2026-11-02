@@ -17,6 +17,7 @@ from collections import Counter, defaultdict
 from typing import Any, Iterable, Mapping, Sequence
 
 from src.ai_recommendation_intelligence import extract_numbered_recommendations
+from src.citation_sources import cited_host
 from src.final_beta_report import PROVIDER_ORDER, domain_of, name_patterns
 
 VERSION = "client-account-test-v1"
@@ -53,14 +54,8 @@ def recommended_names(row: Mapping[str, Any]) -> list[str]:
 
 def cited_domains(row: Mapping[str, Any]) -> set[str]:
     """The websites one answer cited. Google's tool gives the website only as the link title."""
-    hosts = set()
-    for cite in (row.get("report_metadata") or {}).get("citations") or []:
-        host = domain_of(cite.get("url"))
-        if not host or "vertexaisearch" in host:
-            host = domain_of(clean(cite.get("title")))
-        if "." in host and host not in {"uk.com", "co.uk", "org.uk"}:
-            hosts.add(host)
-    return hosts
+    hosts = {cited_host(cite) for cite in (row.get("report_metadata") or {}).get("citations") or []}
+    return hosts - {None}
 
 
 def carry_forward(previous: Mapping[str, Any] | None, *, client_names: Iterable[str] = (), short_name: str = "",
