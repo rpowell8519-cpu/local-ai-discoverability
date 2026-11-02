@@ -50,6 +50,26 @@ GROUP_LABELS = {
     "childcare_nurseries": "Nurseries & childcare",
     "building_trades": "Builders & building trades",
     "saunas": "Saunas",
+    "legal_services": "Legal services",
+    "accounting_finance": "Accounting & financial services",
+    "dental_care": "Dentists & dental care",
+    "medical_clinics": "Doctors & medical clinics",
+    "eye_care": "Opticians & eye care",
+    "mental_health": "Counselling & mental health",
+    "physical_therapies": "Physio, osteopathy & complementary therapy",
+    "fitness_sport": "Gyms, fitness & sport",
+    "care_services": "Care homes & home care",
+    "property": "Estate agents & property",
+    "architecture_design": "Architects & interior design",
+    "marketing_creative": "Marketing, design & media",
+    "photography": "Photographers",
+    "weddings_events": "Weddings & events",
+    "hotels_accommodation": "Hotels & accommodation",
+    "tattoo_piercing": "Tattoo & piercing",
+    "jewellery_watches": "Jewellers & watches",
+    "vehicle_repair": "Car repair & MOT",
+    "vets_pets": "Vets & pet care",
+    "education_training": "Schools & training",
     "other": "Other local business",
 }
 
@@ -421,6 +441,130 @@ GROUP_RULES = {
 }
 
 
+# Professional, health and other service groups, added 2 November 2026 for a Brighton-wide Outscraper
+# import. Google gives these types in British spelling while Outscraper's search terms are American,
+# so both appear. Each value counts the same whether it is the category, the type or a subtype.
+_SERVICE_GROUP_VALUES = {
+    "legal_services": {
+        "lawyer", "law firm", "legal services", "solicitor", "solicitors", "barrister", "conveyancer",
+        "attorney", "personal injury attorney", "personal injury lawyer", "estate planning lawyer",
+        "estate planning attorney", "criminal defence lawyer", "criminal justice attorney", "family lawyer",
+        "family law attorney", "immigration lawyer", "immigration attorney", "divorce lawyer", "patent lawyer",
+        "employment lawyer", "employment attorney", "real estate attorney", "civil law attorney",
+        "insurance attorney", "medical lawyer", "notary public", "mediation service", "paralegal services provider",
+        "legal aid office",
+    },
+    "accounting_finance": {
+        "accountant", "chartered accountant", "accounting firm", "accounting", "certified public accountant",
+        "bookkeeping service", "tax consultant", "tax preparation service", "payroll service", "financial planner",
+        "financial advisor", "financial consultant", "financial institution", "investment service",
+        "investment company", "mortgage broker", "mortgage lender", "finance broker", "loan agency",
+        "insurance agency", "insurance broker", "insurance company", "health insurance agency",
+        "life insurance agency", "insolvency service",
+    },
+    "dental_care": {
+        "dental clinic", "dentist", "cosmetic dentist", "orthodontist", "pediatric dentist", "paediatric dentist",
+        "dental hygienist", "dental laboratory", "dental implants periodontist", "dental implants provider",
+        "emergency dental service", "teeth whitening service", "endodontist", "periodontist", "oral surgeon",
+        "oral and maxillofacial surgeon",
+    },
+    "medical_clinics": {
+        "doctor", "clinic", "medical clinic", "medical centre", "medical center", "medical group",
+        "general practitioner", "gp", "walk-in clinic", "hospital", "private hospital", "general hospital",
+        "hospital department", "community health centre", "medical diagnostic imaging centre", "dermatologist",
+        "surgeon", "orthopaedic surgeon", "orthopedic surgeon", "orthopedic clinic", "plastic surgeon",
+        "plastic surgery clinic", "cosmetic surgeon", "neurosurgeon", "pediatric surgeon", "pediatrician",
+        "pediatric neurologist", "gynecologist", "gynaecologist", "fertility clinic", "reproductive health clinic",
+        "women's health clinic", "family planning clinic", "pregnancy care centre", "pregnancy care center",
+        "std clinic", "travel clinic", "sports medicine clinic", "sports medicine physician", "occupational health service",
+        "occupational medical physician", "nurse practitioner", "audiologist", "hair transplantation clinic",
+        "health consultant", "pharmacy", "surgical center", "surgical centre",
+    },
+    "eye_care": {
+        "optician", "optometrist", "eye care clinic", "eye care center", "eye care centre", "ophthalmologist",
+        "ophthalmology clinic", "lasik surgeon",
+    },
+    "mental_health": {
+        "counsellor", "counselor", "family counsellor", "family counselor", "marriage or relationship counselor",
+        "marriage or relationship counsellor", "psychotherapist", "child psychotherapist", "psychologist",
+        "child psychologist", "psychiatrist", "child psychiatrist", "mental health service", "mental health services",
+        "mental health clinic", "hypnotherapy service", "addiction rehabilitation centre", "life coach",
+        "health counselor", "health counsellor",
+    },
+    "physical_therapies": {
+        "physiotherapist", "physical therapist", "physical therapy clinic", "osteopath", "chiropractor",
+        "chiropodist", "podiatrist", "foot care", "sports injury clinic", "sports massage therapist",
+        "acupuncture clinic", "acupuncturist", "alternative medicine practitioner", "holistic medicine practitioner",
+        "reflexologist", "reiki therapist", "craniosacral therapy", "aromatherapy service", "occupational therapist",
+        "nutritionist", "rehabilitation centre",
+    },
+    "fitness_sport": {
+        "gym", "fitness centre", "fitness center", "personal trainer", "physical fitness programme", "yoga studio",
+        "yoga instructor", "pilates studio", "boxing gym", "boxing club", "martial arts school", "martial arts club",
+        "judo club", "self defence school", "tai chi school", "gymnastics academy", "leisure centre", "sports complex",
+        "sports club", "tennis club", "golf club", "golf course", "golf instructor", "meditation instructor",
+    },
+    "care_services": {
+        "home care service", "home health care service", "nursing home", "nursing agency", "care home",
+        "assisted living residence", "aged care", "retirement home",
+    },
+    "property": {
+        "estate agent", "estate agents", "real estate agency", "real estate agent", "real estate agents",
+        "commercial property estate agent", "commercial real estate agency", "letting agent",
+        "property rental agency", "real estate rental agency", "apartment letting agency",
+        "property management company", "property investment", "property consultant", "real estate consultant",
+        "property developer", "real estate developer", "housing development", "surveyor", "property surveyor",
+        "land surveyor", "real estate surveyor", "chartered surveyor", "estate appraiser",
+    },
+    "architecture_design": {
+        "architect", "architecture firm", "architectural designer", "interior designer", "interior design firm",
+        "landscape designer", "landscape architect", "structural engineer",
+    },
+    "marketing_creative": {
+        "marketing agency", "marketing consultant", "internet marketing service", "advertising agency",
+        "public relations firm", "design agency", "graphic designer", "web designer", "website designer",
+        "video production service", "animation studio", "media company", "market researcher", "telemarketing service",
+    },
+    "photography": {
+        "photographer", "photography service", "photography studio", "wedding photographer", "commercial photographer",
+    },
+    "weddings_events": {
+        "wedding venue", "wedding service", "wedding planner", "bridal shop", "wedding store", "marriage celebrant",
+        "event planner", "event planning service", "event management company", "entertainment agency", "caterer",
+        "mobile caterer",
+    },
+    "hotels_accommodation": {
+        "hotel", "extended stay hotel", "bed and breakfast", "guest house", "hostel", "inn", "lodging",
+        "self-catering accommodation", "serviced accommodation", "serviced apartment", "holiday apartment",
+        "holiday home", "cottage", "indoor accommodation", "campsite", "camping farm",
+    },
+    "tattoo_piercing": {
+        "tattoo shop", "tattoo artist", "tattoo and piercing shop", "body piercing shop",
+    },
+    "jewellery_watches": {
+        "jewellery store", "jewelry store", "jeweller", "jeweler", "jewellery designer", "jewelry designer",
+        "jewellery repair service", "goldsmith", "watch shop", "watch store", "watch repair shop",
+        "watch repair service", "clock repair service",
+    },
+    "vehicle_repair": {
+        "vehicle repair shop", "vehicle repair", "auto repair shop", "car repair and maintenance service",
+        "mechanic", "car body shop", "auto body shop", "tyre shop", "mot centre",
+    },
+    "vets_pets": {
+        "veterinarian", "veterinary surgeon", "emergency veterinarian service", "animal hospital", "cattery",
+    },
+    "education_training": {
+        "language school", "english language school", "french language school", "training centre",
+        "training provider", "education centre", "educational institution", "university", "university department",
+        "college", "secondary school", "driving school", "beauty therapy college",
+    },
+}
+GROUP_RULES.update({
+    group: {"category_values": values, "type_values": values, "subtype_values": values}
+    for group, values in _SERVICE_GROUP_VALUES.items()
+})
+
+
 GROUP_RELATIONSHIPS = {
     "bars_pubs": {
         "bars_pubs": 1.00,
@@ -468,7 +612,17 @@ GROUP_RELATIONSHIPS = {
         "saunas": 1.00,
         "beauty_wellness": 0.35,
     },
+    **{group: {group: 1.00} for group in _SERVICE_GROUP_VALUES},
 }
+# Neighbouring service groups a customer may weigh against each other.
+GROUP_RELATIONSHIPS["medical_clinics"].update({"dental_care": 0.25, "eye_care": 0.25, "physical_therapies": 0.30})
+GROUP_RELATIONSHIPS["physical_therapies"].update({"medical_clinics": 0.30, "fitness_sport": 0.30, "beauty_wellness": 0.25})
+GROUP_RELATIONSHIPS["fitness_sport"].update({"physical_therapies": 0.30})
+GROUP_RELATIONSHIPS["mental_health"].update({"physical_therapies": 0.20})
+GROUP_RELATIONSHIPS["architecture_design"].update({"building_trades": 0.35})
+GROUP_RELATIONSHIPS["marketing_creative"].update({"photography": 0.30})
+GROUP_RELATIONSHIPS["photography"].update({"marketing_creative": 0.30, "weddings_events": 0.35})
+GROUP_RELATIONSHIPS["weddings_events"].update({"photography": 0.35, "hotels_accommodation": 0.25})
 
 
 TRAIT_RULES = {
