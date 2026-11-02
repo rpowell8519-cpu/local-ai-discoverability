@@ -3,7 +3,7 @@ from datetime import datetime
 
 import pytest
 
-from src.citation_sources import (BUSINESS_SITE, CLIENT_SITE, PUBLIC_BODY, UNCLASSIFIED, area_of, build_records,
+from src.citation_sources import (BUSINESS_SITE, by_business_type, CLIENT_SITE, PUBLIC_BODY, UNCLASSIFIED, area_of, build_records,
                                   cited_host, cited_page, classify, load_source_types, over_time, rank_websites,
                                   resolve_redirects, sample, type_mix)
 
@@ -123,3 +123,14 @@ def test_a_rival_site_is_recognised_from_the_names_its_test_recommended():
     kinds = dict(zip(citations["website"], citations["source_type"]))
     assert kinds == {"sparklecleaning.co.uk": BUSINESS_SITE, "udrcleaning.co.uk": CLIENT_SITE}
     assert citations.set_index("website").loc["sparklecleaning.co.uk", "belongs_to"] == "Sparkle Cleaning Brighton"
+
+
+def test_business_types_rank_their_own_websites_and_best_evidenced_types_come_first():
+    rows = [result("a", "p1", "Clean A", cite("https://checkatrade.com/a")),
+            result("b", "p2", "Clean B", cite("https://checkatrade.com/b"), cite("https://reddit.com/r")),
+            result("c", "p3", "Cafe C", cite("https://reddit.com/x"), group="coffee_cafes")]
+    answers, citations = build_records(rows, business_domains={}, catalog=CATALOG)
+    segments = by_business_type(answers, citations)
+    assert [seg["sample"]["businesses"] for seg in segments] == [2, 1]
+    assert list(segments[0]["websites"]["website"]) == ["checkatrade.com", "reddit.com"]
+    assert list(segments[1]["websites"]["website"]) == ["reddit.com"]

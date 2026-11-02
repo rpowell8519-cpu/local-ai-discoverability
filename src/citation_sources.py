@@ -311,3 +311,17 @@ def over_time(answers: pd.DataFrame, citations: pd.DataFrame, website: str) -> p
     base["share"] = base["answers_citing"] / base["answers_with_citations"]
     return base.reset_index().sort_values(["business", "tested_on"])[
         ["business", "tested_on", "answers_with_citations", "answers_citing", "share"]]
+
+
+def by_business_type(answers: pd.DataFrame, citations: pd.DataFrame, *, top: int = 10) -> list[dict[str, Any]]:
+    """For each business type in the selection: what it rests on and its most cited websites.
+
+    Types are listed by how many businesses they rest on, then by answers, so the best-evidenced come first.
+    """
+    segments = []
+    for kind, of_type in answers.groupby("business_type"):
+        ids = set(of_type["answer_id"])
+        ranked = rank_websites(of_type, citations[citations["answer_id"].isin(ids)])
+        segments.append({"business_type": kind, "sample": sample(of_type), "websites": ranked.head(top)})
+    return sorted(segments, key=lambda seg: (-seg["sample"]["businesses"], -seg["sample"]["answers_with_citations"],
+                                             seg["business_type"]))
