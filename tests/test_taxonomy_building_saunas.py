@@ -17,9 +17,12 @@ def test_common_google_categories_for_a_builder_are_recognised():
 
 
 def test_related_businesses_that_are_not_builders_stay_out_of_the_group():
-    for business_type in ("Plumber", "Electrician", "Architect", "Surveyor", "Building materials supplier",
-                          "Estate agent", "Recruiter", "Garden building supplier"):
+    for business_type in ("Plumber", "Electrician", "Building materials supplier", "Recruiter",
+                          "Garden building supplier"):
         assert group(business_type=business_type) == "other", business_type
+    # These have their own groups now; they are still not builders.
+    assert group(business_type="Architect") == "architecture_design"
+    assert group(business_type="Surveyor") == group(business_type="Estate agent") == "property"
     # A cleaner that also lists construction work is still a cleaner.
     assert group(business_type="Cleaners", subtypes="Cleaners, Carpet cleaning service, Construction Company, "
                                                     "House cleaning service") == "cleaning_services"

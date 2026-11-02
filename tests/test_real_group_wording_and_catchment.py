@@ -23,6 +23,13 @@ EXPECTED = {
     "workspaces": ("workspace", False),
     "nightlife_entertainment": (None, False),
     "saunas": (None, False),
+    # Added 2 November 2026: general (or reviewer-approved drafted) wording and the wider catchment until
+    # one of these types is actually tested and someone decides otherwise.
+    **dict.fromkeys(("legal_services", "accounting_finance", "dental_care", "medical_clinics", "eye_care",
+                     "mental_health", "physical_therapies", "fitness_sport", "care_services", "property",
+                     "architecture_design", "marketing_creative", "photography", "weddings_events",
+                     "hotels_accommodation", "tattoo_piercing", "jewellery_watches", "vehicle_repair", "vets_pets",
+                     "education_training"), (None, False)),
     "other": (None, False),
 }
 
