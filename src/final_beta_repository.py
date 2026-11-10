@@ -80,7 +80,9 @@ def load_comparison_reviews(summary: Mapping[str, Any], *, engine=None) -> list[
     """
     by_id = {str(b["id"]): b for b in summary["businesses"]}
     target = str(summary["target_id"])
-    ids = [i for i in dict.fromkeys(str(i) for i in summary["visible_ids"]) if i != target and i in by_id and int(by_id[i]["appearances"]) > 0]
+    unmatched = {str(i) for i in summary.get("unmatched_ids") or []}  # no Google listing, so no reviews to read
+    ids = [i for i in dict.fromkeys(str(i) for i in summary["visible_ids"])
+           if i != target and i not in unmatched and i in by_id and int(by_id[i]["appearances"]) > 0]
     ids = sorted(ids, key=lambda i: (-int(by_id[i]["appearances"]), str(by_id[i]["name"]).casefold()))[:MAX_COMPARED_BUSINESSES]
     if not ids:
         return []

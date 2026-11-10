@@ -300,7 +300,7 @@ def _render(d: Mapping[str, Any], total: int | None, make=None):
         doc.note(f"\"Earlier\" is the same question in the test of {_date(d['previous_date'])}, counted by matching your business name in the answers.")
 
     comp = d['competitors']
-    doc.start('04 / Who else appears', "Your list, and the AI's list.", f"Recommendations across the {comp['total']} answers, for the businesses we verified.")
+    doc.start('04 / Who else appears', "Your list, and the AI's list.", f"Recommendations across the {comp['total']} answers.")
     doc.heading('You told us your competitors are')
     if comp['named']:
         doc.table(['Competitor you named', 'Recommended in', f"Compared with {_e(short)} ({_of(comp['target_recommended'], comp['total'])})"],
@@ -314,9 +314,12 @@ def _render(d: Mapping[str, Any], total: int | None, make=None):
     for i, c in enumerate(comp['ai'], 1):
         rank = i if c['recommended'] != last else rank
         last = c['recommended']
-        name = f"{rank}. {_e(c['name'])}"
+        name = f"{rank}. {_e(c['name'])}" + (' *' if c.get('unmatched') else '')
         shown.append([f'<b>{name}</b>' if c['target'] else name, f"<b>{_of(c['recommended'], comp['total'])}</b>" if c['target'] else _of(c['recommended'], comp['total'])])
     doc.table(['Most recommended', 'Recommended in'], shown, [.64, .36], 9)
+    if any(c.get('unmatched') for c in comp['ai']):
+        doc.note('* Named this way in the AI answers. We could not match it to a single Google listing, so it is shown as '
+                 'the answers wrote it, with small variations of the name counted together.')
     if comp['unlisted']:
         names = comp['unlisted'][:3]
         doc.callout('Worth discussing', f"{_e(', '.join(names))} {'was' if len(names) == 1 else 'were'} not on your list, yet {'is' if len(names) == 1 else 'are'} recommended at least as often as {_e(short)}. Do you see {'it' if len(names) == 1 else 'them'} as a rival?", 'amber')

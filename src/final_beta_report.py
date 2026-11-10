@@ -123,8 +123,9 @@ def build_competitors(summary: Mapping[str, Any]) -> dict[str, Any]:
     ranked = sorted([by_id[i] for i in dict.fromkeys([summary["target_id"], *summary["visible_ids"], *summary["named_ids"]]) if i in by_id],
                     key=lambda b: (-int(b["appearances"]), b["id"] != summary["target_id"], str(b["name"]).casefold()))
     named_ids = set(summary["named_ids"])
+    unmatched = set(summary.get("unmatched_ids") or [])
     ai = [{"name": b["name"], "recommended": int(b["appearances"]), "target": b["id"] == summary["target_id"],
-           "named_by_owner": b["id"] in named_ids} for b in ranked if int(b["appearances"]) > 0 or b["id"] == summary["target_id"]][:8]
+           "named_by_owner": b["id"] in named_ids, "unmatched": b["id"] in unmatched} for b in ranked if int(b["appearances"]) > 0 or b["id"] == summary["target_id"]][:8]
     return {"total": total, "target_recommended": int(target["appearances"]), "named": named, "ai": ai,
             "unlisted": [row["name"] for row in ai if not row["target"] and not row["named_by_owner"]
                          and row["recommended"] >= int(target["appearances"])]}

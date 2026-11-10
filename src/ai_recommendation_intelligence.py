@@ -180,6 +180,12 @@ def extract_numbered_recommendations(
     return recommendations
 
 
+def _distinctive_prefix(name: str) -> bool:
+    """Whether a name is specific enough to claim longer names that start with it."""
+    words = [word for word in name.split() if word != "the"]
+    return len(words) >= 2 and len(name) >= 7
+
+
 def _candidate_name_variants(
     value: str,
 ) -> list[str]:
@@ -587,10 +593,6 @@ def resolve_business_name(
         for query_variant in (
             query_variants
         ):
-            query_words = (
-                query_variant.split()
-            )
-
             for alias in (
                 record[
                     "aliases"
@@ -607,23 +609,26 @@ def resolve_business_name(
                 # Safe short-name matching:
                 # "the ginger pig" should resolve to
                 # "the ginger pig restaurant and rooms".
-                # Require at least two meaningful words and a unique
-                # leading-name relationship to avoid matching generic
-                # one-word names.
+                # The shorter name (whichever side it is on) must have at
+                # least two meaningful words. Checking only the AI's name let
+                # a listing's one-word stem claim longer names: "The House
+                # Restaurant" (stem "house") took "House of Tiles", and a hotel
+                # called "Topps" took "Topps Tiles" (Authentic Stone, Nov 2026).
                 if (
-                    len(query_words) >= 2
-                    and len(
+                    alias.startswith(
                         query_variant
-                    ) >= 7
-                    and (
-                        alias.startswith(
-                            query_variant
-                            + " "
-                        )
-                        or query_variant.startswith(
-                            alias
-                            + " "
-                        )
+                        + " "
+                    )
+                    and _distinctive_prefix(
+                        query_variant
+                    )
+                ) or (
+                    query_variant.startswith(
+                        alias
+                        + " "
+                    )
+                    and _distinctive_prefix(
+                        alias
                     )
                 ):
                     score = max(
@@ -997,6 +1002,36 @@ def build_recommendation_records(
         rows,
         columns=columns,
     )
+
+
+def without_rejected_links(
+    records: pd.DataFrame,
+    rejected_links: dict[str, Any] | None,
+) -> pd.DataFrame:
+    """Undo automatic matches a reviewer has rejected.
+
+    rejected_links maps a raw AI name to the place IDs a reviewer said it is not. A row matched to one of those
+    becomes unmatched again, so it is shown as the AI wrote it instead of being credited to the wrong listing.
+    Reviewer-confirmed names are applied separately and are never undone here.
+    """
+
+    if records.empty or not rejected_links:
+        return records
+    rejected: dict[str, set[str]] = {}
+    for raw_name, place_ids in rejected_links.items():
+        rejected.setdefault(normalise_name(raw_name), set()).update(str(item) for item in place_ids)
+    out = records.copy()
+    mask = [
+        bool(place_id) and str(place_id) in rejected.get(normalise_name(str(raw)), set())
+        for raw, place_id in zip(out["raw_business_name"], out["google_place_id"].where(out["google_place_id"].notna(), None))
+    ]
+    if any(mask):
+        out = out.astype({"google_place_id": object})
+        out.loc[mask, "google_place_id"] = None
+        out.loc[mask, "business_name"] = out.loc[mask, "raw_business_name"]
+        out.loc[mask, "resolution_status"] = "rejected_by_reviewer"
+        out.loc[mask, "classification"] = "Unresolved"
+    return out
 
 
 def target_mention_summary(

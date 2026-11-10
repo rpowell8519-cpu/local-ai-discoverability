@@ -10,6 +10,7 @@ from sqlalchemy.engine import Engine
 from src.ai_recommendation_intelligence import (
     build_business_share_table,
     build_recommendation_records,
+    without_rejected_links,
 )
 from src.database import get_engine
 from src.report_identity import confirmed_alias_frame
@@ -22,11 +23,16 @@ def load_report_candidates(
     engine: Engine | None = None,
     confirmed_target_names: Iterable[str] = (),
     confirmed_names: Mapping[str, Iterable[str]] | None = None,
+    rejected_links: Mapping[str, Iterable[str]] | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
     """Return measured verified candidates and unresolved names for human review.
 
     confirmed_target_names are raw AI names a reviewer has confirmed as the target
     business. They are credited to it as reviewer-confirmed aliases.
+
+    rejected_links ({raw name: [place IDs]}) are names a reviewer said are not those businesses; they are taken
+    off those businesses in the counts. The unresolved list is left as it was before rejections, because it is
+    what the review step plans its questions from, and the page and the generator must plan the same ones.
     """
 
     database = engine or get_engine()
@@ -111,6 +117,8 @@ def load_report_candidates(
     )
     if records.empty:
         return {"target": [], "verified": [], "unresolved": []}
+    planned_records = records
+    records = without_rejected_links(records, {str(k): list(v) for k, v in dict(rejected_links or {}).items()})
     target_records = records[
         records["google_place_id"].notna()
         & records["google_place_id"].astype(str).eq(str(target_google_place_id))
@@ -140,7 +148,7 @@ def load_report_candidates(
         for item in verified
     ]
     unresolved_counts = (
-        records[records["google_place_id"].isna()]
+        planned_records[planned_records["google_place_id"].isna()]
         .groupby("raw_business_name", dropna=False)
         .size()
         .sort_values(ascending=False)

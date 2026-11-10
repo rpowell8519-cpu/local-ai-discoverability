@@ -6,7 +6,7 @@ stay in the market but are not upgraded to verified entities.
 """
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 from copy import deepcopy
 from html import escape
 import re
@@ -25,10 +25,64 @@ def provider_name(value: Any) -> str:
             "google": "Gemini", "gemini": "Gemini"}.get(name.casefold(), name)
 
 
-def business_key(slot: Mapping[str, Any]) -> str:
-    return str(slot.get("google_place_id") or "unresolved:" + str(
-        slot.get("business_name") or slot.get("raw_business_name") or "Unknown name"
-    ).strip().casefold())
+_PLACE_JOINERS = frozenset({"&", "and", "/", "-", "near", "in"})
+_TRAILING_BRACKET = re.compile(r"\s*\([^()]*\)\s*$")
+_COMPANY_ENDING = re.compile(r"\b(?:co|company|ltd|limited|llp|plc|inc|sons|partners|associates)\.?\s*$", re.IGNORECASE)
+_TRAILING_QUALIFIER = re.compile(r"\s*(?:,|\s[\u2013\u2014-]\s)\s*([^,\u2013\u2014]*)$")
+
+
+def unmatched_display_name(raw: Any, place_words: frozenset[str] = frozenset()) -> str:
+    """An AI name with its trailing place qualifiers removed, as it is shown when no listing matches it.
+
+    "House of Tiles (Newhaven)" and "House of Tiles, Newhaven" both become "House of Tiles". Only a short tail
+    (up to four words) after a comma or a spaced dash is removed, unless it ends like a company name ("Smith, Jones
+    & Co"), and a bracketed tail at the end.
+    """
+
+    original = " ".join(str(raw or "").split()).strip(" *")
+    name = original
+    while True:
+        shorter = _TRAILING_BRACKET.sub("", name).strip()
+        tail = _TRAILING_QUALIFIER.search(shorter)
+        if (tail and len(tail.group(1).split()) <= 4 and shorter[:tail.start()].strip()
+                and not _COMPANY_ENDING.search(tail.group(1))):
+            shorter = shorter[:tail.start()].strip()
+        words = shorter.split()
+        while len(words) > 1 and words[-1].casefold().strip(".,") in place_words | _PLACE_JOINERS:
+            words.pop()
+        while len(words) > 1 and words[-1].casefold() in _PLACE_JOINERS:
+            words.pop()
+        shorter = " ".join(words)
+        if shorter == name or not shorter:
+            break
+        name = shorter
+    return name or original or "Unknown name"
+
+
+def place_words(location: Any) -> frozenset[str]:
+    """The words of a test's location ("Brighton, Hove, Newhaven, East Sussex") used to tidy unmatched names."""
+
+    return frozenset(word for word in re.split(r"[^0-9a-z]+", str(location or "").casefold()) if len(word) > 2)
+
+
+def unmatched_key(raw: Any, places: frozenset[str] = frozenset()) -> str:
+    """Groups the ways an answer writes one unmatched name: place qualifiers, case, spacing, "&", a leading "The"."""
+
+    name = unmatched_display_name(raw, places).casefold().replace("&", " and ")
+    name = re.sub(r"^the\s+", "", name)
+    return "unmatched:" + (re.sub(r"[^0-9a-z]+", "", name) or name)
+
+
+def business_key(slot: Mapping[str, Any], places: frozenset[str] = frozenset()) -> str:
+    """A listing's place ID; a reviewer-named group (an owner's competitor with no listing) by its name; otherwise
+    an AI name no listing matched, grouped with the other ways the answers wrote it."""
+
+    if slot.get("google_place_id"):
+        return str(slot["google_place_id"])
+    name = slot.get("business_name") or slot.get("raw_business_name") or "Unknown name"
+    if str(slot.get("resolution_method") or "").startswith(("reviewer_", "analyst_")):
+        return "unresolved:" + str(name).strip().casefold()
+    return unmatched_key(slot.get("raw_business_name") or name, places)
 
 
 def cited_urls(text: str) -> list[str]:
@@ -107,6 +161,8 @@ def build_owner_report(payload: Mapping[str, Any]) -> dict[str, Any]:
         lookup[key] = r
     appearances = defaultdict(set)
     businesses = {}
+    written: dict[str, Counter] = defaultdict(Counter)  # display forms of each unmatched name, by use
+    places = place_words(dict(payload.get("report", {}).get("client_context") or {}).get("location"))
     eligible_slots = 0
     for slot in payload["recommendation_market"]["slot_evidence"]:
         if slot.get("slot_disposition") != "business":
@@ -115,10 +171,15 @@ def build_owner_report(payload: Mapping[str, Any]) -> dict[str, Any]:
         if response is None:
             continue
         eligible_slots += 1
-        key = business_key(slot)
+        key = business_key(slot, places)
         appearances[key].add(response["response_id"])
+        if key.startswith("unmatched:"):
+            written[key][unmatched_display_name(slot.get("raw_business_name") or slot.get("business_name"), places)] += 1
         businesses[key] = {"key": key, "name": str(slot.get("business_name") or slot.get("raw_business_name")),
-                           "verified": bool(slot.get("google_place_id"))}
+                           "verified": bool(slot.get("google_place_id")), "unmatched": key.startswith("unmatched:")}
+    for key, forms in written.items():
+        # The form the answers used most; ties go to the shorter, then alphabetical.
+        businesses[key]["name"] = min(forms, key=lambda form: (-forms[form], len(form), form.casefold()))
     target_ids = appearances[target]
     orders = sorted({int(q["base_prompt_order"]) for q in payload["methodology"].get("queries", [])} |
                     {int(r["base_prompt_order"]) for r in responses})

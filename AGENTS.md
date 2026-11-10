@@ -231,6 +231,37 @@ Process and open QA items live in `docs/beta-report-process.md` (owner conversat
 question sets, what may be claimed) and `docs/udr-report-qa-required-changes.md`. Read
 both before changing report wording, layout or counting rules.
 
+### Name matching and unmatched names (changed 10 November 2026)
+
+Found in Authentic Stone's report (a tile shop): "The House Restaurant" was credited with 13 answers that named
+House of Tiles, a hotel called "Topps" with Topps Tiles, a hotel called "Brighton" with "Brighton Tiling & Mosaics",
+and Natural Angle (31 answers, the most recommended business) was missing. Four rules now hold:
+
+- **Short-name matching needs a distinctive short name on both sides** (`_distinctive_prefix` in
+  `ai_recommendation_intelligence.py`): the shorter of the two names must have two words besides "the". Before, only
+  the AI's name was checked, so a listing's one-word stem ("house" from "The House Restaurant" once "Restaurant" is
+  dropped; "Topps") claimed every longer name starting with it.
+- **A name rejected in step 5 is never credited to that business by the automatic matcher**
+  (`rejected_links_from_decisions` + `without_rejected_links`, applied in `load_report_candidates` and the
+  assembler). The unresolved list that step 5 plans its questions from is left as before rejections, so the page and
+  the generator still plan the same questions.
+- **A confirmed name counts wherever its business sits** (`_all_confirmed_names` in `poc_audit_generic.py`), not
+  only for businesses step 5 asked about. Before, a name confirmed for a business outside the comparison set was
+  counted in step 5 but left unmatched in the report.
+- **Highly recommended names no listing matches are shown, not dropped** (rob, 10 November 2026: "If we cannot match
+  to a business in the database please include it as it is found in the answers"). `business_key` groups an unmatched
+  name's variants (`unmatched_key`: trailing brackets, short tails after a comma or spaced dash unless they end like
+  a company name, the test's own place words at the end, case, spacing, "&", a leading "The"), shows the form the
+  answers used most, and counts it once per answer. They take their place in the "most recommended" list
+  (`visible_ids`), are listed in `unmatched_ids`, carry a "*" and a note in the Final Beta, a sentence in the LS, and
+  a limitation line naming them. They are never in the comparison set (no listing, so no website or review evidence)
+  and are left out of the review comparison. A reviewer-named group (an owner competitor not in the database) keeps
+  its own `unresolved:` key, so unconfirmed look-alikes are never merged into it.
+
+Still open: an automatic fuzzy match (score at least 0.90) is credited without a person seeing it; only names the
+matcher could not place go to step 5. A chain with several listings (Topps Tiles, Mastertiles) still splits its
+answers between branches, or shows as one unmatched name when the answers do not say which branch.
+
 ### Frequent AI names that are really a listed business outside the report
 
 `plan_subjects(..., records=...)` also offers each still-unmatched AI name used at least

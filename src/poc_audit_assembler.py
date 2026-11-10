@@ -12,6 +12,7 @@ from src.ai_recommendation_intelligence import (
     build_business_share_table,
     build_recommendation_records,
     normalise_name,
+    without_rejected_links,
 )
 from src.database import get_engine
 from src.poc_audit_payload import (
@@ -105,6 +106,8 @@ def _recommendation_evidence(
         commercial_competitor_ids=set(),
         primary_group=config["primary_group"],
     )
+    # A name a reviewer rejected for a business is never credited to it by the automatic matcher.
+    records = without_rejected_links(records, config.get("rejected_links"))
     adjudications = config.get("slot_adjudications", {})
     slots: list[dict[str, Any]] = []
     business_rows: list[dict[str, Any]] = []
