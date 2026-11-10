@@ -156,6 +156,10 @@ def run_page(audit, *, extra=(), secrets=None):
         mock.patch("src.final_beta_repository.page_fetcher", return_value=lambda url: ""),
         mock.patch("src.database.get_engine", return_value=_Engine()),
         mock.patch("src.business_platform_links.get_engine", return_value=_Engine()),
+        # These modules bind get_engine at import, so patching src.database alone does not reach them: without
+        # these the evidence comparison read the live database (or failed where no .env exists).
+        mock.patch("src.review_repository.get_engine", return_value=_Engine()),
+        mock.patch("src.website_audit_repository.get_engine", return_value=_Engine()),
         mock.patch("src.report_audit_repository.get_latest_report_audit", return_value=audit),
         mock.patch("src.report_audit_repository.list_report_audit_revisions", return_value=[audit] if audit else []),
         mock.patch("src.report_audit_candidates.load_report_candidates", return_value=CANDIDATES),
