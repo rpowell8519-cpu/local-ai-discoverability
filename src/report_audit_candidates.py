@@ -12,7 +12,9 @@ from src.ai_recommendation_intelligence import (
     build_recommendation_records,
     without_rejected_links,
 )
+from src.chains import apply_chains, clean_chains
 from src.database import get_engine
+from src.owner_services_report import place_words
 from src.report_identity import confirmed_alias_frame
 
 
@@ -24,6 +26,7 @@ def load_report_candidates(
     confirmed_target_names: Iterable[str] = (),
     confirmed_names: Mapping[str, Iterable[str]] | None = None,
     rejected_links: Mapping[str, Iterable[str]] | None = None,
+    chains: Iterable[Mapping[str, Any]] | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
     """Return measured verified candidates and unresolved names for human review.
 
@@ -33,12 +36,15 @@ def load_report_candidates(
     rejected_links ({raw name: [place IDs]}) are names a reviewer said are not those businesses; they are taken
     off those businesses in the counts. The unresolved list is left as it was before rejections, because it is
     what the review step plans its questions from, and the page and the generator must plan the same ones.
+
+    chains (see src/chains.py) count each chain once per answer under its evidence listing, in both lists.
     """
+    chains = clean_chains(chains, target_id=target_google_place_id)
 
     database = engine or get_engine()
     with database.connect() as connection:
         run = connection.execute(
-            text("select primary_group from ai_visibility_runs where id = cast(:id as uuid)"),
+            text("select primary_group, location_context from ai_visibility_runs where id = cast(:id as uuid)"),
             {"id": run_id},
         ).mappings().first()
         if not run:
@@ -117,8 +123,10 @@ def load_report_candidates(
     )
     if records.empty:
         return {"target": [], "verified": [], "unresolved": []}
-    planned_records = records
-    records = without_rejected_links(records, {str(k): list(v) for k, v in dict(rejected_links or {}).items()})
+    places = place_words(run.get("location_context"))
+    planned_records = apply_chains(records, chains, places)
+    records = apply_chains(
+        without_rejected_links(records, {str(k): list(v) for k, v in dict(rejected_links or {}).items()}), chains, places)
     target_records = records[
         records["google_place_id"].notna()
         & records["google_place_id"].astype(str).eq(str(target_google_place_id))

@@ -259,8 +259,26 @@ and Natural Angle (31 answers, the most recommended business) was missing. Four 
   its own `unresolved:` key, so unconfirmed look-alikes are never merged into it.
 
 Still open: an automatic fuzzy match (score at least 0.90) is credited without a person seeing it; only names the
-matcher could not place go to step 5. A chain with several listings (Topps Tiles, Mastertiles) still splits its
-answers between branches, or shows as one unmatched name when the answers do not say which branch.
+matcher could not place go to step 5.
+
+### Chains: one business with several listings (added 10 November 2026)
+
+Most answers name a chain without a branch ("Topps Tiles", "Mastertiles"), and some businesses have two listings
+(Natural Angle's Showroom and Show house). Before, the answers split between branches or the bare brand stayed
+unmatched (Authentic Stone: Mastertiles 12 for Hollingbury plus 38 unmatched; it is really named in 50 of 54 answers).
+`src/chains.py` holds the rule; chains are saved in `reviewer_decisions["chains"]` (no schema change) as
+`{"name", "place_ids", "aliases", "evidence_place_id"}`:
+
+- Every answer naming one of the chain's listings, or the chain itself however written (`unmatched_key`, so case,
+  spacing, "&" and the test's place words do not matter; `aliases` for other spellings), counts **once** for the chain.
+- The chain is credited to its **evidence listing** (the one whose website and reviews represent it, by default the
+  first) and shown under the chain's name, so step 5's leaders, the comparison set, recommendations and every report
+  treat it as one business. The branch an answer named is kept as `chain_branch_place_id`.
+- Applied in `load_report_candidates` (both the counted and the planned lists, so page and generator agree) and in
+  the assembler after the reviewer's confirmations. `clean_chains` refuses a chain without listings, one containing
+  the client, a listing in two chains or one written name shared by two chains.
+- **There is no editor on the step-5 page yet**: the page lists saved chains in a caption and keeps them when the
+  review is saved. Chains are written by an operator (or Claude, with rob's yes) into the review decisions.
 
 ### Frequent AI names that are really a listed business outside the report
 

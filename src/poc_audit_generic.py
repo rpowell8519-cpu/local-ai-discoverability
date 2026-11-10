@@ -10,6 +10,7 @@ from src.database import get_engine
 from src.poc_audit_assembler import assemble_poc_audit_payload
 from src.poc_audit_cisco_assembler import NON_BUSINESS_PREFIXES
 from src.poc_audit_production import PocAuditDefinition, ReviewablePocAudit, build_reviewable_poc_audit
+from src.chains import chain_names, clean_chains
 from src.report_audit_candidates import load_report_candidates
 from src.report_competitors import MAX_COMPARISON_BUSINESSES, classify_location, match_owner_competitors
 from src.business_matching import (
@@ -217,12 +218,15 @@ def assemble_generic_report_payload(
     confirmed_target_names = [str(item) for item in decisions_input.get("confirmed_target_names") or []]
     owner_names = [str(item) for item in audit_revision.get("owner_competitors") or []]
     owner_places = {str(k): str(v or "") for k, v in dict(decisions_input.get("owner_competitor_places") or {}).items()}
+    chains = clean_chains(decisions_input.get("chains"), target_id=target_id)
+    names.update({pid: name for pid, name in chain_names(chains).items() if pid in names})
     candidate_summary = load_report_candidates(
         run_id=run_id,
         target_google_place_id=target_id,
         engine=database,
         confirmed_names=confirmed_by_place_from_decisions(decisions_input, target_id),
         rejected_links=rejected_links_from_decisions(decisions_input, target_id),
+        chains=chains,
     )
     # Names the AI used that may be a business in this report must each be decided by a person.
     subjects = plan_subjects(
@@ -414,6 +418,7 @@ def assemble_generic_report_payload(
         "verification_statement": f"{expected} expected responses were loaded from the attached completed benchmark.",
         "slot_adjudications": _all_confirmed_names(subjects, decisions_input, target_id, all_businesses),
         "rejected_links": rejected_links_from_decisions(decisions_input, target_id),
+        "chains": chains,
         "non_business_prefixes": tuple(NON_BUSINESS_PREFIXES),
         "cohort": cohort,
         "website_audits": websites,
