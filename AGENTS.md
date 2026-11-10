@@ -951,6 +951,18 @@ Do not claim causality unless directly supported.
 
 Share of Recommendation and related metrics should only use valid completed responses according to existing logic.
 
+### How each AI tool is told the customer's location (fixed 10 November 2026)
+
+In live-search runs the location (the owner's service areas, else the business's city) reaches each tool differently:
+ChatGPT through its search tool's `user_location`; Gemini as "Customer location: …" in the request text; Claude
+through its search tool's `user_location` **and**, since 10 November 2026, "Customer location: …" appended to the
+system instruction. The search-tool setting alone only steers Claude's searches: Authentic Stone's 8 November runs
+asked place-less questions ("Recommend a place to buy marble tiles") and Claude recommended Home Depot and Lowe's in
+34 of 36 answers. Every earlier business named its town in the questions, which hid the gap. Claude results from runs
+before this fix whose questions name no place should not be used in a UK report. Any change to how location is
+passed must bump `REQUIRED_SEARCH_VERSION` in `anthropic_provider.py` and the matching guards in the three paid-run
+pages, so a running app reloads the provider instead of keeping the old one.
+
 ## Recommendation logic
 
 Recommendation synthesis should remain evidence-driven and explainable.

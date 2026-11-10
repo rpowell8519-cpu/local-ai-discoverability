@@ -72,6 +72,35 @@ def test_claude_consumer_web_enables_localised_search() -> None:
     assert result.text == "1. Example"
 
 
+def test_claude_consumer_web_is_told_the_customer_location() -> None:
+    # The search tool's user_location alone left Claude answering place-less questions
+    # ("Recommend a place to buy marble tiles") with US retailers (Authentic Stone, 8 Nov 2026).
+    payload = {
+        "stop_reason": "end_turn",
+        "content": [{"type": "server_tool_use", "name": "web_search"}, {"type": "text", "text": "1. Example"}],
+        "usage": {},
+    }
+    with patch("src.llm_providers.anthropic_provider.requests.post", return_value=_response(payload)) as post:
+        call_anthropic(api_key="test", model="test-model", prompt="Recommend a place to buy marble tiles",
+                       benchmark_mode="search_grounded", location_context="Brighton, Hove, Newhaven")
+        call_anthropic(api_key="test", model="test-model", prompt="Recommend a place to buy marble tiles",
+                       benchmark_mode="search_grounded")
+
+    given, defaulted = (call.kwargs["json"] for call in post.call_args_list)
+    assert given["system"].endswith("\n\nCustomer location: Brighton, Hove, Newhaven")
+    assert defaulted["system"].endswith("\n\nCustomer location: Brighton and Hove")
+    # The customer's question itself is sent unchanged.
+    assert given["messages"] == [{"role": "user", "content": "Recommend a place to buy marble tiles"}]
+
+
+def test_claude_memory_benchmark_is_not_given_a_location() -> None:
+    payload = {"stop_reason": "end_turn", "content": [{"type": "text", "text": "1. Example"}], "usage": {}}
+    with patch("src.llm_providers.anthropic_provider.requests.post", return_value=_response(payload)) as post:
+        call_anthropic(api_key="test", model="test-model", prompt="Nurseries?",
+                       benchmark_mode="model_memory", location_context="Brighton")
+    assert "Customer location" not in post.call_args.kwargs["json"]["system"]
+
+
 def test_claude_still_rejects_an_ungrounded_answer() -> None:
     payload = {
         "stop_reason": "end_turn",

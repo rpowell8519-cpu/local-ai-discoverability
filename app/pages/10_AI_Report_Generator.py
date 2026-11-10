@@ -48,7 +48,7 @@ if (
 if (
     getattr(visibility_runner, "SUPPORTED_BENCHMARK_MODES", frozenset()) != frozenset({"model_memory", "search_grounded"})
     or getattr(visibility_runner, "GSO_REPORT_CAPTURE_VERSION", 0) != 1
-    or getattr(anthropic_provider, "REQUIRED_SEARCH_VERSION", 0) != 2
+    or getattr(anthropic_provider, "REQUIRED_SEARCH_VERSION", 0) != 3
     or visibility_runner.call_anthropic is not anthropic_provider.call_anthropic
 ):
     provider_base = importlib.reload(provider_base)
@@ -183,7 +183,7 @@ from src.report_generator_readiness import (  # noqa: E402
 )
 
 
-BUILD_VERSION = "Accessible AI Report Generator v3.14.0 (client summary prompts and AI engines)"
+BUILD_VERSION = "Accessible AI Report Generator v3.14.1 (Claude told the customer location)"
 REPORT_STATE_KEY = "accessible_ai_report_generator_result"
 SUMMARY_STATE_KEY = "accessible_ai_client_summary_result"
 GSO_REPORT_STATE_KEY = "accessible_ai_gso_report_result"

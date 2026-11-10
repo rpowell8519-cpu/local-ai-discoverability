@@ -12,7 +12,7 @@ from src.llm_providers.base import (
 
 
 # Used by Streamlit pages to refresh a provider retained across deployments.
-REQUIRED_SEARCH_VERSION = 2
+REQUIRED_SEARCH_VERSION = 3
 
 ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
 
@@ -35,6 +35,10 @@ def call_anthropic(
         "messages": [{"role": "user", "content": prompt}],
     }
     if benchmark_mode == "search_grounded":
+        # The search tool's user_location only steers search results; Claude does not treat it
+        # as where the customer is. Questions that name no place (Authentic Stone, 8 Nov 2026)
+        # then got US answers, so state the location in the instruction, as Gemini receives it.
+        request_body["system"] += "\n\nCustomer location: " + (location_context or "Brighton and Hove")
         # Sonnet 5.5 rejects forced tool choice. The system instruction requires
         # search and the response guard below still rejects ungrounded answers.
         # https://platform.claude.com/docs/en/models/sonnet-5-5/whats-new-sonnet-5-5
