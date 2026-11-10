@@ -16,9 +16,9 @@ from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
 from typing import Any, Callable, Iterable, Mapping, Sequence
-from urllib.parse import urlparse
 
 from src.ai_recommendation_intelligence import extract_numbered_recommendations
+from src.citation_sources import cited_host, cited_page, domain_of, site_owner as _site_owner
 
 VERSION = "final-beta-v1"
 MAX_BUSINESS_SITES = 6
@@ -29,7 +29,6 @@ MIN_CLIENT_REVIEWS = 10
 MIN_COMPARISON_REVIEWS = 20  # fewer than this between the other businesses says too little to set beside the client
 MIN_READABLE_CHARS = 1500
 PROVIDER_ORDER = ("OpenAI", "Claude", "Gemini")
-# Hosts that many businesses share; a citation of one says nothing about a particular business.
 # Themes any local business's customers write about. Each term matches the start of a word, so
 # "friendl" finds "friendly" and "friendliness". A business type's own themes are added to these.
 COMMON_THEMES: tuple[tuple[str, tuple[str, ...]], ...] = (
@@ -42,14 +41,6 @@ COMMON_THEMES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Value and price", ("price", "value", "afford", "reasonabl", "expensive")),
     ("Would recommend", ("recommend",)),
 )
-SHARED_HOSTS = ("facebook.com", "instagram.com", "linktr.ee", "google.com", "sites.google.com", "wixsite.com",
-                "squarespace.com", "wordpress.com", "business.site", "x.com", "twitter.com", "youtube.com",
-                "tiktok.com", "linkedin.com", "yell.com", "tripadvisor.co.uk", "tripadvisor.com", "booking.com")
-
-
-def domain_of(url: Any) -> str:
-    host = urlparse(str(url or "") if "//" in str(url or "") else "//" + str(url or "")).netloc.lower()
-    return re.sub(r"^www\.", "", host.split(":")[0])
 
 
 def name_patterns(names: Iterable[str], short_name: str = "") -> list[re.Pattern[str]]:
@@ -139,30 +130,6 @@ def build_competitors(summary: Mapping[str, Any]) -> dict[str, Any]:
                          and row["recommended"] >= int(target["appearances"])]}
 
 
-def _squash(value: Any) -> str:
-    return re.sub(r"[^a-z0-9]", "", str(value or "").casefold())
-
-
-def _site_owner(host: str, business_domains: Mapping[str, str], recommended_names: Iterable[str]) -> str | None:
-    """The business a website belongs to: from the directory, or a business the answers recommended by name.
-
-    "lunahutsauna.co.uk" is Luna Hut Sauna's own site even when that business is not in the directory;
-    treating it as an independent source would suggest the client should be listed on a rival's website.
-    """
-    if any(host == shared or host.endswith("." + shared) for shared in SHARED_HOSTS):
-        return None
-    if host in business_domains:
-        return business_domains[host]
-    core = _squash(host.split(".")[0])
-    if len(core) < 6:
-        return None
-    for name in recommended_names:
-        squashed = _squash(re.sub(r"\(.*?\)", "", str(name)))
-        if len(squashed) >= 6 and (squashed in core or core in squashed):
-            return str(name)
-    return None
-
-
 def summarise_sources(results: Iterable[Mapping[str, Any]], *, own_domains: Iterable[str],
                       business_domains: Mapping[str, str], recommended_names: Iterable[str] = ()) -> dict[str, Any]:
     """Count, per website, the answers that cited it. Each website counts once per answer."""
@@ -183,17 +150,13 @@ def summarise_sources(results: Iterable[Mapping[str, Any]], *, own_domains: Iter
         seen: set[str] = set()
         for cite in meta.get("citations") or []:
             citations += 1
-            url = str(cite.get("url") or "")
-            host = domain_of(url)
-            if not host or "vertexaisearch" in host:
-                # Google's tool returns a redirect link and gives the website only as the title.
-                host, url = domain_of(str(cite.get("title") or "").strip()), ""
-            if "." not in host or host in {"uk.com", "co.uk", "org.uk"}:
+            host, url = cited_host(cite), cited_page(cite)
+            if host is None:
                 unnamed += 1
                 continue
             seen.add(host)
             if url:
-                urls[host][url.split("?utm_source")[0].split("#")[0]] += 1
+                urls[host][url] += 1
         with_citations += bool(seen)
         for host in seen:
             per_domain[host] += 1
@@ -223,10 +186,7 @@ def _answers_citing(results: Iterable[Mapping[str, Any]], own: set[str]) -> int:
         if str(row.get("status") or "completed") != "completed":
             continue
         for cite in (row.get("report_metadata") or {}).get("citations") or []:
-            host = domain_of(cite.get("url"))
-            if not host or "vertexaisearch" in host:
-                host = domain_of(str(cite.get("title") or "").strip())
-            if host in own:
+            if cited_host(cite) in own:
                 count += 1
                 break
     return count

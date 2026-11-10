@@ -91,6 +91,26 @@ service and title, republished (not edited) when a status changes, from the "Act
 name `client_account_plans`, and also made `guard_client_account_publication` table-agnostic. Do not reapply it.
 Client plan wording is kept out of this public repository.
 
+### Cited sources page (added 2 November 2026)
+
+`app/pages/18_Cited_Sources.py` shows which websites the AI tools cite, filtered by kind of test, business type,
+area, AI tool and date (`src/citation_sources.py`, loader `src/citation_sources_repository.py`, read-only). The same
+helpers (`cited_host`, `cited_page`, `site_owner`) now serve Final Beta and client accounts, so all three read
+citations identically. Rules:
+- The unit is the answer: a website counts once per answer, however many links to it the answer holds (Gemini often
+  gives several). Answers without saved citations (before about 6 October 2026) are left out, never counted as zero.
+- A business is its Google Place ID. A test run under a `discovery:` placeholder shows as "(listing not confirmed)"
+  unless `src/citation_listing_matches.csv` links it; add a line there only after a person has checked the listing
+  (an identity decision). The saved test itself is never changed.
+- Kind of website comes from, in order: the tested business's own site; the reviewed list
+  `src/citation_source_types.csv`; public-body endings; a directory business or a business the same test recommended;
+  otherwise "Not yet classified". Nothing defaults to "business".
+- "Share, each business equal" averages each business's own share, because raw counts mostly reflect which clients we
+  tested most. A selection resting on fewer than three businesses says so by name.
+- Gemini citations are Google redirect links that expire after a few weeks. `ai_visibility_runner` now follows each
+  one when the answer is saved and stores `resolved_url` beside it (best effort; Location header only, Google's own
+  redirect host only). Older ones keep only the link title, and a title of "uk.com" names no site.
+
 ### Question limit per test (changed 11 October 2026)
 
 One AI Visibility run from the report generator may hold up to 20 questions (`MAX_RUN_QUESTIONS` in

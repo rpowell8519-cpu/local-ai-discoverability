@@ -17,6 +17,7 @@ from src.ai_visibility_repository import (
     save_visibility_result,
 )
 from src.ai_visibility_report_capture import provider_report_metadata
+from src.citation_sources import redirect_location, resolve_redirects
 from src.llm_providers.anthropic_provider import (
     call_anthropic,
 )
@@ -29,6 +30,8 @@ from src.llm_providers.openai_provider import (
 
 
 SUPPORTED_BENCHMARK_MODES = frozenset({"model_memory", "search_grounded"})
+# Follows one Google citation redirect; replaced in tests so no request leaves the machine.
+redirect_resolver = redirect_location
 GSO_REPORT_CAPTURE_VERSION = 1
 
 
@@ -239,6 +242,12 @@ def _save_provider_outcome(
         getattr(provider_response, "raw", None),
         benchmark_mode,
     )
+    # Google's redirect links stop working after a few weeks; record where they point while they still do.
+    # Best effort: an unresolved link keeps its saved title, as before.
+    try:
+        resolve_redirects(report_metadata["citations"], redirect_resolver)
+    except Exception:
+        pass
 
     save_visibility_result(
         run_id=run_id,

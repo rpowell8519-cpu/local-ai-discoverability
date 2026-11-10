@@ -1,0 +1,158 @@
+domain,source_type
+# Third-party websites the AI tools cite, by kind. A domain also covers its subdomains.
+# Seeded 30 October 2026 from the sites cited in our tests; review and extend as new sites appear.
+# Types: Directory or comparison site | Booking platform or marketplace | Review site | Local guide or media |
+#        Public body or institution | Trade or professional body | Charity or community group | Social or forum
+# Business websites are recognised from the business directory and the answers' own recommendations, not listed here.
+checkatrade.com,Directory or comparison site
+mybuilder.com,Directory or comparison site
+trustatrader.com,Directory or comparison site
+ratedtraders.com,Directory or comparison site
+threebestrated.co.uk,Directory or comparison site
+yell.com,Directory or comparison site
+cylex-uk.co.uk,Directory or comparison site
+freeindex.co.uk,Directory or comparison site
+thebestof.co.uk,Directory or comparison site
+localitybiz.co.uk,Directory or comparison site
+localitybiz.com,Directory or comparison site
+maptons.com,Directory or comparison site
+houzz.co.uk,Directory or comparison site
+houzz.com,Directory or comparison site
+topratedhousecleaners.co.uk,Directory or comparison site
+topratedbuilders.co.uk,Directory or comparison site
+findalaunderette.co.uk,Directory or comparison site
+daynurseries.co.uk,Directory or comparison site
+nurserymatch.com,Directory or comparison site
+nurseryadvice.co.uk,Directory or comparison site
+nurseryscan.co.uk,Directory or comparison site
+aboutearlyyears.co.uk,Directory or comparison site
+goodschoolsguide.co.uk,Directory or comparison site
+findmyschool.uk,Directory or comparison site
+allschools.co.uk,Directory or comparison site
+locrating.com,Directory or comparison site
+partyfind.co.uk,Directory or comparison site
+partyscout.co.uk,Directory or comparison site
+hubblehq.com,Directory or comparison site
+coworker.com,Directory or comparison site
+offices.org.uk,Directory or comparison site
+primeofficespace.co.uk,Directory or comparison site
+flexioffices.co.uk,Directory or comparison site
+theofficeproviders.com,Directory or comparison site
+laptopfriendlycafe.com,Directory or comparison site
+thesaunaguide.co.uk,Directory or comparison site
+thesaunalist.co.uk,Directory or comparison site
+findmysauna.com,Directory or comparison site
+saunamap.uk,Directory or comparison site
+saunamap.co.uk,Directory or comparison site
+goodspaguide.co.uk,Directory or comparison site
+salonspy.com,Directory or comparison site
+nailsalondirect.com,Directory or comparison site
+pubsgalore.co.uk,Directory or comparison site
+gardencentreguide.co.uk,Directory or comparison site
+rightmove.co.uk,Directory or comparison site
+zoopla.co.uk,Directory or comparison site
+onthemarket.com,Directory or comparison site
+primelocation.com,Directory or comparison site
+treatwell.co.uk,Booking platform or marketplace
+fresha.com,Booking platform or marketplace
+booksy.com,Booking platform or marketplace
+setmore.com,Booking platform or marketplace
+classpass.com,Booking platform or marketplace
+mindbodyonline.com,Booking platform or marketplace
+bookwhen.com,Booking platform or marketplace
+eventbrite.co.uk,Booking platform or marketplace
+eventbrite.com,Booking platform or marketplace
+tickettailor.com,Booking platform or marketplace
+humanitix.com,Booking platform or marketplace
+luma.com,Booking platform or marketplace
+designmynight.com,Booking platform or marketplace
+opentable.co.uk,Booking platform or marketplace
+opentable.com,Booking platform or marketplace
+tagvenue.com,Booking platform or marketplace
+hirespace.com,Booking platform or marketplace
+headbox.com,Booking platform or marketplace
+peerspace.com,Booking platform or marketplace
+zipcube.com,Booking platform or marketplace
+booking.com,Booking platform or marketplace
+airbnb.co.uk,Booking platform or marketplace
+airbnb.com,Booking platform or marketplace
+plumguide.com,Booking platform or marketplace
+cozycozy.com,Booking platform or marketplace
+spabreaks.com,Booking platform or marketplace
+bookretreats.com,Booking platform or marketplace
+uktherapyrooms.co.uk,Booking platform or marketplace
+airtasker.com,Booking platform or marketplace
+bark.com,Booking platform or marketplace
+turno.com,Booking platform or marketplace
+tripadvisor.co.uk,Review site
+tripadvisor.com,Review site
+yelp.com,Review site
+yelp.co.uk,Review site
+trustpilot.com,Review site
+reviews.co.uk,Review site
+birdeye.com,Review site
+trustist.com,Review site
+visitbrighton.com,Local guide or media
+restaurantsbrighton.co.uk,Local guide or media
+theargus.co.uk,Local guide or media
+brightonandhovenews.org,Local guide or media
+brightonjournal.co.uk,Local guide or media
+brightoninsider.com,Local guide or media
+brilliantbrighton.com,Local guide or media
+welovebrighton.com,Local guide or media
+onlybrighton.com,Local guide or media
+discoverbrighton.org,Local guide or media
+bn1magazine.co.uk,Local guide or media
+imjustbrighton.co.uk,Local guide or media
+kidsinbrighton.co.uk,Local guide or media
+brightonwhatson.app,Local guide or media
+thefamilygrapevine.co.uk,Local guide or media
+dayoutwiththekids.co.uk,Local guide or media
+muddystilettos.co.uk,Local guide or media
+thatsup.co.uk,Local guide or media
+wanderlog.com,Local guide or media
+timeout.com,Local guide or media
+guide.michelin.com,Local guide or media
+thegoodfoodguide.co.uk,Local guide or media
+leadingrestaurants.co.uk,Local guide or media
+hot-dinners.com,Local guide or media
+englandscoast.com,Local guide or media
+charlieontravel.com,Local guide or media
+europeancoffeetrip.com,Local guide or media
+brian-coffee-spot.com,Local guide or media
+doubleskinnymacchiato.com,Local guide or media
+esteticamagazine.com,Local guide or media
+curiouslyconscious.com,Local guide or media
+citygirlnetwork.com,Local guide or media
+cultureinourcity.com,Local guide or media
+happeningnext.com,Local guide or media
+eventslist.co.uk,Local guide or media
+brightonupyourday.co.uk,Local guide or media
+fmb.org.uk,Trade or professional body
+brightonchamber.co.uk,Trade or professional body
+camra.org.uk,Trade or professional body
+bcorporation.net,Trade or professional body
+changegrowlive.org,Charity or community group
+bmecp.org.uk,Charity or community group
+communitybase.org,Charity or community group
+communityworks.org.uk,Charity or community group
+bht.org.uk,Charity or community group
+bhfood.org.uk,Charity or community group
+bhspeakout.org.uk,Charity or community group
+sen2gether.com,Charity or community group
+amazesussex.org.uk,Charity or community group
+resourcecentre.org.uk,Charity or community group
+justlife.org.uk,Charity or community group
+livingwagebrighton.co.uk,Charity or community group
+escis.org.uk,Public body or institution
+reddit.com,Social or forum
+facebook.com,Social or forum
+instagram.com,Social or forum
+tiktok.com,Social or forum
+youtube.com,Social or forum
+linkedin.com,Social or forum
+x.com,Social or forum
+twitter.com,Social or forum
+mumsnet.com,Social or forum
+nextdoor.co.uk,Social or forum
+northstandchat.com,Social or forum

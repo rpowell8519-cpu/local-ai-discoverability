@@ -1,0 +1,4 @@
+run_id,place_id,business,confirmed_by,confirmed_on
+# Tests run before their business was matched to a Google listing, linked here once someone has checked the listing.
+# Read by the cited sources page only; the saved test is not changed. Add a line only after checking the listing yourself.
+19f5f6de-db46-4ab0-b30b-c3d1f373fe4c,ChIJhUCQ30CFdUgR8EXtyhCCDL0,Build My Home,rob (service-area listing with no address; CID 13622405981524542960),2026-11-02
