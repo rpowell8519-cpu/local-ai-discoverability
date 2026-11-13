@@ -21,7 +21,7 @@ IN_PROGRESS = ("queued", "running")
 
 CHECKS_SQL = """
     select c.id, c.owner_user_id, c.business_name, c.location, c.status, c.error_code, c.created_at,
-           cardinality(c.questions) as question_count,
+           cardinality(c.questions) as question_count, c.questions,
            (c.claimed_google_place_id is not null) as listing_confirmed,
            (c.result_projection #>> '{target,recommended_answers}')::int as recommended_answers,
            (c.result_projection ->> 'valid_answers')::int as valid_answers,
@@ -40,6 +40,25 @@ ACCOUNTS_SQL = """
     select id, email, created_at, email_confirmed_at, last_sign_in_at
     from auth.users order by created_at desc
 """
+CHECK_DETAIL_SQL = """
+    select c.id, c.business_name, c.website, c.location, c.services, c.competitors, c.questions,
+           c.status, c.error_code, c.created_at, c.run_id, c.claimed_google_place_id,
+           f.business_name as claimed_listing_name, c.result_projection
+    from public.customer_checks c
+    left join public.business_features f on f.google_place_id = c.claimed_google_place_id
+    where c.id = cast(:id as uuid)
+"""
+ANSWERS_SQL = """
+    select coalesce(q.base_prompt_order, q.prompt_order) as prompt_order, q.prompt_text,
+           r.provider, r.model, r.status, r.response_complete, r.raw_response, r.error_message, r.created_at
+    from public.ai_visibility_results r
+    join public.ai_visibility_queries q on q.id = r.query_id
+    where r.run_id = cast(:run_id as uuid)
+    order by prompt_order, r.provider, r.created_at
+"""
+# The tools every free check asks, in the order the customer sees them (free_check_worker.PROVIDERS).
+PROVIDERS = ("OpenAI", "Claude", "Gemini")
+CELL_LABELS = {"recommended": "Recommended", "not_recommended": "Not recommended", "missing": "No answer"}
 
 
 def load_checks() -> list[dict[str, Any]]:
@@ -51,6 +70,53 @@ def load_accounts() -> list[dict[str, Any]]:
     """Every email address that asked for a sign-in link, confirmed or not."""
     with get_engine().connect() as connection:
         return [dict(row) for row in connection.execute(text(ACCOUNTS_SQL)).mappings()]
+
+
+def load_check_detail(check_id: str) -> dict[str, Any] | None:
+    """One check's brief and saved result summary, plus every saved AI answer for its run."""
+    with get_engine().connect() as connection:
+        row = connection.execute(text(CHECK_DETAIL_SQL), {"id": check_id}).mappings().first()
+        if row is None:
+            return None
+        detail = dict(row)
+        detail["answers"] = [] if not detail.get("run_id") else [
+            dict(answer) for answer in connection.execute(text(ANSWERS_SQL), {"run_id": str(detail["run_id"])}).mappings()]
+    return detail
+
+
+def _complete(answer: dict[str, Any]) -> bool:
+    # Same test as the customer's summary (free_check_projection._valid).
+    return answer.get("status") == "completed" and answer.get("response_complete") is True
+
+
+def answer_grid(questions: list[str], answers: list[dict[str, Any]], providers: list[str],
+                projection: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Each question with one entry per AI tool: the answer shown and how the customer's summary scored it.
+
+    A retried call can leave several saved rows for one question and tool; the latest completed one is
+    shown, otherwise the latest attempt with its error. The score is read from the saved summary's
+    cells, never recounted here, so this view always agrees with what the customer was shown.
+    """
+    cells = {(int(cell["order"]), str(cell["provider"])): str(cell["state"])
+             for cell in (projection or {}).get("cells") or []}
+    grid = []
+    for order, question in enumerate(questions, start=1):
+        rows = []
+        for provider in providers:
+            attempts = [a for a in answers if int(a.get("prompt_order") or 0) == order and a.get("provider") == provider]
+            completed = [a for a in attempts if _complete(a)]
+            chosen = (completed or attempts or [None])[-1]
+            rows.append({
+                "provider": provider,
+                "model": chosen.get("model") if chosen else None,
+                "result": CELL_LABELS.get(cells.get((order, provider)), "Not scored yet") if projection else "Not scored yet",
+                "answer": (chosen.get("raw_response") or "") if chosen and _complete(chosen) else "",
+                "problem": None if chosen and _complete(chosen) else (
+                    "Not asked yet" if chosen is None
+                    else str(chosen.get("error_message") or "Incomplete answer (not counted)")),
+                "attempts": len(attempts)})
+        grid.append({"order": order, "question": question, "providers": rows})
+    return grid
 
 
 def _day(moment: datetime) -> date:
@@ -81,9 +147,9 @@ def summarise(checks: list[dict[str, Any]], accounts: list[dict[str, Any]] | Non
 
     email = {str(account["id"]): account["email"] for account in accounts or []}
     owners_with_check = {str(check["owner_user_id"]) for check in checks if check["status"] != "failed"}
-    recent = [{"started": check["created_at"], "business": check["business_name"], "area": check["location"],
-               "email": email.get(str(check["owner_user_id"])), "status": check["status"],
-               "questions": check["question_count"],
+    recent = [{"id": str(check["id"]), "started": check["created_at"], "business": check["business_name"],
+               "area": check["location"], "email": email.get(str(check["owner_user_id"])), "status": check["status"],
+               "questions": " · ".join(check.get("questions") or []),
                "recommended": (f"{check['recommended_answers']} of {check['valid_answers']}"
                                if check["status"] in DELIVERED and check.get("valid_answers") is not None else None),
                "listing_confirmed": bool(check["listing_confirmed"]), "attempts": check.get("attempt_count"),
