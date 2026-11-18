@@ -11,7 +11,8 @@ import streamlit as st
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 
 from src.free_check_jobs import DAILY_NEW_CHECK_CAP
-from src.free_check_metrics import load_accounts, load_checks, summarise
+from src.free_check_metrics import (LONDON, PROVIDERS, answer_grid, load_accounts, load_check_detail, load_checks,
+                                    summarise)
 
 st.set_page_config(page_title="Free check metrics", page_icon="📊", layout="wide")
 st.title("Free check metrics")
@@ -48,6 +49,69 @@ def shown(value):
 
 def share(part, whole):
     return f"{part / whole:.0%} of {whole:,}" if whole else None
+
+
+@st.cache_data(ttl=60)
+def load_detail(check_id: str):
+    return load_check_detail(check_id)
+
+
+def show_check_detail(check_id: str) -> None:
+    """The customer's brief, their saved result summary and every AI answer. Read-only."""
+    try:
+        detail = load_detail(check_id)
+    except Exception as exc:
+        st.error(f"This check could not be loaded ({type(exc).__name__}).")
+        return
+    if detail is None:
+        st.warning("This check is no longer in the database.")
+        return
+    projection = detail.get("result_projection")
+    st.subheader(f"{detail['business_name']} — {detail['location']}")
+    st.caption(f"Submitted {detail['created_at'].astimezone(LONDON):%d %b %Y, %H:%M} · status: {detail['status']}"
+               + (f" · {detail['error_code']}" if detail.get("error_code") else ""))
+    left, right = st.columns(2)
+    with left:
+        st.markdown("**Priority service**")
+        st.write(detail["services"])
+        st.markdown("**Website**")
+        st.write(detail.get("website") or "Not given")
+    with right:
+        st.markdown("**Competitors they named**")
+        st.write(", ".join(detail.get("competitors") or []) or "None")
+        st.markdown("**Directory listing**")
+        st.write(f"Confirmed as theirs: {detail['claimed_listing_name'] or detail['claimed_google_place_id']}"
+                 if detail.get("claimed_google_place_id") else "Not confirmed; measured under the name they typed")
+
+    if projection:
+        target = projection.get("target") or {}
+        a, b, c = st.columns(3)
+        a.metric("Recommended in", f"{target.get('recommended_answers', 0)} of {projection.get('valid_answers', 0)}")
+        b.metric("Mentioned in", f"{target.get('mentioned_answers', 0)} of {projection.get('valid_answers', 0)}")
+        rank = projection.get("rank")
+        c.metric("Rank shown", f"{rank['position']} of {rank['of']}" if rank else "Not shown")
+        others = [other for other in projection.get("businesses") or [] if not other.get("is_target")]
+        if others:
+            with st.expander(f"Other businesses the AI tools named ({len(others)})"):
+                st.dataframe(pd.DataFrame(others)[["name", "answers", "identity"]], hide_index=True,
+                             width="stretch", column_config={"name": "Business", "answers": "Answers",
+                                                             "identity": "Matched to directory"})
+    else:
+        st.info("No results yet. The answers below fill in as the check runs.")
+
+    if not detail.get("run_id"):
+        st.caption("The worker has not started this check, so there are no AI answers yet.")
+    for item in answer_grid(list(detail["questions"]), detail["answers"], PROVIDERS, projection):
+        st.markdown(f"**Q{item['order']}. {item['question']}**")
+        tabs = st.tabs([f"{row['provider']}: {row['result']}" for row in item["providers"]])
+        for tab, row in zip(tabs, item["providers"]):
+            with tab:
+                if row["answer"]:
+                    st.caption(f"Model: {row['model'] or 'not recorded'}"
+                               + (f" · {row['attempts']} attempts" if row["attempts"] > 1 else ""))
+                    st.markdown(row["answer"])
+                else:
+                    st.caption(row["problem"])
 
 
 st.subheader("Sign-ups")
@@ -99,11 +163,19 @@ d.metric("Calls per check", "–" if not metrics["checks_with_usage"]
 
 st.subheader("Checks, newest first")
 if metrics["recent"]:
-    st.dataframe(pd.DataFrame(metrics["recent"]), hide_index=True, width="stretch", column_config={
+    recent = pd.DataFrame(metrics["recent"])
+    picked = st.dataframe(recent, hide_index=True, width="stretch", on_select="rerun",
+                          selection_mode="single-row", key="free_check_table", column_config={
+        "id": None,
         "started": st.column_config.DatetimeColumn("Started", format="D MMM YYYY, HH:mm"),
-        "business": "Business", "area": "Area", "email": "Email", "status": "Status", "questions": "Questions",
+        "business": "Business", "area": "Area", "email": "Email", "status": "Status",
+        "questions": st.column_config.TextColumn("Questions", width="large"),
         "recommended": "Recommended in", "listing_confirmed": "Listing confirmed", "attempts": "Attempts",
         "error": "Error"})
+    st.caption("Select a row to see that check's brief, questions and the AI answers.")
+    rows = picked.selection.rows if picked else []
+    if rows:
+        show_check_detail(str(recent.iloc[rows[0]]["id"]))
 else:
     st.info("No free checks have been started yet.")
 

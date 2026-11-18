@@ -97,3 +97,53 @@ def test_page_renders_with_data_without_data_and_without_account_access():
     blocked = run_page(CHECKS, {"side_effect": RuntimeError("permission denied")})
     assert not blocked.exception and len(blocked.warning) == 1
     assert {m.label: m.value for m in blocked.metric}["Emails captured"] == "–"
+
+
+QUESTIONS = ["Best private dining room in Hove?", "Where to book a birthday dinner in Hove?",
+             "Good restaurant for a work lunch near Hove station?"]
+
+
+def answer(order, provider, *, status="completed", complete=True, text="An answer", error=None, minute=0):
+    return {"prompt_order": order, "provider": provider, "model": f"{provider}-model", "status": status,
+            "response_complete": complete, "raw_response": text, "error_message": error,
+            "created_at": NOW + timedelta(minutes=minute)}
+
+
+def test_recent_checks_list_the_customer_questions():
+    out = metrics.summarise([{**CHECKS[0], "questions": QUESTIONS}, CHECKS[1]], ACCOUNTS, now=NOW)
+    assert out["recent"][0]["questions"] == " · ".join(QUESTIONS)
+    assert out["recent"][0]["id"] == "check-a-completed"
+    assert out["recent"][1]["questions"] == "", "a row without saved questions shows nothing, not a guess"
+
+
+def test_answer_grid_shows_each_answer_with_the_customers_own_score():
+    projection = {"cells": [{"order": 1, "provider": "OpenAI", "state": "recommended"},
+                            {"order": 1, "provider": "Claude", "state": "not_recommended"},
+                            {"order": 1, "provider": "Gemini", "state": "missing"}]}
+    answers = [answer(1, "OpenAI", text="Try Synthetic a"),
+               answer(1, "Claude", status="failed", complete=False, text=None, error="Timeout", minute=0),
+               answer(1, "Claude", text="Retried answer", minute=3),
+               answer(1, "Gemini", status="completed", complete=False, text="Cut off")]
+    grid = metrics.answer_grid(QUESTIONS, answers, list(metrics.PROVIDERS), projection)
+    assert [item["question"] for item in grid] == QUESTIONS
+    first = {row["provider"]: row for row in grid[0]["providers"]}
+    assert (first["OpenAI"]["result"], first["OpenAI"]["answer"]) == ("Recommended", "Try Synthetic a")
+    # A retry leaves two rows; the completed one is shown and both attempts are counted.
+    assert (first["Claude"]["answer"], first["Claude"]["attempts"]) == ("Retried answer", 2)
+    assert first["Claude"]["result"] == "Not recommended"
+    # An incomplete answer is never shown as if it were the answer the customer was scored on.
+    assert (first["Gemini"]["answer"], first["Gemini"]["result"]) == ("", "No answer")
+    assert first["Gemini"]["problem"] == "Incomplete answer (not counted)"
+    unasked = grid[2]["providers"][0]
+    assert (unasked["problem"], unasked["result"], unasked["attempts"]) == ("Not asked yet", "Not scored yet", 0)
+
+
+def test_answer_grid_before_results_are_saved():
+    grid = metrics.answer_grid(QUESTIONS, [answer(2, "Claude")], list(metrics.PROVIDERS), None)
+    row = grid[1]["providers"][1]
+    assert (row["answer"], row["result"]) == ("An answer", "Not scored yet")
+
+
+def test_provider_list_matches_the_worker():
+    from src.free_check_worker import PROVIDERS
+    assert list(metrics.PROVIDERS) == PROVIDERS
