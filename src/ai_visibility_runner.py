@@ -180,6 +180,7 @@ def _save_provider_outcome(
         dict[str, str]
     ],
     benchmark_mode: str = "search_grounded",
+    location_context: str = "",
 ) -> None:
     if error is not None:
         save_visibility_result(
@@ -235,6 +236,7 @@ def _save_provider_outcome(
             known_businesses=(
                 known_businesses
             ),
+            location_context=location_context,
         )
     )
     report_metadata = provider_report_metadata(
@@ -428,6 +430,7 @@ def execute_calls(
                         known_businesses
                     ),
                     benchmark_mode=benchmark_mode,
+                    location_context=location_context,
                 )
 
                 processed += 1

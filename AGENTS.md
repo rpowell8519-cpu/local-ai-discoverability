@@ -261,6 +261,25 @@ and Natural Angle (31 answers, the most recommended business) was missing. Four 
 Still open: an automatic fuzzy match (score at least 0.90) is credited without a person seeing it; only names the
 matcher could not place go to step 5.
 
+**Scan-time tags follow the same idea (18 November 2026).** `ai_visibility_analysis.analyse_visibility_response`
+(the `mentioned_*`/`target_*` columns saved with each answer, and the AI Visibility page's re-analysis) matched every
+known business's name anywhere in the text, against all ~10,000 listings. WRAP's November test credited a hotel
+called "Brighton" with 27 of 27 answers, and "Here", "The Space", "Sussex", "Village", "POD" (from "glass pod") and
+"STRONG Brighton" (from "a strong Brighton feel") with most others. `find_valid_name_position` now requires:
+- a name of two or more words (besides "the") to be written with capitals, as a name;
+- a one-word name to be presented as a name in the answer (a list item, bold text or a heading, also after the
+  test's place words are dropped from its end: "Honeycroft Hove"), or spelt unlike an ordinary word as the listing
+  writes it ("WRAP", "POD" exactly; a name with a digit, "PLATF9RM", in any case). A one-word name that is one of the
+  run's own place words never counts from text alone. A one-word name inside a longer one ("Hove Village Day
+  Nursery") does not count for "Village"; this also drops some genuine one-word chains written with a branch
+  ("Funplex Bevendean"), which the report side's reviewer step handles;
+- "The X" gets the alias "X" only when "X" still has two words.
+The target keeps plain matching for a one-word listing name (with a capital). Its short forms ("WRAP" for "WRAP-
+Coworking, Meeting Rooms & Offices") are still **not** added here: whether an answer name is the client is the
+reviewer's decision in step 5, so WRAP Coworking's saved `target_mentioned` stays false and the Final Beta and
+client accounts count it from confirmed names. Saved tags change only for new answers; the AI Visibility page
+re-analyses on display. On 351 saved answers from seven businesses no target flag changed and no tag was gained.
+
 ### Chains: one business with several listings (added 10 November 2026)
 
 Most answers name a chain without a branch ("Topps Tiles", "Mastertiles"), and some businesses have two listings
