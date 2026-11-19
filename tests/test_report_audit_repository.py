@@ -404,3 +404,34 @@ def test_naming_a_competitor_before_any_brief_exists_is_refused():
         assert "Submit the report owner brief" in str(exc)
     else:
         raise AssertionError("A competitor was accepted with no brief to attach it to")
+
+
+def test_question_details_are_kept_only_for_questions_in_the_brief():
+    import json
+
+    engine = Engine()
+
+    result = save_owner_brief_revision(
+        target_google_place_id="place-1",
+        target_business_name="Example Business",
+        known_for="Excellent commercial cleaning in Brighton",
+        desired_searches="Who offers commercial cleaning in Brighton?\nOffice cleaners in Hove?",
+        question_details=[
+            {"question": "Who offers  commercial cleaning in Brighton?", "label": "Commercial", "report_intent": "comparison",
+             "report_importance": "5", "report_effort": "Not rated"},
+            {"question": "A question that is not in this brief", "label": "Old"},
+        ],
+        engine=engine,
+    )
+
+    details = json.loads(result["owner_context"])["question_details"]
+    assert details == [{"question": "Who offers commercial cleaning in Brighton?", "label": "Commercial",
+                        "report_intent": "comparison", "report_importance": "5", "report_effort": "Not rated"}]
+    plain = save_owner_brief_revision(
+        target_google_place_id="place-1",
+        target_business_name="Example Business",
+        known_for="Excellent commercial cleaning in Brighton",
+        desired_searches="Who offers commercial cleaning in Brighton?",
+        engine=Engine(),
+    )
+    assert "question_details" not in json.loads(plain["owner_context"])

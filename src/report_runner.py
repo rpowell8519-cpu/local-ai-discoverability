@@ -170,7 +170,17 @@ class Brief:
             "exclusions": "\n".join(self.exclusions),
             "additional_context": self.additional_context,
             "manual_website_url": self.website,
+            "question_details": self.question_details(),
         }
+
+    def question_details(self) -> list[dict[str, Any]]:
+        """Each question's label, search intent, importance and effort, saved with the brief."""
+
+        return [
+            {"question": q["question"], "label": q["intent"], "report_intent": q["report_intent"],
+             "report_importance": q["report_importance"], "report_effort": q["report_effort"]}
+            for q in self.questions
+        ]
 
 
 class BriefError(ValueError):
@@ -279,6 +289,49 @@ def load_brief(path: str | Path) -> Brief:
     return parse_brief(data)
 
 
+def saved_question_rows(saved: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """The saved brief's questions as question rows, with any label, intent and importance saved beside them.
+
+    A question saved without details (as the page saves a brief) gets the page's defaults.
+    """
+
+    details = {
+        " ".join(str(d.get("question") or "").split()).casefold(): d
+        for d in list(dict(saved.get("owner_context") or {}).get("question_details") or [])
+    }
+    rows = []
+    for question in list(saved.get("desired_searches") or []):
+        detail = details.get(" ".join(str(question).split()).casefold(), {})
+        rows.append({
+            "question": question,
+            "intent": str(detail.get("label") or "Owner priority"),
+            "report_intent": str(detail.get("report_intent") or "discovery"),
+            "report_importance": detail.get("report_importance"),
+            "report_effort": detail.get("report_effort"),
+        })
+    return rows
+
+
+def describe_question(record: Mapping[str, Any]) -> str:
+    """One question as the brief check and the plan show it: wording, then label, intent and ratings."""
+
+    parts = [str(record.get("category") or record.get("intent") or "Owner priority"),
+             str(record.get("report_intent") or "discovery")]
+    for name in ("importance", "effort"):
+        value = record.get(f"report_{name}")
+        if value not in (None, "", "Not rated"):
+            parts.append(f"{name} {value}")
+    prompt = record.get("prompt") or record.get("question")
+    return f"{prompt}  [{' · '.join(parts)}]"
+
+
+def _detail_key(question: Any, label: Any, intent: Any, importance: Any, effort: Any) -> tuple[str, ...]:
+    """A question's details for comparison, with a missing rating read as "Not rated"."""
+
+    return (" ".join(str(question).split()).casefold(), str(label or "Owner priority"), str(intent or "discovery"),
+            str(importance or "Not rated"), str(effort or "Not rated"))
+
+
 def brief_changes(brief: Brief, saved: Mapping[str, Any] | None) -> list[str]:
     """What saving this brief would change compared with the saved revision, in plain words."""
 
@@ -296,6 +349,11 @@ def brief_changes(brief: Brief, saved: Mapping[str, Any] | None) -> list[str]:
         ("not to promote", brief.exclusions, list(context.get("exclusions") or [])),
         ("other context", brief.additional_context, str(context.get("additional_context") or "")),
         ("website", brief.website, str(saved.get("manual_website_url") or "")),
+        ("question labels, intents or ratings",
+         [_detail_key(q["question"], q["intent"], q["report_intent"], q["report_importance"], q["report_effort"])
+          for q in brief.questions],
+         [_detail_key(r["question"], r["intent"], r["report_intent"], r["report_importance"], r["report_effort"])
+          for r in saved_question_rows(saved)]),
     )
     for label, new, old in comparisons:
         if new != old:
@@ -518,7 +576,7 @@ def plan_run(
     if baseline is not None:
         rows = baseline.rows
     elif rows is None:
-        rows = [{"question": q} for q in list(saved.get("desired_searches") or [])]
+        rows = saved_question_rows(saved)
     prompts = prompt_records(rows)
     if not prompts:
         raise PlanError("No questions to run")
@@ -565,8 +623,8 @@ def describe_plan(plan: RunPlan) -> str:
         *([f"Re-test of: {', '.join(r[:8] for r in plan.baseline_run_ids)} (same questions, location and repeats)"]
           if plan.baseline_run_ids else []),
         f"Customer location given to the AI tools: {plan.location}",
-        f"Questions ({len(plan.prompts)}):",
-        *[f"  {i}. {q}" for i, q in enumerate(plan.questions, start=1)],
+        f"Questions ({len(plan.prompts)}), each with its label and search intent:",
+        *[f"  {i}. {describe_question(p)}" for i, p in enumerate(plan.prompts, start=1)],
         f"Each question {plan.repeats} times on {', '.join(f'{p} ({m})' for p, m in plan.models)}",
         f"Paid API calls: {plan.call_count}. Live web search is on, so search-tool charges may also apply.",
     ]

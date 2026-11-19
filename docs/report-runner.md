@@ -37,6 +37,15 @@ TOML, one file per business. See `docs/examples/report-brief.example.toml` (a fi
 The business must already be in the database with a confirmed Google listing. `find` looks it up;
 a business that is not there is imported in Data Admin first, as before.
 
+Write service areas the same way as earlier tests of that area, because the wording is given to the AI
+tools as the customer's location and a different wording is a different test (Brighton and Hove tests
+have used "Brighton and Hove").
+
+Each question's label, search intent, importance and effort are saved with the brief, in
+`owner_context["question_details"]` (no schema change), and used in the paid test. The brief check and the
+plan show them. A brief saved from the page has none, and its questions get the page's defaults; the page's
+question table does not read them yet.
+
 ## Commands
 
 ```
@@ -80,7 +89,8 @@ question, which may be a later internal check. The plan and the run's outcome bo
   and can be restored from step 1 of the page), so it also needs `--replace-current`.
 - **Gate 2, the spend.** `plan` prints the questions, location, tools, models, number of paid calls
   and an approval code. The code is a fingerprint of all of those plus the saved brief revision, so
-  `run` refuses a code from a different plan. A completed test already attached to the brief is not
+  `run` refuses a code from a different plan. A code works once: saving a brief or attaching a test
+  creates a new revision, so the next run needs a fresh `plan` (as the 19 November end-to-end test showed). A completed test already attached to the brief is not
   paid for again without `--again`. `run` also refuses if `anthropic_provider.REQUIRED_SEARCH_VERSION`
   is not the version this module expects (`EXPECTED_SEARCH_VERSION`), the same guard as the pages.
 - **No cost in pounds yet.** Nothing records the cost per call today, so the plan shows the number of

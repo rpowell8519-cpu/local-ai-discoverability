@@ -8,7 +8,9 @@ known_for = "Calm, unhurried private dentistry for nervous patients in Hove"
 priority_services = ["Nervous patients", "Dental implants", "Clear aligners"]
 
 # Where customers search from. Given to every AI tool as the customer's location; there is no default.
-service_areas = ["Hove, East Sussex, UK"]
+# Write it the same way as earlier tests of the area, so results stay comparable (Brighton and Hove tests
+# have used "Brighton and Hove").
+service_areas = ["Hove"]
 
 owner_competitors = ["Example Smile Clinic", "Seafront Dental"]
 ideal_customers = "Adults who have put off the dentist and want a gentle first visit"
@@ -20,7 +22,8 @@ google_place_id = "ChIJ_EXAMPLE_ONLY_not_a_real_place"
 name = "Example Dental Studio"
 website = "https://www.example.co.uk"
 
-# One table per question, worded as a customer would ask. Optional per question:
+# One table per question, worded as a customer would ask. The label, intent and ratings are saved with the
+# brief and used in the paid test; the brief check and the plan show them. Optional per question:
 #   label         the intent shown in the page's question table (default "Owner priority")
 #   search_intent discovery | comparison | transactional | branded (default discovery)
 #   importance    1 to 5 (default not rated)

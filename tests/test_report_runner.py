@@ -116,7 +116,7 @@ class BriefTests(unittest.TestCase):
         self.assertEqual(brief.questions[1]["report_intent"], "comparison")
         self.assertEqual(brief.questions[2]["report_importance"], "4")
         args = brief.save_arguments()
-        self.assertEqual(args["service_areas"], "Hove, East Sussex, UK")
+        self.assertEqual(args["service_areas"], "Hove")
         self.assertEqual(args["desired_searches"].count("\n"), 2)
 
     def _brief(self, **overrides):
@@ -159,6 +159,52 @@ class BriefTests(unittest.TestCase):
         self.assertNotIn("review complete", risks[1])
         busy["reviewer_decisions_complete"] = True
         self.assertIn("review complete", runner.current_work_at_risk(busy)[1])
+
+
+class QuestionDetailsTests(unittest.TestCase):
+    """A question's label, intent and ratings travel from the brief file to the paid test, and are shown."""
+
+    def setUp(self):
+        self.brief = runner.load_brief(EXAMPLE)
+
+    def test_details_are_saved_read_back_and_shown(self):
+        details = self.brief.save_arguments()["question_details"]
+        self.assertEqual(details[1], {"question": self.brief.questions[1]["question"], "label": "Owner priority",
+                                      "report_intent": "comparison", "report_importance": "Not rated",
+                                      "report_effort": "Not rated"})
+        saved = saved_revision(desired_searches=[q["question"] for q in self.brief.questions],
+                               owner_context={"service_areas": ["Hove"], "question_details": details})
+        plan = runner.plan_run(saved=saved, business=BUSINESS, settings=KEYS, repeats=1)
+        self.assertEqual([p["report_intent"] for p in plan.prompts], ["discovery", "comparison", "transactional"])
+        self.assertEqual(plan.prompts[2]["report_importance"], "4")
+        text = runner.describe_plan(plan)
+        self.assertIn("[Owner priority · transactional · importance 4]", text)
+        # The details are part of what is approved.
+        plain = runner.plan_run(saved={**saved, "owner_context": {"service_areas": ["Hove"]}}, business=BUSINESS,
+                                settings=KEYS, repeats=1)
+        self.assertNotEqual(plain.approval_code, plan.approval_code)
+
+    def test_a_brief_saved_without_details_gets_the_page_defaults(self):
+        rows = runner.saved_question_rows(saved_revision())
+        self.assertEqual({(r["intent"], r["report_intent"]) for r in rows}, {("Owner priority", "discovery")})
+
+    def test_changed_details_are_reported_and_missing_ones_read_as_defaults(self):
+        questions = [q["question"] for q in self.brief.questions]
+        base = saved_revision(known_for=self.brief.known_for, desired_searches=questions,
+                              owner_competitors=self.brief.owner_competitors, manual_website_url=self.brief.website,
+                              owner_context={"priority_services": self.brief.priority_services,
+                                             "service_areas": self.brief.service_areas,
+                                             "ideal_customers": self.brief.ideal_customers,
+                                             "exclusions": self.brief.exclusions,
+                                             "additional_context": self.brief.additional_context})
+        self.assertEqual(runner.brief_changes(self.brief, base), ["question labels, intents or ratings"])
+        base["owner_context"]["question_details"] = self.brief.question_details()
+        self.assertEqual(runner.brief_changes(self.brief, base), [])
+        plain = runner.parse_brief({"known_for": "Calm private dentistry in Hove",
+                                    "business": {"google_place_id": "P1", "name": "X"}, "questions": ["Dentist in Hove?"]})
+        self.assertNotIn("question labels, intents or ratings", runner.brief_changes(
+            plain, saved_revision(known_for="Calm private dentistry in Hove", desired_searches=["Dentist in Hove?"],
+                                  owner_context={}, manual_website_url=None)))
 
 
 class SettingsTests(unittest.TestCase):

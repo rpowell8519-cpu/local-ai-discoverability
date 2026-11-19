@@ -70,9 +70,9 @@ def cmd_brief(args: argparse.Namespace) -> int:
     print(f"Business: {business.get('business_name')} ({brief.google_place_id})")
     if str(business.get("business_name") or "").casefold() != brief.business_name.casefold():
         print(f"Note: the brief calls it “{brief.business_name}”; the listing name is kept for the report.")
-    print(f"Questions ({len(brief.questions)}):")
+    print(f"Questions ({len(brief.questions)}), each with its label and search intent:")
     for i, q in enumerate(brief.questions, start=1):
-        print(f"  {i}. {q['question']}")
+        print(f"  {i}. {runner.describe_question(q)}")
     changes = runner.brief_changes(brief, saved)
     if not changes:
         print("The saved brief already matches this file. Nothing to save.")

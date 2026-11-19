@@ -155,7 +155,9 @@ test; it refuses when `REQUIRED_SEARCH_VERSION` differs from its `EXPECTED_SEARC
 with the page guards. `--like <test-id>` makes a re-test: the baseline tests' exact questions, location and repeats
 (`Baseline`, `baseline_from_runs`), with what is no longer like-for-like listed before approval (models,
 repeats, place-less questions before the Claude location fix). In Final Beta the baselines are chosen under
-"Earlier tests to compare with"; the runner's plan and outcome name them. Its writes carry `created_by = "report_runner"`. Steps 4 to 6 stay in the page
+"Earlier tests to compare with"; the runner's plan and outcome name them. Each question's label, intent and ratings are saved in
+`owner_context["question_details"]` and used in the run; an approval code works once, because saving or
+attaching makes a new revision. Its writes carry `created_by = "report_runner"`. Steps 4 to 6 stay in the page
 until step 5's checks live in `src/`. Brief files hold client details and stay outside this repo.
 
 ### Question limit per test (changed 11 October 2026)

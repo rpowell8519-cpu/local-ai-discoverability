@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from typing import Any, Mapping
+from typing import Any, Iterable, Mapping
 from urllib.parse import urlparse
 
 from sqlalchemy import text
@@ -200,10 +200,16 @@ def save_owner_brief_revision(
     additional_context: str = "",
     manual_website_url: str = "",
     workflow_origin: str = "",
+    question_details: Iterable[Mapping[str, Any]] = (),
     created_by: str = "streamlit_report_generator",
     engine: Engine | None = None,
 ) -> dict[str, Any]:
-    """Append an immutable brief revision and invalidate dependent review facts."""
+    """Append an immutable brief revision and invalidate dependent review facts.
+
+    `question_details` (the report runner's brief file) keeps each question's label, search intent, importance and
+    effort in `owner_context["question_details"]`, for questions in this brief only. A brief saved without them, as
+    the page saves it, has none: earlier details never carry over to different questions.
+    """
 
     brief = normalise_owner_brief(
         known_for=known_for,
@@ -231,6 +237,20 @@ def save_owner_brief_revision(
     }
     if str(workflow_origin or "").strip():
         owner_context["workflow_origin"] = str(workflow_origin).strip()
+    asked = {question.casefold() for question in brief["desired_searches"]}
+    details = []
+    for item in question_details or ():
+        question = " ".join(str(item.get("question") or "").split())
+        if question.casefold() in asked:
+            details.append({
+                "question": question,
+                "label": str(item.get("label") or "Owner priority"),
+                "report_intent": str(item.get("report_intent") or "discovery"),
+                "report_importance": item.get("report_importance"),
+                "report_effort": item.get("report_effort"),
+            })
+    if details:
+        owner_context["question_details"] = details
 
     database = engine or get_engine()
     with database.begin() as connection:

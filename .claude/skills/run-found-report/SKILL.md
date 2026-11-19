@@ -28,16 +28,19 @@ report generator. Rob makes every brief, identity, evidence and spend decision; 
    If several listings match, ask Rob which one, naming each by address.
 2. **Draft the brief** as `~/found-briefs/<business-slug>.toml`, following
    `docs/examples/report-brief.example.toml`: what it should be known for, priority services, service
-   areas (always a full place, e.g. "Hove, East Sussex, UK"), the owner's competitors, exclusions, and
-   at most 20 questions worded as a customer would ask.
+   areas (written the same way as earlier tests of that area, so results stay comparable: Brighton and Hove
+   tests have used "Brighton and Hove"; check with `status` or ask Rob when unsure), the owner's competitors,
+   exclusions, and at most 20 questions worded as a customer would ask, each with its label and search intent.
 3. **Check it.** `python -m src.run_report brief <file>` (read-only). Fix anything it reports.
 4. **Gate 1: the brief.** Show Rob, in plain words, the questions, areas and competitors, what would
    change, and anything that would stop being current. Ask: "Save this brief?" Only on a yes, run
    `brief <file> --save` (add `--replace-current` only if Rob agreed to what it replaces).
 5. **Show the plan.** `python -m src.run_report plan <place-id>` (read-only).
-6. **Gate 2: the spend.** Show Rob the number of paid calls, the tools and the location, and say
-   that search-tool charges may also apply. Ask him to approve this plan. Only on a yes, run
-   `python -m src.run_report run <place-id> --approve <CODE>` with the code `plan` printed.
+6. **Gate 2: the spend.** Show Rob the number of paid calls, the tools, the location and each question's
+   label and search intent, and say that search-tool charges may also apply. Ask him to approve this plan.
+   Only on a yes, run `python -m src.run_report run <place-id> --approve <CODE>` with the code `plan` printed.
+   A code works once: saving a brief or attaching a test makes a new revision, so the next run needs a fresh
+   `plan` and a fresh approval. A refused code is never worked around.
 7. **Report the outcome** in one or two lines. If the test finished partial or failed, say so and point
    to Resume/retry on the AI Visibility page. Do not start another paid run without a new gate 2.
 **Re-tests.** For a re-test of earlier tests, skip steps 2 to 4 unless the brief itself must change, and
