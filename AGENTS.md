@@ -134,6 +134,21 @@ Migrations (do not reapply; their DRAFT headers are historical): `20261003120000
 in effect (the questions constraint allows 3 or 5) but is not in the migration history; checked read-only
 on 30 October 2026.
 
+### Report runner (command line; added 19 November 2026)
+
+`python -m src.run_report` does the report generator's steps 1 to 3 without the screens: check and save
+the owner brief from a TOML file, show the paid test with an approval code, run it and attach it
+(`src/report_runner.py`, `src/run_report.py`, `docs/report-runner.md`; the Claude Code skill is
+`.claude/skills/run-found-report/SKILL.md`). It shares the page's functions rather than copying them:
+`prompt_records`, `build_call_plan`, `DEFAULT_MODELS` and `MAX_RUN_QUESTIONS` now live in
+`src/report_runner.py`, and the business list query in `src/report_business_records.py`; the page
+imports them. Gates are enforced in code: a brief only replaces an attached test or saved review
+decisions with `--replace-current`; `run` needs the approval code that `plan` printed (a fingerprint of
+revision, questions, repeats, tools, models and location) and `--again` to pay for a second completed
+test; it refuses when `REQUIRED_SEARCH_VERSION` differs from its `EXPECTED_SEARCH_VERSION`, so bump both
+with the page guards. Its writes carry `created_by = "report_runner"`. Steps 4 to 6 stay in the page
+until step 5's checks live in `src/`. Brief files hold client details and stay outside this repo.
+
 ### Question limit per test (changed 11 October 2026)
 
 One AI Visibility run from the report generator may hold up to 20 questions (`MAX_RUN_QUESTIONS` in
@@ -961,7 +976,7 @@ asked place-less questions ("Recommend a place to buy marble tiles") and Claude 
 34 of 36 answers. Every earlier business named its town in the questions, which hid the gap. Claude results from runs
 before this fix whose questions name no place should not be used in a UK report. Any change to how location is
 passed must bump `REQUIRED_SEARCH_VERSION` in `anthropic_provider.py` and the matching guards in the three paid-run
-pages, so a running app reloads the provider instead of keeping the old one.
+pages (and `EXPECTED_SEARCH_VERSION` in `src/report_runner.py`), so a running app reloads the provider instead of keeping the old one.
 
 ## Recommendation logic
 

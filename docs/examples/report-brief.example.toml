@@ -1,0 +1,38 @@
+# Example report brief for the report runner (docs/report-runner.md).
+# Fictional business. Real briefs hold client details: keep them OUTSIDE this public repository,
+# for example in ~/found-briefs/<business>.toml.
+
+known_for = "Calm, unhurried private dentistry for nervous patients in Hove"
+
+# The owner's priority services, as they would say them. Questions are linked to these in step 5.
+priority_services = ["Nervous patients", "Dental implants", "Clear aligners"]
+
+# Where customers search from. Given to every AI tool as the customer's location; there is no default.
+service_areas = ["Hove, East Sussex, UK"]
+
+owner_competitors = ["Example Smile Clinic", "Seafront Dental"]
+ideal_customers = "Adults who have put off the dentist and want a gentle first visit"
+exclusions = ["NHS treatment"]
+additional_context = "Saturday appointments started in October."
+
+[business]
+google_place_id = "ChIJ_EXAMPLE_ONLY_not_a_real_place"
+name = "Example Dental Studio"
+website = "https://www.example.co.uk"
+
+# One table per question, worded as a customer would ask. Optional per question:
+#   label         the intent shown in the page's question table (default "Owner priority")
+#   search_intent discovery | comparison | transactional | branded (default discovery)
+#   importance    1 to 5 (default not rated)
+#   effort        1 to 5 (default not rated)
+[[questions]]
+question = "Can you recommend a dentist in Hove who is good with nervous patients?"
+
+[[questions]]
+question = "Which dental practices in Hove should I compare for dental implants?"
+search_intent = "comparison"
+
+[[questions]]
+question = "Where can I get a consultation for clear aligners in Hove?"
+search_intent = "transactional"
+importance = "4"

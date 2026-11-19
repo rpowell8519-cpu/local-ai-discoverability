@@ -121,6 +121,8 @@ from src.poc_audit_generic import (  # noqa: E402
 )
 from src.report_audit_candidates import load_report_candidates  # noqa: E402
 from src.business_lookup import near_misses, search_businesses  # noqa: E402
+from src.report_business_records import load_business_records  # noqa: E402
+from src.report_runner import DEFAULT_MODELS, MAX_RUN_QUESTIONS, build_call_plan, prompt_records  # noqa: E402
 from src.business_matching import (  # noqa: E402
     TARGET_KEY,
     UndecidedNamesError,
@@ -238,7 +240,7 @@ REPORT_TYPES = (
     ),
 )
 # One paid test may hold this many questions. Only the questions the operator ticks are run; nothing fills the list up to it.
-MAX_RUN_QUESTIONS = 20
+# MAX_RUN_QUESTIONS (20) is shared with the report runner: src/report_runner.py.
 SUMMARY_LAYOUT_QUESTIONS = 8
 # A report reads the whole website rather than a sample: a 20-page limit once missed a client's
 # membership page and reported it as absent. The ceiling only stops a very large site (hundreds of
@@ -247,11 +249,7 @@ REPORT_WEBSITE_PAGE_LIMIT = 200
 AI_VISIBILITY_HANDOFF_KEY = "ai_visibility_report_handoff_target"
 AI_VISIBILITY_FORCE_PROMPTS_KEY = "ai_visibility_force_owner_prompts"
 BRIEFS_STATE_KEY = "accessible_ai_report_owner_briefs"
-DEFAULT_MODELS = {
-    "OpenAI": "gpt-5.6-terra",
-    "Claude": "claude-sonnet-5",
-    "Gemini": "gemini-3.6-flash",
-}
+# DEFAULT_MODELS is shared with the report runner: src/report_runner.py.
 
 
 def secret_value(key: str, default: str = "") -> str:
@@ -266,41 +264,7 @@ def secret_value(key: str, default: str = "") -> str:
 def load_businesses() -> pd.DataFrame:
     """Load the current canonical business layer for report selection."""
 
-    query = text(
-        """
-        select
-            google_place_id,
-            business_name,
-            raw_category,
-            raw_type,
-            primary_group,
-            business_format,
-            rol.raw_data->>'city' as city,
-            coalesce(rol.raw_data->>'address', rol.raw_data->>'full_address') as address,
-            coalesce(rol.raw_data->>'latitude', rol.raw_data->>'lat') as latitude,
-            coalesce(rol.raw_data->>'longitude', rol.raw_data->>'lng') as longitude,
-            coalesce(
-                nullif(rol.raw_data->>'website', ''),
-                nullif(rol.raw_data->>'site', '')
-            ) as source_website_url,
-            nullif(rol.raw_data->>'rating', '') as google_rating,
-            nullif(rol.raw_data->>'reviews', '') as google_reviews
-        from business_features bf
-        left join lateral (
-            select raw_data
-            from raw_outscraper_locations
-            where google_place_id = bf.google_place_id
-            order by created_at desc, id desc
-            limit 1
-        ) rol on true
-        where
-            google_place_id is not null
-            and business_name is not null
-        order by lower(business_name), google_place_id
-        """
-    )
-    with get_engine().connect() as connection:
-        return pd.DataFrame(connection.execute(query).mappings().all())
+    return pd.DataFrame(load_business_records())
 
 
 @st.cache_data(ttl=60)
@@ -1195,17 +1159,8 @@ if next_step["key"] == "benchmark":
         ),
     )
     if run_ai_visibility:
-        prompt_records = [
-            {
-                "category": str(row.get("intent") or "Owner priority"),
-                "source": "owner_brief",
-                "prompt": str(row["question"]).strip(),
-                "report_intent": str(row.get("report_intent") or "discovery"),
-                "report_importance": row.get("report_importance"),
-                "report_effort": row.get("report_effort"),
-            }
-            for row in selected_questions.to_dict("records")
-        ]
+        # Shared with the report runner, so both send the same prompt records.
+        run_prompts = prompt_records(selected_questions.to_dict("records"))
         models = {
             "OpenAI": secret_value("OPENAI_MODEL", DEFAULT_MODELS["OpenAI"]),
             "Claude": secret_value("ANTHROPIC_MODEL", DEFAULT_MODELS["Claude"]),
@@ -1222,7 +1177,7 @@ if next_step["key"] == "benchmark":
 
         try:
             run_id = create_visibility_run(
-                prompts=prompt_records,
+                prompts=run_prompts,
                 target_propositions=list(dict(saved_brief.get("owner_context") or {}).get("priority_services") or []),
                 target_google_place_id=selected_place_id,
                 target_business_name=str(business["business_name"]),
@@ -1230,19 +1185,15 @@ if next_step["key"] == "benchmark":
                 location_context=run_location,
                 providers=available_providers,
                 models=models,
-                prompt_count=len(prompt_records),
+                prompt_count=len(run_prompts),
                 repeat_count=int(repetitions),
             )
             query_records = create_visibility_queries(
                 run_id=run_id,
-                prompts=prompt_records,
+                prompts=run_prompts,
                 repetitions=int(repetitions),
             )
-            call_plan = [
-                {**query_record, "provider": provider}
-                for query_record in query_records
-                for provider in available_providers
-            ]
+            call_plan = build_call_plan(query_records, available_providers)
             execute_calls(
                 run_id=run_id,
                 call_plan=call_plan,

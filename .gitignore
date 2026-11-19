@@ -28,3 +28,7 @@ tmp/
 analysis/website_agency_prospects/
 brighton_website_agency_*.csv
 brighton_website_agency_*.xlsx
+
+# Report runner briefs hold client details: keep them outside this public repository (docs/report-runner.md)
+briefs/
+*.brief.toml
