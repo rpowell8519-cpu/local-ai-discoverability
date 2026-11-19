@@ -172,7 +172,8 @@ def validate_report(payload):
                 fail('Review theme references an unknown question.')
             if theme.get('answers') != sum(q['complete'] for q in mapped) or theme.get('appearances') != sum(q['appearances'] for q in mapped):
                 fail('Review visibility link disagrees with measured questions.')
-    for field, limit in (('named_ids', MAX_NAMED), ('visible_ids', MAX_VISIBLE), ('unverified_ids', MAX_NAMED)):
+    for field, limit in (('named_ids', MAX_NAMED), ('visible_ids', MAX_VISIBLE), ('unverified_ids', MAX_NAMED),
+                         ('unmatched_ids', MAX_VISIBLE)):
         ids = d.get(field)
         if ids is None:
             continue
@@ -186,6 +187,8 @@ def validate_report(payload):
             fail("evidence_layers: expected a list drawn from 'websites' and 'customer reviews'.")
     if any(i not in (d.get('named_ids') or []) for i in d.get('unverified_ids') or []):
         fail('unverified_ids must be a subset of named_ids.')
+    if any(i not in (d.get('visible_ids') or []) for i in d.get('unmatched_ids') or []):
+        fail('unmatched_ids must be a subset of visible_ids.')
     evidence = indexed(collection(d.get('evidence', []), 'evidence', 0, 3), 'evidence')
     for e in evidence.values():
         text(e.get('observation'), 'evidence.observation', 220)

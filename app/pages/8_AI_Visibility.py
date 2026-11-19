@@ -1470,6 +1470,7 @@ results = reanalyse_results(
     known_businesses=(
         known_businesses
     ),
+    location_context=(latest_run or {}).get("location_context"),
 )
 
 summary = visibility_summary(

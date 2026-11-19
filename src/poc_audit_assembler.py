@@ -12,8 +12,11 @@ from src.ai_recommendation_intelligence import (
     build_business_share_table,
     build_recommendation_records,
     normalise_name,
+    without_rejected_links,
 )
+from src.chains import apply_chains
 from src.database import get_engine
+from src.owner_services_report import place_words
 from src.poc_audit_payload import (
     build_baseline_validation,
     build_poc_audit_payload,
@@ -105,6 +108,8 @@ def _recommendation_evidence(
         commercial_competitor_ids=set(),
         primary_group=config["primary_group"],
     )
+    # A name a reviewer rejected for a business is never credited to it by the automatic matcher.
+    records = without_rejected_links(records, config.get("rejected_links"))
     adjudications = config.get("slot_adjudications", {})
     slots: list[dict[str, Any]] = []
     business_rows: list[dict[str, Any]] = []
@@ -128,6 +133,14 @@ def _recommendation_evidence(
         slots.append(item)
         if not non_business:
             business_rows.append(item)
+    chains = list(config.get("chains") or [])
+    if chains:
+        # A chain counts once per answer under its evidence listing (src/chains.py); applied after the reviewer's
+        # confirmations, so a name confirmed for a branch also counts for its chain.
+        places = place_words(config.get("location"))
+        slots = apply_chains(pd.DataFrame(slots), chains, places).to_dict("records")
+        slots = [{k: (None if isinstance(v, float) and pd.isna(v) else v) for k, v in item.items()} for item in slots]
+        business_rows = [item for item in slots if item["slot_disposition"] == "business"]
     market = build_business_share_table(pd.DataFrame(business_rows)).to_dict("records")
     target_id = str(config["target_google_place_id"])
     if not any(str(item.get("google_place_id")) == target_id for item in market):

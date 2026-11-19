@@ -550,6 +550,12 @@ def _render(payload, level):
     else:
         gap_sentence = f' {safe(name)} had the most appearances of the businesses shown.'
     page.para((overlap + difference + gap_sentence).strip())
+    unmatched = [b for b in visible if b['id'] in set(d.get('unmatched_ids') or [])]
+    if unmatched:
+        page.para(safe(join_names(b['name'] for b in unmatched)) + (' is' if len(unmatched) == 1 else ' are')
+                  + ' shown as the AI answers wrote ' + ('it' if len(unmatched) == 1 else 'them')
+                  + ': we could not match ' + ('it' if len(unmatched) == 1 else 'them')
+                  + ' to a single Google listing. Small variations of a name are counted together.', 'small')
     page.para('An answer can include several businesses. These figures describe the selected test, not local market share, '
               'business quality or actual booking performance. This report does not show that any page, review or listing '
               'caused another business\'s higher visibility.', 'small')

@@ -327,6 +327,24 @@ def confirmed_by_place_from_decisions(decisions: Mapping[str, Any], target_id: s
     return grouped
 
 
+def rejected_links_from_decisions(decisions: Mapping[str, Any], target_id: str) -> dict[str, list[str]]:
+    """Raw AI names a reviewer said are NOT a given database business: {raw name: [place IDs]}.
+
+    The automatic name matcher does not know about these, so without them a rejected name was still credited to
+    the business it was rejected for (Authentic Stone, November 2026: "Topps Tiles" to a hotel called "Topps").
+    """
+
+    rejected: dict[str, list[str]] = {}
+    for name in decisions.get("rejected_target_names") or []:
+        rejected.setdefault(str(name), []).append(str(target_id))
+    for key, saved in dict(decisions.get("name_links") or {}).items():
+        if str(key).startswith(OWNER_KEY_PREFIX):
+            continue
+        for name in dict(saved).get("rejected") or []:
+            rejected.setdefault(str(name), []).append(str(key))
+    return rejected
+
+
 def disclosure_lines(subjects: Iterable[Subject], decisions: Mapping[str, Any]) -> list[str]:
     """One plain sentence per business that had AI answer names matched to it by the reviewer."""
 
