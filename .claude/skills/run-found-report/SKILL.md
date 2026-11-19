@@ -40,6 +40,11 @@ report generator. Rob makes every brief, identity, evidence and spend decision; 
    `python -m src.run_report run <place-id> --approve <CODE>` with the code `plan` printed.
 7. **Report the outcome** in one or two lines. If the test finished partial or failed, say so and point
    to Resume/retry on the AI Visibility page. Do not start another paid run without a new gate 2.
+**Re-tests.** For a re-test of earlier tests, skip steps 2 to 4 unless the brief itself must change, and
+add `--like <test-id>` (once per baseline test) to both `plan` and `run`. At gate 2, read Rob every line
+under "Read before approving" in plain words, especially questions whose Claude results are not
+comparable, and remind him that Final Beta's earlier-test comparison does not yet use these baselines.
+
 8. **Next steps.** `python -m src.run_report status <place-id>`, then tell Rob what is next in the
    report generator (evidence in step 4, review in step 5, Final Beta in step 6).
 

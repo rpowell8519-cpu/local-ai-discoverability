@@ -5,6 +5,7 @@
     python -m src.run_report brief path/to/brief.toml --save [--replace-current]
     python -m src.run_report plan <place-id> [--repeats 3]  # read-only: the paid test and its approval code
     python -m src.run_report run <place-id> --approve CODE [--repeats 3] [--again]   # PAID
+    python -m src.run_report plan <place-id> --like <test-id> [--like <test-id>]    # a re-test of earlier tests
     python -m src.run_report status <place-id>              # read-only
 
 Settings: DATABASE_URL as for the app (.env); API keys and models from the environment or the
@@ -97,21 +98,59 @@ def cmd_brief(args: argparse.Namespace) -> int:
     return 0
 
 
+def _resolve_run_id(place_id: str, given: str) -> str:
+    """A test id, in full or by its first characters (as reports and notes quote it), for this business only."""
+
+    from sqlalchemy import text
+
+    from src.database import get_engine
+
+    prefix = str(given or "").strip().lower()
+    if len(prefix) < 8:
+        raise runner.PlanError(f"Give at least the first 8 characters of the test id (got “{given}”)")
+    with get_engine().connect() as connection:
+        ids = connection.execute(
+            text("select id::text from ai_visibility_runs where target_google_place_id = :place "
+                 "and id::text like :prefix order by created_at"),
+            {"place": place_id, "prefix": prefix + "%"},
+        ).scalars().all()
+    if not ids:
+        raise runner.PlanError(f"No test of this business starts with {given}")
+    if len(ids) > 1:
+        raise runner.PlanError(f"Several tests start with {given}; give more of the id")
+    return ids[0]
+
+
+def _baseline(place_id: str, given_ids: list[str]) -> runner.Baseline:
+    from src.ai_visibility_repository import get_run_queries, get_visibility_run
+    from src.evidence_foundations_repository import load_measurement_wave
+
+    runs = []
+    for given in given_ids:
+        run_id = _resolve_run_id(place_id, given)
+        wave = load_measurement_wave(run_id) or {}
+        runs.append((get_visibility_run(run_id), get_run_queries(run_id).to_dict("records"), wave.get("panel_kind")))
+    return runner.baseline_from_runs(place_id, runs)
+
+
 def _plan(args: argparse.Namespace) -> tuple[runner.RunPlan, dict[str, Any], list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
     records = _records()
     business = _business(args.place_id, records)
     saved = _latest(args.place_id)
     settings = runner.load_settings()
-    plan = runner.plan_run(saved=saved, business=business, settings=settings, repeats=args.repeats)
+    baseline = _baseline(args.place_id, args.like) if args.like else None
+    plan = runner.plan_run(saved=saved, business=business, settings=settings, repeats=args.repeats, baseline=baseline)
     return plan, business, records, saved or {}, settings
 
 
 def cmd_plan(args: argparse.Namespace) -> int:
     plan, *_ = _plan(args)
     print(runner.describe_plan(plan))
+    extra = "".join(f" --like {r[:8]}" for r in plan.baseline_run_ids)
+    if args.repeats is not None:
+        extra += f" --repeats {args.repeats}"
     print("Nothing has been paid for. To run it once approved: "
-          f"python -m src.run_report run {plan.google_place_id} --approve {plan.approval_code}"
-          + (f" --repeats {plan.repeats}" if plan.repeats != 3 else ""))
+          f"python -m src.run_report run {plan.google_place_id} --approve {plan.approval_code}{extra}")
     return 0
 
 
@@ -166,7 +205,10 @@ def build_parser() -> argparse.ArgumentParser:
     ):
         p = sub.add_parser(name, help=help_text)
         p.add_argument("place_id")
-        p.add_argument("--repeats", type=int, default=3, choices=(1, 2, 3))
+        p.add_argument("--repeats", type=int, default=None, choices=(1, 2, 3),
+                       help="Default 3, or the baseline's for a re-test")
+        p.add_argument("--like", action="append", default=[], metavar="TEST_ID",
+                       help="Re-test: repeat this earlier test's questions, location and repeats (repeatable)")
         if name == "run":
             p.add_argument("--approve", required=True, help="The approval code printed by plan")
             p.add_argument("--again", action="store_true", help="Pay for a new test even though one is attached")

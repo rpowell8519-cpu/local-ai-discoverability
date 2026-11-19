@@ -279,7 +279,9 @@ class StatusAndCommandLineTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             parser.parse_args(["run", "PLACE1"])
         args = parser.parse_args(["run", "PLACE1", "--approve", "ABCD1234"])
-        self.assertEqual((args.repeats, args.again), (3, False))
+        self.assertEqual((args.repeats, args.again, args.like), (None, False, []))
+        args = parser.parse_args(["plan", "PLACE1", "--like", "30f9160b", "--like", "b9ad0c8d"])
+        self.assertEqual(args.like, ["30f9160b", "b9ad0c8d"])
 
     def test_a_bad_brief_stops_with_a_plain_message(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -287,6 +289,92 @@ class StatusAndCommandLineTests(unittest.TestCase):
             path.write_text('known_for = "Calm private dentistry"\n[business]\nname = "X"\n')
             self.assertEqual(run_report.main(["brief", str(path)]), 2)
 
+
+
+def baseline_run(run_id, questions, *, location="Brighton and Hove", repeats=3, day="2026-10-09",
+                 status="completed", place="PLACE1", models=None):
+    run = {"id": run_id, "target_google_place_id": place, "status": status, "location_context": location,
+           "repeat_count": repeats, "started_at": day, "models": models or dict(runner.DEFAULT_MODELS)}
+    queries = [
+        {"prompt_text": q, "base_prompt_order": i, "repeat_index": r, "prompt_order": i * repeats + r,
+         "prompt_category": "Owner priority", "report_intent": "discovery", "report_importance": None,
+         "report_effort": None}
+        for i, q in enumerate(questions) for r in range(repeats)
+    ]
+    return run, list(reversed(queries)), "core"
+
+
+class RetestTests(unittest.TestCase):
+    """A re-test repeats earlier tests exactly, and says what is no longer like-for-like."""
+
+    def setUp(self):
+        self.first = baseline_run("30f9160b-aaaa", ["Recommend places in Brighton for coworking.",
+                                                   "Recommend places in Brighton for meeting rooms."])
+        self.second = baseline_run("b9ad0c8d-bbbb", ["Event spaces with childcare",
+                                                     "Recommend places in Brighton for coworking."])
+        # The saved brief now lists the areas differently: the re-test must not use it.
+        self.saved = saved_revision(owner_context={"service_areas": ["Brighton", "Hove"]})
+
+    def test_questions_location_and_repeats_come_from_the_baseline(self):
+        baseline = runner.baseline_from_runs("PLACE1", [self.first, self.second])
+        self.assertEqual([r["question"] for r in baseline.rows], [
+            "Recommend places in Brighton for coworking.", "Recommend places in Brighton for meeting rooms.",
+            "Event spaces with childcare"])
+        self.assertTrue(any("asked in both" in n for n in baseline.notes))
+        plan = runner.plan_run(saved=self.saved, business=BUSINESS, settings=KEYS, baseline=baseline)
+        self.assertEqual(plan.location, "Brighton and Hove")
+        self.assertEqual(plan.repeats, 3)
+        self.assertEqual(len(plan.prompts), 3)
+        self.assertEqual(plan.baseline_run_ids, ("30f9160b-aaaa", "b9ad0c8d-bbbb"))
+        text = runner.describe_plan(plan)
+        self.assertIn("Re-test of: 30f9160b, b9ad0c8d", text)
+        self.assertIn("Read before approving:", text)
+
+    def test_the_approval_code_names_the_baseline(self):
+        one = runner.baseline_from_runs("PLACE1", [self.first])
+        plan = runner.plan_run(saved=self.saved, business=BUSINESS, settings=KEYS, baseline=one)
+        same_questions = runner.plan_run(saved=self.saved, business=BUSINESS, settings=KEYS,
+                                         rows=one.rows, repeats=3)
+        self.assertNotEqual(plan.approval_code, same_questions.approval_code)
+
+    def test_what_is_not_like_for_like_is_listed(self):
+        baseline = runner.baseline_from_runs("PLACE1", [self.second])
+        changed = {**KEYS, "models": {**KEYS["models"], "Claude": "claude-newer"}}
+        plan = runner.plan_run(saved=self.saved, business=BUSINESS, settings=changed, baseline=baseline, repeats=2)
+        warnings = " ".join(plan.warnings)
+        self.assertIn("Claude now uses claude-newer", warnings)
+        self.assertIn("asked 2 times; the baseline asked it 3 times", warnings)
+        self.assertIn("“Event spaces with childcare” names no place", warnings)
+        self.assertIn("not comparable", warnings)
+        self.assertIn("differ from the baseline", warnings)
+        self.assertIn("Final Beta", warnings)
+        self.assertNotIn("Recommend places in Brighton for coworking.” names no place", warnings)
+        later = runner.baseline_from_runs("PLACE1", [baseline_run("c1", ["Event spaces with childcare"], day="2026-11-17")])
+        later_plan = runner.plan_run(saved=self.saved, business=BUSINESS, settings=KEYS, baseline=later)
+        self.assertNotIn("not comparable", " ".join(later_plan.warnings))
+
+    def test_baselines_that_cannot_be_repeated_say_why(self):
+        cases = {
+            "different business": [baseline_run("x1", ["Q in Brighton?"], place="OTHER")],
+            "not completed": [baseline_run("x2", ["Q in Brighton?"], status="partial")],
+            "different customer locations": [self.first, baseline_run("x3", ["Q in Hove?"], location="Brighton, Hove")],
+            "different numbers of repeats": [self.first, baseline_run("x4", ["Q in Hove?"], repeats=2)],
+            "at most 20": [baseline_run("x5", [f"Question {i} in Brighton?" for i in range(21)])],
+            "not found": [({}, [], None)],
+        }
+        for expected, runs in cases.items():
+            with self.subTest(expected):
+                with self.assertRaisesRegex(runner.PlanError, expected):
+                    runner.baseline_from_runs("PLACE1", runs)
+        run, queries, _ = self.first
+        with self.assertRaisesRegex(runner.PlanError, "free_check run"):
+            runner.baseline_from_runs("PLACE1", [(run, queries, "free_check")])
+
+    def test_place_words(self):
+        self.assertTrue(runner.names_a_place("Best nurseries in Brighton & Hove", "Brighton, Hove"))
+        self.assertFalse(runner.names_a_place("Recommend places for children's parties", "Brighton, Hove"))
+        self.assertFalse(runner.names_a_place("Tiles near me", "Newhaven, East Sussex"))
+        self.assertTrue(runner.names_a_place("Marble tiles in Newhaven", "Newhaven, East Sussex"))
 
 if __name__ == "__main__":
     unittest.main()

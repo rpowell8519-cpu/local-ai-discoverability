@@ -16,6 +16,11 @@ Three things are deliberately enforced in code rather than left to the operator:
   so a changed plan cannot run under an old approval.
 - A test is not paid for twice: when a completed test is already attached, `again=True` is required.
 
+A re-test (`Baseline`) copies the exact questions, customer location and repeats of one or more earlier
+completed core tests of the same business, rather than rebuilding them from the saved brief, and its plan
+lists anything that is no longer like-for-like (a changed model, changed repeats, a question that names
+no place asked before the 10 November 2026 Claude location fix).
+
 The command line is `src/run_report.py`; `docs/report-runner.md` describes the workflow.
 """
 
@@ -24,8 +29,10 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import tomllib
 from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
 
@@ -48,6 +55,15 @@ RATINGS = ("Not rated", "1", "2", "3", "4", "5")
 # Must equal anthropic_provider.REQUIRED_SEARCH_VERSION, as the three paid-run pages check.
 EXPECTED_SEARCH_VERSION = 3
 CREATED_BY = "report_runner"
+# Claude was told the customer's location in its instructions from this date (AGENTS.md, "How each AI tool is
+# told the customer's location"). Its earlier answers to questions that name no place are not comparable.
+CLAUDE_LOCATION_FIX = date(2026, 11, 10)
+# Words in a location that do not, on their own, place a question.
+_NOT_A_PLACE = {"and", "east", "west", "north", "south", "sussex", "the", "near"}
+FINAL_BETA_COMPARISON_NOTE = (
+    "Final Beta's 'Compare with the earlier test' does not use these baselines yet: it picks the most recent "
+    "earlier completed test that shares a question, which may be a later internal check."
+)
 
 
 # ---------------------------------------------------------------------------------------------
@@ -309,6 +325,132 @@ class PlanError(ValueError):
 
 
 @dataclass(frozen=True)
+class Baseline:
+    """The earlier test(s) a re-test repeats: their exact questions, location and repeats."""
+
+    run_ids: tuple[str, ...]
+    run_dates: tuple[date, ...]
+    location: str
+    repeats: int
+    models: tuple[tuple[str, str], ...]
+    rows: tuple[dict[str, Any], ...]
+    notes: tuple[str, ...] = ()
+
+
+def _run_date(value: Any) -> date | None:
+    if isinstance(value, date):
+        return value if not hasattr(value, "date") else value.date()
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except ValueError:
+        return None
+
+
+def baseline_from_runs(
+    place_id: str, runs: Iterable[tuple[Mapping[str, Any], Iterable[Mapping[str, Any]], str | None]]
+) -> Baseline:
+    """Check earlier tests can be repeated together, and take their questions in their original order.
+
+    Each item is (saved run, its saved queries, its panel kind or None). Runs must be completed core tests of
+    this business with one customer location and one number of repeats.
+    """
+
+    runs = list(runs)
+    if not runs:
+        raise PlanError("Name at least one earlier test to repeat")
+    run_ids, dates, locations, repeats, models, rows, notes = [], [], set(), set(), [], [], []
+    seen: dict[str, str] = {}
+    for run, queries, panel_kind in runs:
+        run_id = str(run.get("id") or "")
+        if not run_id:
+            raise PlanError("An earlier test named for the re-test was not found")
+        short = run_id[:8]
+        if str(run.get("target_google_place_id") or "") != place_id:
+            raise PlanError(f"Test {short} is of a different business")
+        if str(run.get("status") or "") != "completed":
+            raise PlanError(f"Test {short} is '{run.get('status')}', not completed, so it cannot be a baseline")
+        if panel_kind not in (None, "", "core"):
+            raise PlanError(f"Test {short} is a {panel_kind} run, not a client test, so it cannot be a baseline")
+        run_ids.append(run_id)
+        dates.append(_run_date(run.get("started_at") or run.get("created_at")))
+        locations.add(str(run.get("location_context") or ""))
+        repeats.add(int(run.get("repeat_count") or 1))
+        models.append(tuple(sorted(dict(run.get("models") or {}).items())))
+        ordered = sorted(queries, key=lambda q: (int(q.get("base_prompt_order") or 0), int(q.get("repeat_index") or 0),
+                                                 int(q.get("prompt_order") or 0)))
+        for query in ordered:
+            text = str(query.get("prompt_text") or "").strip()
+            key = text.casefold()
+            if not text:
+                continue
+            if key in seen:
+                if seen[key] != short:
+                    notes.append(f"“{text}” was asked in both {seen[key]} and {short}; it is asked once.")
+                continue
+            seen[key] = short
+            rows.append({
+                "question": text,
+                "intent": str(query.get("prompt_category") or "Owner priority"),
+                "report_intent": str(query.get("report_intent") or "discovery"),
+                "report_importance": query.get("report_importance"),
+                "report_effort": query.get("report_effort"),
+            })
+    if len(locations) != 1 or not next(iter(locations)):
+        raise PlanError("The earlier tests told the AI tools different customer locations ("
+                        + "; ".join(sorted(f"“{l}”" for l in locations)) + "), so they cannot be repeated as one test")
+    if len(repeats) != 1:
+        raise PlanError("The earlier tests used different numbers of repeats, so they cannot be repeated as one test")
+    if len(set(models)) != 1:
+        notes.append("The earlier tests did not all use the same models.")
+    if not rows:
+        raise PlanError("The earlier tests have no saved questions")
+    if len(rows) > MAX_RUN_QUESTIONS:
+        raise PlanError(f"Together the earlier tests hold {len(rows)} questions; one test holds at most {MAX_RUN_QUESTIONS}")
+    return Baseline(
+        run_ids=tuple(run_ids),
+        run_dates=tuple(d for d in dates if d),
+        location=next(iter(locations)),
+        repeats=next(iter(repeats)),
+        models=models[0],
+        rows=tuple(rows),
+        notes=tuple(notes),
+    )
+
+
+def names_a_place(question: str, location: str) -> bool:
+    """Whether the question names any place word from the location ("Brighton", "Hove")."""
+
+    words = {w for w in re.findall(r"[a-z]+", location.casefold()) if len(w) >= 3 and w not in _NOT_A_PLACE}
+    asked = set(re.findall(r"[a-z]+", question.casefold()))
+    return bool(words & asked)
+
+
+def retest_warnings(baseline: Baseline, *, models: Mapping[str, str], repeats: int,
+                    saved_questions: Iterable[str]) -> list[str]:
+    """What makes a re-test less than like-for-like, in plain words."""
+
+    warnings = list(baseline.notes)
+    for provider, model in baseline.models:
+        if provider in models and models[provider] != model:
+            warnings.append(f"{provider} now uses {models[provider]}; the baseline used {model}.")
+    if repeats != baseline.repeats:
+        warnings.append(f"Each question is asked {repeats} times; the baseline asked it {baseline.repeats} times.")
+    early = any(d < CLAUDE_LOCATION_FIX for d in baseline.run_dates)
+    for row in baseline.rows:
+        if not names_a_place(row["question"], baseline.location):
+            if early:
+                warnings.append(f"“{row['question']}” names no place, and the baseline was before the "
+                                f"{CLAUDE_LOCATION_FIX:%-d %B %Y} Claude location fix: Claude's answers to it are not comparable.")
+            else:
+                warnings.append(f"“{row['question']}” names no place: its answers rest on the location setting alone.")
+    saved = {q.casefold() for q in saved_questions}
+    if saved and saved != {r["question"].casefold() for r in baseline.rows}:
+        warnings.append("The saved brief's questions differ from the baseline's. The re-test asks the baseline's.")
+    warnings.append(FINAL_BETA_COMPARISON_NOTE)
+    return warnings
+
+
+@dataclass(frozen=True)
 class RunPlan:
     google_place_id: str
     business_name: str
@@ -321,6 +463,8 @@ class RunPlan:
     providers: tuple[str, ...]
     models: tuple[tuple[str, str], ...]
     attached_run_id: str
+    baseline_run_ids: tuple[str, ...] = ()
+    warnings: tuple[str, ...] = ()
 
     @property
     def call_count(self) -> int:
@@ -339,6 +483,7 @@ class RunPlan:
                 "repeats": self.repeats,
                 "providers": list(self.providers),
                 "models": [list(m) for m in self.models],
+                "baseline": list(self.baseline_run_ids),
             },
             sort_keys=True,
             ensure_ascii=False,
@@ -351,21 +496,27 @@ def plan_run(
     saved: Mapping[str, Any] | None,
     business: Mapping[str, Any],
     settings: Mapping[str, Any],
-    repeats: int = 3,
+    repeats: int | None = None,
     rows: Iterable[Mapping[str, Any]] | None = None,
+    baseline: Baseline | None = None,
 ) -> RunPlan:
     """The paid test the saved brief asks for, or a PlanError naming what blocks it.
 
-    `rows` are the question rows to run; by default every saved question, labelled as the page does.
+    `rows` are the question rows to run; by default every saved question, labelled as the page does. With a
+    `baseline`, the questions, customer location and (unless `repeats` is given) repeats are the baseline's.
     """
 
     if not saved:
         raise PlanError("No brief is saved for this business. Save one first: python -m src.run_report brief <file> --save")
     if owner_brief_missing_fields({"known_for": saved.get("known_for"), "desired_searches": saved.get("desired_searches")}):
         raise PlanError("The saved brief is incomplete. Save a complete brief first.")
+    if repeats is None:
+        repeats = baseline.repeats if baseline else 3
     if repeats not in (1, 2, 3):
         raise PlanError("Repeats must be 1, 2 or 3")
-    if rows is None:
+    if baseline is not None:
+        rows = baseline.rows
+    elif rows is None:
         rows = [{"question": q} for q in list(saved.get("desired_searches") or [])]
     prompts = prompt_records(rows)
     if not prompts:
@@ -377,7 +528,10 @@ def plan_run(
     if missing:
         raise PlanError("Connect all three AI tools before running: " + ", ".join(missing) + " has no API key")
     context = dict(saved.get("owner_context") or {})
-    location = resolve_run_location(context.get("service_areas") or [], business.get("city"))
+    if baseline is not None:
+        location = baseline.location  # exactly as the baseline told the AI tools, not rebuilt from the brief
+    else:
+        location = resolve_run_location(context.get("service_areas") or [], business.get("city"))
     if not location:
         raise PlanError(
             "This business has no city on record and the brief has no service area, so the AI tools would not know "
@@ -395,6 +549,11 @@ def plan_run(
         providers=tuple(providers),
         models=tuple((p, str(settings["models"][p])) for p in providers),
         attached_run_id=str(saved.get("benchmark_run_id") or ""),
+        baseline_run_ids=baseline.run_ids if baseline else (),
+        warnings=tuple(
+            retest_warnings(baseline, models=settings["models"], repeats=int(repeats),
+                            saved_questions=list(saved.get("desired_searches") or []))
+        ) if baseline else (),
     )
 
 
@@ -402,6 +561,8 @@ def describe_plan(plan: RunPlan) -> str:
     lines = [
         f"Business: {plan.business_name} ({plan.google_place_id})",
         f"Brief revision: {plan.revision}",
+        *([f"Re-test of: {', '.join(r[:8] for r in plan.baseline_run_ids)} (same questions, location and repeats)"]
+          if plan.baseline_run_ids else []),
         f"Customer location given to the AI tools: {plan.location}",
         f"Questions ({len(plan.prompts)}):",
         *[f"  {i}. {q}" for i, q in enumerate(plan.questions, start=1)],
@@ -410,6 +571,9 @@ def describe_plan(plan: RunPlan) -> str:
     ]
     if plan.attached_run_id:
         lines.append(f"Note: a test is already attached to this brief ({plan.attached_run_id}).")
+    if plan.warnings:
+        lines.append("Read before approving:")
+        lines.extend(f"  - {w}" for w in plan.warnings)
     lines.append(f"Approval code: {plan.approval_code}")
     return "\n".join(lines)
 

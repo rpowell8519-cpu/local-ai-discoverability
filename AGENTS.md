@@ -146,7 +146,10 @@ imports them. Gates are enforced in code: a brief only replaces an attached test
 decisions with `--replace-current`; `run` needs the approval code that `plan` printed (a fingerprint of
 revision, questions, repeats, tools, models and location) and `--again` to pay for a second completed
 test; it refuses when `REQUIRED_SEARCH_VERSION` differs from its `EXPECTED_SEARCH_VERSION`, so bump both
-with the page guards. Its writes carry `created_by = "report_runner"`. Steps 4 to 6 stay in the page
+with the page guards. `--like <test-id>` makes a re-test: the baseline tests' exact questions, location and repeats
+(`Baseline`, `baseline_from_runs`), with what is no longer like-for-like listed before approval (models,
+repeats, place-less questions before the Claude location fix). Final Beta's earlier-test comparison does not
+yet use those baselines. Its writes carry `created_by = "report_runner"`. Steps 4 to 6 stay in the page
 until step 5's checks live in `src/`. Brief files hold client details and stay outside this repo.
 
 ### Question limit per test (changed 11 October 2026)

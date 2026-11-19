@@ -48,6 +48,30 @@ python -m src.run_report run <place-id> --approve <CODE>      # gate 2 approved:
 python -m src.run_report status <place-id>                    # read-only
 ```
 
+## Re-tests
+
+A re-test repeats earlier tests exactly instead of rebuilding them from the saved brief:
+
+```
+python -m src.run_report plan <place-id> --like <test-id> [--like <test-id>]
+python -m src.run_report run  <place-id> --approve <CODE> --like <test-id> [--like <test-id>]
+```
+
+A test id may be given in full or by its first 8 characters, as reports and notes quote it. The
+re-test takes the baseline tests' exact questions (with their labels and search intents), the exact
+customer location they gave the AI tools and their number of repeats. Several baselines can be
+repeated as one test (WRAP coworking's two 9 October tests, for example) when they share a location
+and number of repeats; a question asked in both is asked once. Baselines must be completed client
+(core) tests of the same business.
+
+Before approval the plan lists what is no longer like-for-like: a model that has changed, a different
+number of repeats, the saved brief's questions differing from the baseline's, and every question that
+names no place (if the baseline ran before 10 November 2026, Claude's answers to those questions are not
+comparable, because of the location fix). The approval code includes the baseline ids.
+
+Final Beta's "Compare with the earlier test" does not use these baselines yet: it compares with the
+most recent earlier completed core test that shares a question, which may be a later internal check.
+
 ## The gates, enforced in code
 
 - **Gate 1, the brief.** `brief` only writes with `--save`. When the business already has a test
