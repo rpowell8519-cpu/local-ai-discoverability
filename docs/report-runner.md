@@ -69,8 +69,9 @@ number of repeats, the saved brief's questions differing from the baseline's, an
 names no place (if the baseline ran before 10 November 2026, Claude's answers to those questions are not
 comparable, because of the location fix). The approval code includes the baseline ids.
 
-Final Beta's "Compare with the earlier test" does not use these baselines yet: it compares with the
-most recent earlier completed core test that shares a question, which may be a later internal check.
+In Final Beta, tick "Compare with the earlier test" and choose the baselines under "Earlier tests to
+compare with". Left empty, it compares with the most recent earlier completed core test that shares a
+question, which may be a later internal check. The plan and the run's outcome both name the tests to choose.
 
 ## The gates, enforced in code
 

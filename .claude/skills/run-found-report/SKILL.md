@@ -43,7 +43,8 @@ report generator. Rob makes every brief, identity, evidence and spend decision; 
 **Re-tests.** For a re-test of earlier tests, skip steps 2 to 4 unless the brief itself must change, and
 add `--like <test-id>` (once per baseline test) to both `plan` and `run`. At gate 2, read Rob every line
 under "Read before approving" in plain words, especially questions whose Claude results are not
-comparable, and remind him that Final Beta's earlier-test comparison does not yet use these baselines.
+comparable, and tell him that in Final Beta he should tick "Compare with the earlier test" and choose these baselines
+under "Earlier tests to compare with".
 
 8. **Next steps.** `python -m src.run_report status <place-id>`, then tell Rob what is next in the
    report generator (evidence in step 4, review in step 5, Final Beta in step 6).

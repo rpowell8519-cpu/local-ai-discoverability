@@ -260,6 +260,15 @@ def secret_value(key: str, default: str = "") -> str:
     return str(value or default)
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def load_earlier_runs(place_id: str, run_id: str) -> list[dict]:
+    """Earlier completed tests of this business that share a question with this test, newest first."""
+    from src.final_beta_repository import list_earlier_runs
+
+    texts = [str(t) for t in get_run_queries(run_id)["prompt_text"].dropna().unique()]
+    return list_earlier_runs(place_id, run_id, texts + [" ".join(t.split()) for t in texts])
+
+
 @st.cache_data(ttl=120)
 def load_businesses() -> pd.DataFrame:
     """Load the current canonical business layer for report selection."""
@@ -2483,6 +2492,32 @@ else:
                 help="Adds an 'Earlier' column and the change since the previous test of the same questions. Leave it unticked "
                      "for a first meeting, where the report should show only where the business stands now.",
             )
+        beta_compare_runs: list[str] = []
+        if report_kind == "final_beta" and beta_compare_earlier:
+            earlier_options = load_earlier_runs(selected_place_id, str(report_run_id))
+            if not earlier_options:
+                st.caption("No earlier completed test of this business shares a question with this one.")
+            else:
+                earlier_labels = {
+                    str(o["id"]): (
+                        f"{pd.Timestamp(o['started_at']):%-d %b %Y} · {len(o['shared'])} of its "
+                        f"{o['prompt_count']} questions shared · {str(o['id'])[:8]}"
+                    )
+                    for o in earlier_options
+                }
+                beta_compare_runs = st.multiselect(
+                    "Earlier tests to compare with",
+                    options=list(earlier_labels),
+                    format_func=earlier_labels.get,
+                    key=f"final_beta_earlier_runs_{selected_place_id}_{report_run_id}",
+                    help="For a re-test, choose the test(s) it repeats, all from one day. A question asked in two "
+                         "chosen tests is refused, so no earlier count is doubled.",
+                )
+                if not beta_compare_runs:
+                    st.caption(
+                        "Left empty, the report compares with the most recent: "
+                        f"{earlier_labels[str(earlier_options[0]['id'])]}. Check that is the test you mean."
+                    )
         generate = st.button(chosen_type.button, type="primary", use_container_width=True)
 
     summary_key = definition.key if definition else f"generic_{durable_audit['id']}"
@@ -2693,7 +2728,8 @@ else:
                 from src.final_beta_docx import render_final_beta_docx
 
                 beta_data = assemble_final_beta(beta_summary, beta_payload, durable_audit, business, fetch=page_fetcher(),
-                                                compare_with_earlier=beta_compare_earlier)
+                                                compare_with_earlier=beta_compare_earlier,
+                                                compare_run_ids=beta_compare_runs)
                 beta_pdf = render_final_beta_pdf(beta_data)
                 # The same data and wording as the PDF, as a document the team can edit before sharing.
                 beta_docx = render_final_beta_docx(beta_data)
@@ -2706,11 +2742,12 @@ else:
             )
             st.exception(exc)
         else:
-            st.session_state[FINAL_BETA_STATE_KEY] = {"key": summary_key, "pdf": beta_pdf, "docx": beta_docx, "earlier": beta_compare_earlier}
+            st.session_state[FINAL_BETA_STATE_KEY] = {"key": summary_key, "pdf": beta_pdf, "docx": beta_docx,
+                                                      "earlier": (beta_compare_earlier, tuple(beta_compare_runs))}
 
     def show_final_beta():
         saved_beta = st.session_state.get(FINAL_BETA_STATE_KEY)
-        if saved_beta and saved_beta["key"] == summary_key and saved_beta.get("earlier", False) == beta_compare_earlier:
+        if saved_beta and saved_beta["key"] == summary_key and saved_beta.get("earlier") == (beta_compare_earlier, tuple(beta_compare_runs)):
             st.success("The Final Beta report is ready.")
             st.download_button(
                 "Download Final Beta report",

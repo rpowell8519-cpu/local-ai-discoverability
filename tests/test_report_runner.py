@@ -370,6 +370,13 @@ class RetestTests(unittest.TestCase):
         with self.assertRaisesRegex(runner.PlanError, "free_check run"):
             runner.baseline_from_runs("PLACE1", [(run, queries, "free_check")])
 
+    def test_a_completed_retest_says_which_tests_to_compare_with(self):
+        baseline = runner.baseline_from_runs("PLACE1", [self.first, self.second])
+        plan = runner.plan_run(saved=self.saved, business=BUSINESS, settings=KEYS, baseline=baseline)
+        outcome = runner.execute_plan(plan, business=BUSINESS, business_records=[BUSINESS], settings=KEYS,
+                                      saved=self.saved, deps=FakeDeps().deps)
+        self.assertIn("choose 30f9160b, b9ad0c8d under 'Earlier tests to compare with'", outcome.message)
+
     def test_place_words(self):
         self.assertTrue(runner.names_a_place("Best nurseries in Brighton & Hove", "Brighton, Hove"))
         self.assertFalse(runner.names_a_place("Recommend places for children's parties", "Brighton, Hove"))

@@ -61,8 +61,9 @@ CLAUDE_LOCATION_FIX = date(2026, 11, 10)
 # Words in a location that do not, on their own, place a question.
 _NOT_A_PLACE = {"and", "east", "west", "north", "south", "sussex", "the", "near"}
 FINAL_BETA_COMPARISON_NOTE = (
-    "Final Beta's 'Compare with the earlier test' does not use these baselines yet: it picks the most recent "
-    "earlier completed test that shares a question, which may be a later internal check."
+    "In Final Beta, tick 'Compare with the earlier test' and choose these baselines under 'Earlier tests to compare "
+    "with'. Left empty, it compares with the most recent earlier test sharing a question, which may be a later "
+    "internal check."
 )
 
 
@@ -707,15 +708,12 @@ def execute_plan(
     deps.attach_benchmark_revision(
         target_google_place_id=plan.google_place_id, benchmark_run_id=run_id, created_by=CREATED_BY
     )
-    return RunOutcome(
-        run_id=run_id,
-        status=run_status,
-        attached=True,
-        message=(
-            "The test is complete and attached. Next: website and review evidence (step 4) and the review (step 5) "
-            "in the report generator."
-        ),
-    )
+    message = ("The test is complete and attached. Next: website and review evidence (step 4) and the review "
+               "(step 5) in the report generator.")
+    if plan.baseline_run_ids:
+        message += (" For Final Beta, tick 'Compare with the earlier test' and choose "
+                    + ", ".join(r[:8] for r in plan.baseline_run_ids) + " under 'Earlier tests to compare with'.")
+    return RunOutcome(run_id=run_id, status=run_status, attached=True, message=message)
 
 
 # ---------------------------------------------------------------------------------------------

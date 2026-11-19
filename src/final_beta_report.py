@@ -309,6 +309,43 @@ def _int(value: Any) -> int | None:
     return int(number) if number is not None else None
 
 
+def choose_earlier_runs(candidates: Iterable[Mapping[str, Any]], chosen: Sequence[str]) -> tuple[list[str], Any]:
+    """Check the earlier tests a person chose to compare with, and return their full ids and test date.
+
+    `candidates` are this business's completed client tests from an earlier day that share a question with the
+    current test (`final_beta_repository.list_earlier_runs`), each with `id`, `started_at` and `shared` (the
+    shared question texts). A test may be named by its full id or its first 8 or more characters. The chosen
+    tests must be from one day, so the report's one "earlier test" date is true, and no shared question may
+    come from two of them, so no question's earlier count is doubled.
+    """
+    candidates = list(candidates)
+    picked: list[Mapping[str, Any]] = []
+    for given in chosen:
+        key = str(given or "").strip().lower()
+        matches = [c for c in candidates if len(key) >= 8 and str(c["id"]).lower().startswith(key)]
+        if len(matches) != 1:
+            raise ValueError(f"Test {given} is not an earlier completed test of this business that shares a question "
+                             "with this one, so it cannot be compared.")
+        if matches[0] not in picked:
+            picked.append(matches[0])
+    if not picked:
+        raise ValueError("Choose at least one earlier test to compare with.")
+    days = {_date(c["started_at"]) for c in picked}
+    if len(days) != 1:
+        raise ValueError("The earlier tests chosen were run on different days ("
+                         + ", ".join(sorted(f"{d:%-d %b %Y}" for d in days if d)) + "). Choose tests from one day, "
+                         "so the report's earlier-test date is true.")
+    owner: dict[str, str] = {}
+    for c in picked:
+        for question in c.get("shared") or []:
+            key = " ".join(str(question).split()).casefold()
+            if key in owner and owner[key] != str(c["id"]):
+                raise ValueError(f"“{question}” was asked in more than one of the chosen tests. Choose only one of them "
+                                 "for that question, or its earlier count would be doubled.")
+            owner[key] = str(c["id"])
+    return [str(c["id"]) for c in picked], max(c["started_at"] for c in picked)
+
+
 def _date(value: Any) -> date | None:
     if isinstance(value, datetime):
         return value.date()
