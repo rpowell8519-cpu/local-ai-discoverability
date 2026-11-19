@@ -206,7 +206,10 @@ def build_client_summary_report(
         if key != target_id and all(key != item[0] for item in named):
             named.append((key, str(owner.get("business_name") or owner.get("owner_name")), bool(pid)))
     named = named[:MAX_NAMED]
-    visible = [(row["key"], row["name"]) for row in report["market"] if row["verified"] and row["key"] != target_id][:MAX_VISIBLE]
+    # Every business the answers recommended most is shown. One no Google listing matched is shown as the answers
+    # wrote it (variants grouped), rather than dropped: leaving out a highly recommended name misstates the field.
+    visible = [(row["key"], row["name"]) for row in report["market"] if row["key"] != target_id][:MAX_VISIBLE]
+    unmatched_keys = {row["key"] for row in report["market"] if row.get("unmatched")}
     businesses = [{"id": target_id, "name": target_name, "appearances": 0}]
     seen = {target_id}
     for key, name, _ in named:
@@ -257,12 +260,10 @@ def build_client_summary_report(
         limitations.append(
             "The website's robots.txt could not be read, so whether AI search crawlers can visit the site was not tested."
         )
-    unresolved = [row for row in report["market"] if not row["verified"]]
-    if unresolved:
-        limitations.append(
-            f"{len(unresolved)} business name(s) in the answers could not be matched to a verified business "
-            "and are not shown."
-        )
+    unmatched_shown = [name for key, name in visible if key in unmatched_keys]
+    if unmatched_shown:
+        limitations.append(_shorten(
+            "Not matched to a Google listing, so shown as the AI answers wrote them: " + ", ".join(unmatched_shown) + ".", 238))
     confirmed = _confirmed_names(payload)
     if confirmed:
         limitations.append(
@@ -293,6 +294,7 @@ def build_client_summary_report(
         "named_ids": [key for key, _, _ in named],
         "unverified_ids": [key for key, _, verified in named if not verified],
         "visible_ids": [key for key, _ in visible],
+        "unmatched_ids": [key for key, _ in visible if key in unmatched_keys],
         "evidence_layers": _evidence_layers(owner_config, approved),
         "review_analysis": build_review_summary(report, group),
         "mention_analysis": mention_analysis,

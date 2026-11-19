@@ -185,7 +185,7 @@ from src.report_generator_readiness import (  # noqa: E402
 )
 
 
-BUILD_VERSION = "Accessible AI Report Generator v3.14.1 (Claude told the customer location)"
+BUILD_VERSION = "Accessible AI Report Generator v3.14.4 (chains counted once; review-theme count)"
 REPORT_STATE_KEY = "accessible_ai_report_generator_result"
 SUMMARY_STATE_KEY = "accessible_ai_client_summary_result"
 GSO_REPORT_STATE_KEY = "accessible_ai_gso_report_result"
@@ -1517,12 +1517,21 @@ if ai_ready and definition is None:
         candidates = load_report_candidates(
             run_id=saved_benchmark_run_id,
             target_google_place_id=selected_place_id,
+            chains=dict((durable_audit or {}).get("reviewer_decisions") or {}).get("chains") or [],
         )
     except Exception as exc:
         st.error("The businesses named in the AI responses could not be prepared for review.")
         st.exception(exc)
         candidates = {"verified": [], "unresolved": []}
     verified_candidates = candidates["verified"]
+    saved_chains = list(dict((durable_audit or {}).get("reviewer_decisions") or {}).get("chains") or [])
+    if saved_chains:
+        st.caption(
+            "Counted as one business each (a chain: any answer naming one of its listings, or the chain itself, counts once): "
+            + "; ".join(f"{c['name']} ({len(c.get('place_ids') or [])} listing{'s' if len(c.get('place_ids') or []) != 1 else ''})"
+                        for c in saved_chains)
+            + "."
+        )
     owner_context = dict((saved_brief or {}).get("owner_context") or {})
     initial_decisions = dict((durable_audit or {}).get("reviewer_decisions") or {})
     suggested_radius = catchment_radius_miles(
@@ -2426,6 +2435,8 @@ if ai_ready and definition is None:
                 for place_id in selected_cohort
             },
             "catchment_radius_miles": float(selected_radius),
+            # Chains have no editor on this page yet; keep the saved ones (src/chains.py).
+            "chains": list(existing_decisions.get("chains") or []),
         }
         try:
             saved_review = save_reviewer_decisions_revision(

@@ -257,6 +257,74 @@ Process and open QA items live in `docs/beta-report-process.md` (owner conversat
 question sets, what may be claimed) and `docs/udr-report-qa-required-changes.md`. Read
 both before changing report wording, layout or counting rules.
 
+### Name matching and unmatched names (changed 10 November 2026)
+
+Found in Authentic Stone's report (a tile shop): "The House Restaurant" was credited with 13 answers that named
+House of Tiles, a hotel called "Topps" with Topps Tiles, a hotel called "Brighton" with "Brighton Tiling & Mosaics",
+and Natural Angle (31 answers, the most recommended business) was missing. Four rules now hold:
+
+- **Short-name matching needs a distinctive short name on both sides** (`_distinctive_prefix` in
+  `ai_recommendation_intelligence.py`): the shorter of the two names must have two words besides "the". Before, only
+  the AI's name was checked, so a listing's one-word stem ("house" from "The House Restaurant" once "Restaurant" is
+  dropped; "Topps") claimed every longer name starting with it.
+- **A name rejected in step 5 is never credited to that business by the automatic matcher**
+  (`rejected_links_from_decisions` + `without_rejected_links`, applied in `load_report_candidates` and the
+  assembler). The unresolved list that step 5 plans its questions from is left as before rejections, so the page and
+  the generator still plan the same questions.
+- **A confirmed name counts wherever its business sits** (`_all_confirmed_names` in `poc_audit_generic.py`), not
+  only for businesses step 5 asked about. Before, a name confirmed for a business outside the comparison set was
+  counted in step 5 but left unmatched in the report.
+- **Highly recommended names no listing matches are shown, not dropped** (rob, 10 November 2026: "If we cannot match
+  to a business in the database please include it as it is found in the answers"). `business_key` groups an unmatched
+  name's variants (`unmatched_key`: trailing brackets, short tails after a comma or spaced dash unless they end like
+  a company name, the test's own place words at the end, case, spacing, "&", a leading "The"), shows the form the
+  answers used most, and counts it once per answer. They take their place in the "most recommended" list
+  (`visible_ids`), are listed in `unmatched_ids`, carry a "*" and a note in the Final Beta, a sentence in the LS, and
+  a limitation line naming them. They are never in the comparison set (no listing, so no website or review evidence)
+  and are left out of the review comparison. A reviewer-named group (an owner competitor not in the database) keeps
+  its own `unresolved:` key, so unconfirmed look-alikes are never merged into it.
+
+Still open: an automatic fuzzy match (score at least 0.90) is credited without a person seeing it; only names the
+matcher could not place go to step 5.
+
+**Scan-time tags follow the same idea (18 November 2026).** `ai_visibility_analysis.analyse_visibility_response`
+(the `mentioned_*`/`target_*` columns saved with each answer, and the AI Visibility page's re-analysis) matched every
+known business's name anywhere in the text, against all ~10,000 listings. WRAP's November test credited a hotel
+called "Brighton" with 27 of 27 answers, and "Here", "The Space", "Sussex", "Village", "POD" (from "glass pod") and
+"STRONG Brighton" (from "a strong Brighton feel") with most others. `find_valid_name_position` now requires:
+- a name of two or more words (besides "the") to be written with capitals, as a name;
+- a one-word name to be presented as a name in the answer (a list item, bold text or a heading, also after the
+  test's place words are dropped from its end: "Honeycroft Hove"), or spelt unlike an ordinary word as the listing
+  writes it ("WRAP", "POD" exactly; a name with a digit, "PLATF9RM", in any case). A one-word name that is one of the
+  run's own place words never counts from text alone. A one-word name inside a longer one ("Hove Village Day
+  Nursery") does not count for "Village"; this also drops some genuine one-word chains written with a branch
+  ("Funplex Bevendean"), which the report side's reviewer step handles;
+- "The X" gets the alias "X" only when "X" still has two words.
+The target keeps plain matching for a one-word listing name (with a capital). Its short forms ("WRAP" for "WRAP-
+Coworking, Meeting Rooms & Offices") are still **not** added here: whether an answer name is the client is the
+reviewer's decision in step 5, so WRAP Coworking's saved `target_mentioned` stays false and the Final Beta and
+client accounts count it from confirmed names. Saved tags change only for new answers; the AI Visibility page
+re-analyses on display. On 351 saved answers from seven businesses no target flag changed and no tag was gained.
+
+### Chains: one business with several listings (added 10 November 2026)
+
+Most answers name a chain without a branch ("Topps Tiles", "Mastertiles"), and some businesses have two listings
+(Natural Angle's Showroom and Show house). Before, the answers split between branches or the bare brand stayed
+unmatched (Authentic Stone: Mastertiles 12 for Hollingbury plus 38 unmatched; it is really named in 50 of 54 answers).
+`src/chains.py` holds the rule; chains are saved in `reviewer_decisions["chains"]` (no schema change) as
+`{"name", "place_ids", "aliases", "evidence_place_id"}`:
+
+- Every answer naming one of the chain's listings, or the chain itself however written (`unmatched_key`, so case,
+  spacing, "&" and the test's place words do not matter; `aliases` for other spellings), counts **once** for the chain.
+- The chain is credited to its **evidence listing** (the one whose website and reviews represent it, by default the
+  first) and shown under the chain's name, so step 5's leaders, the comparison set, recommendations and every report
+  treat it as one business. The branch an answer named is kept as `chain_branch_place_id`.
+- Applied in `load_report_candidates` (both the counted and the planned lists, so page and generator agree) and in
+  the assembler after the reviewer's confirmations. `clean_chains` refuses a chain without listings, one containing
+  the client, a listing in two chains or one written name shared by two chains.
+- **There is no editor on the step-5 page yet**: the page lists saved chains in a caption and keeps them when the
+  review is saved. Chains are written by an operator (or Claude, with rob's yes) into the review decisions.
+
 ### Frequent AI names that are really a listed business outside the report
 
 `plan_subjects(..., records=...)` also offers each still-unmatched AI name used at least

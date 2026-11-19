@@ -148,12 +148,15 @@ def leader_theme_finding(*, target_id: str, target_name: str, leader_ids: Sequen
     """What customers of the most visible businesses mention most, beside the client's own reviews."""
     leader_set = {str(i) for i in leader_ids}
     mine, theirs = [], []
+    reviewed_leaders: set[str] = set()
     for row in reviews:
         text = str(row.get("review_text") or "").casefold()
         if not text.strip():
             continue
         place = str(row.get("google_place_id"))
         (mine if place == str(target_id) else theirs if place in leader_set else []).append(text)
+        if place in leader_set:
+            reviewed_leaders.add(place)
     if len(theirs) < 20:
         return []
     rows = []
@@ -167,7 +170,11 @@ def leader_theme_finding(*, target_id: str, target_name: str, leader_ids: Sequen
     if not rows:
         return []
     leaders_text = "; ".join(f"{label.lower()} ({theirs_pct}%)" for label, theirs_pct, _ in rows)
-    observation = f"Across {len(theirs)} Google reviews of the {len(leader_set)} most visible businesses, customers most often mention: {leaders_text}."
+    # Count only the leaders whose reviews were read: saying "the 5 most visible" when 2 had no
+    # saved reviews overstated the evidence (Authentic Stone, 10 Nov 2026).
+    scope = (f"the {len(leader_set)} most visible businesses" if len(reviewed_leaders) == len(leader_set)
+             else f"{len(reviewed_leaders)} of the {len(leader_set)} most visible businesses")
+    observation = f"Across {len(theirs)} Google reviews of {scope}, customers most often mention: {leaders_text}."
     if mine:
         observation += (f" In {target_name}'s {len(mine)} reviews: "
                         + "; ".join(f"{label.lower()} ({mine_pct}%)" for label, _, mine_pct in rows) + ".")

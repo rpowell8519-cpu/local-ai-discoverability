@@ -78,3 +78,10 @@ def test_a_review_count_at_or_above_the_leaders_is_offered_as_a_finding_not_an_a
     assert review_volume_finding(target_name="Client", target_reviews=158, leaders=leaders[:2]) == [], "too few leaders to say"
     assert review_volume_finding(target_name="Client", target_reviews=None, leaders=leaders) == []
     assert not (review_volume_candidate(target_name="Client", target_reviews=158, leaders=leaders)), "never both"
+
+
+def test_leader_themes_say_how_many_leaders_had_reviews():
+    reviews = [{"google_place_id": "L1", "review_text": "friendly"}] * 20 + [{"google_place_id": "L2", "review_text": "friendly"}] * 5
+    item, = leader_theme_finding(target_id="me", target_name="X", leader_ids=["L1", "L2", "L3"], reviews=reviews,
+                                 themes=[("Friendly people", ["friendl"])])
+    assert "Across 25 Google reviews of 2 of the 3 most visible businesses" in item["observation"]
