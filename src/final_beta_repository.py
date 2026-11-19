@@ -1,14 +1,14 @@
 """Gather what the Final Beta report needs beyond the reviewed summary. Reads only; nothing is written."""
 from __future__ import annotations
 
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Mapping, Sequence
 
 import requests
 from sqlalchemy import text
 
 from src.ai_visibility_repository import core_run_filter, get_run_results
 from src.database import get_engine
-from src.final_beta_report import COMMON_THEMES, build_final_beta_report, domain_of
+from src.final_beta_report import COMMON_THEMES, build_final_beta_report, choose_earlier_runs, domain_of
 from src.review_profiles import get_review_profile
 from src.review_repository import get_reviews
 from src.website_audit import safe_get
@@ -98,19 +98,69 @@ def load_comparison_reviews(summary: Mapping[str, Any], *, engine=None) -> list[
              "google_total": totals.get(i, (None, None))[0], "google_rating": totals.get(i, (None, None))[1]} for i in ids]
 
 
+def list_earlier_runs(place_id: str, run_id: str, question_texts: list[str], *, engine=None) -> list[dict[str, Any]]:
+    """Every completed client test of this business from an earlier day that asked any of the same questions.
+
+    Newest first, each with its shared question texts, so a person can choose which to compare with. The first is
+    the one `load_previous_run` picks when nobody chooses.
+    """
+    with (engine or get_engine()).connect() as connection:
+        current = connection.execute(text("select started_at from public.ai_visibility_runs where id = cast(:id as uuid)"), {"id": run_id}).scalar()
+        if current is None:
+            return []
+        rows = connection.execute(text(f"""
+            select ai_visibility_runs.id::text as id, ai_visibility_runs.started_at, ai_visibility_runs.prompt_count,
+                   array_agg(distinct q.prompt_text) as shared
+            from public.ai_visibility_runs
+            join public.ai_visibility_queries q on q.run_id = ai_visibility_runs.id and q.prompt_text = any(:texts)
+            where ai_visibility_runs.target_google_place_id = :place and ai_visibility_runs.status = 'completed'
+              and ai_visibility_runs.started_at::date < cast(:current as date)
+              {core_run_filter(connection)}
+            group by ai_visibility_runs.id, ai_visibility_runs.started_at, ai_visibility_runs.prompt_count
+            order by ai_visibility_runs.started_at desc
+        """), {"place": place_id, "current": current, "texts": question_texts}).mappings().all()
+    return [{**dict(row), "shared": list(row["shared"] or [])} for row in rows]
+
+
+def load_previous_runs(place_id: str, run_id: str, question_texts: list[str], run_ids: Sequence[str], *,
+                       engine=None) -> tuple[list[dict[str, Any]], Any]:
+    """The answers of earlier tests a person chose, for the same questions, and their test date.
+
+    Only tests `list_earlier_runs` offers can be chosen; `choose_earlier_runs` refuses tests from different days
+    or a question asked in two of them.
+    """
+    engine = engine or get_engine()
+    chosen, started_at = choose_earlier_runs(list_earlier_runs(place_id, run_id, question_texts, engine=engine), run_ids)
+    with engine.connect() as connection:
+        rows = connection.execute(text("""
+            select q.prompt_text, r.raw_response, r.status, r.response_complete
+            from public.ai_visibility_results r join public.ai_visibility_queries q on q.id = r.query_id
+            where r.run_id = any(cast(:runs as uuid[])) and q.prompt_text = any(:texts)
+        """), {"runs": chosen, "texts": question_texts}).mappings().all()
+    return [dict(row) for row in rows], started_at
+
+
 def assemble_final_beta(summary: Mapping[str, Any], payload: Mapping[str, Any], audit_revision: Mapping[str, Any],
                         business: Mapping[str, Any], *, fetch: Callable[[str], str] | None = None, engine=None,
-                        compare_with_earlier: bool = False) -> dict[str, Any]:
+                        compare_with_earlier: bool = False, compare_run_ids: Sequence[str] = ()) -> dict[str, Any]:
     """`compare_with_earlier` adds the earlier test beside the current one. It is off unless asked for: a first
-    meeting is about where the business stands now, not about why answers move between tests."""
+    meeting is about where the business stands now, not about why answers move between tests.
+
+    `compare_run_ids` names the earlier test(s) to compare with, such as a re-test's baselines. Without it the most
+    recent earlier test that shares a question is used, which can be a later internal check."""
     decisions = dict(audit_revision.get("reviewer_decisions") or {})
     run_id = str(audit_revision["benchmark_run_id"])
     place_id = str(audit_revision["target_google_place_id"])
     group = str(business.get("primary_group") or "generic")
     results = get_run_results(run_id).to_dict("records")
     question_texts = [" ".join(str(q["text"]).split()) for q in summary["questions"]]
-    previous_rows, previous_date = (load_previous_run(place_id, run_id, [str(q["text"]) for q in summary["questions"]] + question_texts, engine=engine)
-                                    if compare_with_earlier else ([], None))
+    asked_texts = [str(q["text"]) for q in summary["questions"]] + question_texts
+    if not compare_with_earlier:
+        previous_rows, previous_date = [], None
+    elif compare_run_ids:
+        previous_rows, previous_date = load_previous_runs(place_id, run_id, asked_texts, compare_run_ids, engine=engine)
+    else:
+        previous_rows, previous_date = load_previous_run(place_id, run_id, asked_texts, engine=engine)
     wording = dict(decisions.get("type_wording") or {})
     themes = [(label, list(terms)) for label, terms in COMMON_THEMES]
     seen = {label.casefold() for label, _ in themes}

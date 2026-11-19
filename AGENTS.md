@@ -63,6 +63,12 @@ conversation tool for small-business owners, not a technical audit.
   Later pages are numbered 03 to 08 and Reference / 09.
 - The earlier-test comparison is off unless the operator ticks "Compare with the earlier test" beside the Final Beta
   button (`assemble_final_beta(compare_with_earlier=)`). A first meeting shows only where the business stands now.
+- Once ticked, "Earlier tests to compare with" (added 19 November 2026) lets the operator choose the earlier test(s),
+  such as a re-test's baselines (`compare_run_ids=`; `final_beta_repository.list_earlier_runs` offers this business's
+  completed core tests from an earlier day that share a question, `load_previous_runs` loads the chosen ones). Left
+  empty, the most recent such test is used, as before, which can be a later internal check: the page names it.
+  `final_beta_report.choose_earlier_runs` refuses tests from different days (the report shows one earlier date) and a
+  question asked in two chosen tests (its earlier count would double).
 - The reviews page sets the client's review themes beside those of up to five verified businesses the AI recommended
   most, and lists each one's Google total (`final_beta_report.compare_reviews`, `final_beta_repository.load_comparison_reviews`).
   Shares need 10 client reviews and 20 between the others; totals show whenever they are known.
@@ -133,6 +139,26 @@ Migrations (do not reapply; their DRAFT headers are historical): `20261003120000
 `20261006100000_free_check_business_match` (`20261006092236`). `20261007090000_free_check_three_questions` is
 in effect (the questions constraint allows 3 or 5) but is not in the migration history; checked read-only
 on 30 October 2026.
+
+### Report runner (command line; added 19 November 2026)
+
+`python -m src.run_report` does the report generator's steps 1 to 3 without the screens: check and save
+the owner brief from a TOML file, show the paid test with an approval code, run it and attach it
+(`src/report_runner.py`, `src/run_report.py`, `docs/report-runner.md`; the Claude Code skill is
+`.claude/skills/run-found-report/SKILL.md`). It shares the page's functions rather than copying them:
+`prompt_records`, `build_call_plan`, `DEFAULT_MODELS` and `MAX_RUN_QUESTIONS` now live in
+`src/report_runner.py`, and the business list query in `src/report_business_records.py`; the page
+imports them. Gates are enforced in code: a brief only replaces an attached test or saved review
+decisions with `--replace-current`; `run` needs the approval code that `plan` printed (a fingerprint of
+revision, questions, repeats, tools, models and location) and `--again` to pay for a second completed
+test; it refuses when `REQUIRED_SEARCH_VERSION` differs from its `EXPECTED_SEARCH_VERSION`, so bump both
+with the page guards. `--like <test-id>` makes a re-test: the baseline tests' exact questions, location and repeats
+(`Baseline`, `baseline_from_runs`), with what is no longer like-for-like listed before approval (models,
+repeats, place-less questions before the Claude location fix). In Final Beta the baselines are chosen under
+"Earlier tests to compare with"; the runner's plan and outcome name them. Each question's label, intent and ratings are saved in
+`owner_context["question_details"]` and used in the run; an approval code works once, because saving or
+attaching makes a new revision. Its writes carry `created_by = "report_runner"`. Steps 4 to 6 stay in the page
+until step 5's checks live in `src/`. Brief files hold client details and stay outside this repo.
 
 ### Question limit per test (changed 11 October 2026)
 
@@ -1029,7 +1055,7 @@ asked place-less questions ("Recommend a place to buy marble tiles") and Claude 
 34 of 36 answers. Every earlier business named its town in the questions, which hid the gap. Claude results from runs
 before this fix whose questions name no place should not be used in a UK report. Any change to how location is
 passed must bump `REQUIRED_SEARCH_VERSION` in `anthropic_provider.py` and the matching guards in the three paid-run
-pages, so a running app reloads the provider instead of keeping the old one.
+pages (and `EXPECTED_SEARCH_VERSION` in `src/report_runner.py`), so a running app reloads the provider instead of keeping the old one.
 
 ## Recommendation logic
 

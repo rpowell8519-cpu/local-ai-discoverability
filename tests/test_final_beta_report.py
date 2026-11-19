@@ -226,3 +226,25 @@ def test_the_earlier_test_is_left_out_unless_asked_for(synthetic, monkeypatch):
     assert not asked and plain["previous_date"] is None and all(q["previous"] is None for q in plain["questions"])
     compared = repo.assemble_final_beta(summary, payload, revision, {"primary_group": "generic"}, compare_with_earlier=True)
     assert asked and compared["previous_date"] is not None
+
+
+def test_chosen_earlier_tests_replace_the_automatic_choice(synthetic, monkeypatch):
+    """A re-test compares with the tests it repeats, not whatever earlier test ran most recently."""
+    import pandas as pd
+    from src import final_beta_repository as repo
+    payload, summary = synthetic
+    automatic, chosen = [], []
+    monkeypatch.setattr(repo, "get_run_results", lambda run_id: pd.DataFrame())
+    monkeypatch.setattr(repo, "load_business_domains", lambda engine=None: {})
+    monkeypatch.setattr(repo, "load_comparison_reviews", lambda summary, engine=None: [])
+    monkeypatch.setattr(repo, "load_previous_run", lambda *a, **k: automatic.append(1) or ([], None))
+    monkeypatch.setattr(repo, "load_previous_runs", lambda place, run, texts, ids, engine=None: chosen.append(list(ids)) or (
+        [answer(summary["questions"][0]["text"], "1. **Example Salon**")] * 6, "2025-10-09"))
+    revision = {"benchmark_run_id": "run", "target_google_place_id": summary["target_id"], "reviewer_decisions": {}, "owner_context": {}}
+    data = repo.assemble_final_beta(summary, payload, revision, {"primary_group": "generic"}, compare_with_earlier=True,
+                                    compare_run_ids=["30f9160b", "b9ad0c8d"])
+    assert chosen == [["30f9160b", "b9ad0c8d"]] and not automatic
+    assert data["previous_date"] is not None
+    # Choosing tests without ticking the comparison still leaves the earlier test out.
+    repo.assemble_final_beta(summary, payload, revision, {"primary_group": "generic"}, compare_run_ids=["30f9160b"])
+    assert len(chosen) == 1
